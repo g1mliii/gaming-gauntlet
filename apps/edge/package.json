@@ -1,0 +1,15 @@
+{
+  "name": "@gaming-gauntlet/edge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --config ../../wrangler.toml --port 8787",
+    "build": "wrangler deploy --dry-run --config ../../wrangler.toml",
+    "deploy": "wrangler deploy --config ../../wrangler.toml"
+  },
+  "dependencies": {
+    "@gaming-gauntlet/contracts": "0.1.0",
+    "jose": "^6.0.8"
+  }
+}

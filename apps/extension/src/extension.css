@@ -1,0 +1,43 @@
+body {
+  min-height: 100vh;
+}
+
+.extension-root,
+.extension-config {
+  min-height: 100vh;
+  padding: 1rem;
+}
+
+.extension-root {
+  display: grid;
+  place-items: end start;
+}
+
+.extension-config__grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 1.2fr 1fr;
+}
+
+.extension-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.extension-list article {
+  padding: 1rem;
+  border: 1px solid var(--gg-border);
+  border-radius: var(--gg-radius-md);
+  background: color-mix(in oklab, var(--gg-surface) 84%, black);
+}
+
+.extension-list p {
+  margin: 0.35rem 0 0;
+  color: var(--gg-text-dim);
+}
+
+@media (max-width: 800px) {
+  .extension-config__grid {
+    grid-template-columns: 1fr;
+  }
+}

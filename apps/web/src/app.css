@@ -1,0 +1,171 @@
+.web-app {
+  min-height: 100vh;
+}
+
+.skip-link {
+  position: absolute;
+  top: 0.75rem;
+  left: 0.75rem;
+  padding: 0.65rem 0.9rem;
+  border-radius: var(--gg-radius-sm);
+  background: var(--gg-accent);
+  color: var(--gg-bg);
+  transform: translateY(-140%);
+  transition: transform 140ms ease-out;
+  z-index: 50;
+}
+
+.skip-link:focus-visible {
+  transform: translateY(0);
+}
+
+.site-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem clamp(1rem, 3vw, 2rem);
+  border-bottom: 1px solid color-mix(in oklab, var(--gg-border) 60%, transparent);
+  background: color-mix(in oklab, var(--gg-bg) 88%, black);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  backdrop-filter: blur(16px);
+}
+
+.site-header__brand,
+.site-header__nav a,
+.route-card__link,
+.control-grid button {
+  font-family: var(--gg-font-display);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.site-header__brand {
+  font-size: 1.4rem;
+}
+
+.site-header__brand:hover,
+.site-header__nav a:hover,
+.route-card__link:hover,
+.control-grid button:hover {
+  color: var(--gg-accent-2);
+}
+
+.site-header__brand:focus-visible,
+.site-header__nav a:focus-visible,
+.route-card__link:focus-visible,
+.control-grid button:focus-visible {
+  outline: 2px solid var(--gg-accent-2);
+  outline-offset: 3px;
+}
+
+.site-header__nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  color: var(--gg-text-dim);
+}
+
+.site-main {
+  padding: clamp(1rem, 3vw, 2rem);
+}
+
+.hero-grid,
+.stats-grid,
+.route-grid,
+.two-column,
+.dashboard-grid,
+.control-grid,
+.overlay-frame {
+  display: grid;
+  gap: 1rem;
+}
+
+.hero-grid {
+  grid-template-columns: 2fr 1fr;
+}
+
+.stats-grid,
+.route-grid,
+.dashboard-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.two-column {
+  grid-template-columns: 1.3fr 1fr;
+}
+
+.route-card,
+.stat-card,
+.match-card,
+.control-button {
+  padding: 1.1rem;
+  border: 1px solid var(--gg-border);
+  border-radius: var(--gg-radius-md);
+  background: color-mix(in oklab, var(--gg-surface) 82%, black);
+}
+
+.route-card__link {
+  display: inline-block;
+  margin-top: 1rem;
+  color: var(--gg-accent-2);
+}
+
+.stat-card p,
+.match-card p,
+.route-card p,
+.control-button p {
+  margin: 0;
+  color: var(--gg-text-dim);
+}
+
+.stat-card strong,
+.match-card strong,
+.route-card strong,
+.control-button strong {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-family: var(--gg-font-display);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.control-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.control-grid button {
+  padding: 0.85rem 1rem;
+  border: 1px solid color-mix(in oklab, var(--gg-accent) 35%, var(--gg-border));
+  border-radius: var(--gg-radius-sm);
+  background: color-mix(in oklab, var(--gg-accent) 18%, transparent);
+  color: inherit;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.overlay-page {
+  min-height: calc(100vh - 8rem);
+  display: grid;
+  place-items: end start;
+  background:
+    linear-gradient(180deg, transparent 0%, transparent 48%, color-mix(in oklab, var(--gg-bg) 18%, transparent) 100%);
+}
+
+.overlay-frame {
+  grid-template-columns: 1fr;
+  width: min(100%, 720px);
+}
+
+@media (max-width: 900px) {
+  .hero-grid,
+  .stats-grid,
+  .route-grid,
+  .two-column,
+  .dashboard-grid,
+  .control-grid {
+    grid-template-columns: 1fr;
+  }
+}

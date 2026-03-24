@@ -1,0 +1,35 @@
+name = "gaming-gauntlet-edge"
+main = "apps/edge/src/index.ts"
+compatibility_date = "2026-03-23"
+workers_dev = true
+
+[observability.logs]
+enabled = true
+
+[vars]
+APP_ORIGIN = "http://localhost:5173"
+EXTENSION_ORIGIN = "http://localhost:5174"
+TWITCH_API_BASE = "https://api.twitch.tv/helix"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "gaming-gauntlet"
+database_id = "replace-with-real-d1-database-id"
+migrations_dir = "apps/edge/migrations"
+
+[[durable_objects.bindings]]
+name = "MATCH_COORDINATOR"
+class_name = "MatchCoordinator"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["MatchCoordinator"]
+
+[[queues.producers]]
+binding = "EVENT_INGEST_QUEUE"
+queue = "gaming-gauntlet-event-ingest"
+
+[[queues.consumers]]
+queue = "gaming-gauntlet-event-ingest"
+max_batch_size = 10
+max_batch_timeout = 5

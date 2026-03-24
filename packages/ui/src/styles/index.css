@@ -1,0 +1,236 @@
+@import url("https://fonts.googleapis.com/css2?family=Rajdhani:wght@600;700&family=Barlow+Condensed:wght@400;500;600&display=swap");
+
+:root {
+  color-scheme: dark;
+  --gg-bg: oklch(0.17 0.02 20);
+  --gg-bg-soft: oklch(0.24 0.025 22);
+  --gg-surface: color-mix(in oklab, var(--gg-bg-soft) 82%, black);
+  --gg-surface-2: oklch(0.29 0.03 24);
+  --gg-border: oklch(0.44 0.05 28 / 0.45);
+  --gg-text: oklch(0.95 0.01 85);
+  --gg-text-dim: oklch(0.76 0.02 65);
+  --gg-accent: oklch(0.69 0.19 34);
+  --gg-accent-2: oklch(0.78 0.15 85);
+  --gg-shadow: 0 24px 80px oklch(0.08 0.02 20 / 0.38);
+  --gg-radius-lg: 28px;
+  --gg-radius-md: 18px;
+  --gg-radius-sm: 999px;
+  --gg-font-display: "Rajdhani", sans-serif;
+  --gg-font-body: "Barlow Condensed", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background:
+    radial-gradient(circle at top left, color-mix(in oklab, var(--gg-accent) 22%, transparent), transparent 35%),
+    linear-gradient(180deg, color-mix(in oklab, var(--gg-bg) 84%, black), var(--gg-bg));
+  color: var(--gg-text);
+  font-family: var(--gg-font-body);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+.gg-shell {
+  padding: clamp(1.5rem, 2vw, 2.5rem);
+  border: 1px solid var(--gg-border);
+  border-radius: var(--gg-radius-lg);
+  background: linear-gradient(160deg, oklch(0.24 0.02 25 / 0.95), oklch(0.2 0.02 20 / 0.95));
+  box-shadow: var(--gg-shadow);
+}
+
+.gg-shell--overlay {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.gg-shell__header,
+.gg-panel__header,
+.gg-scorebug__meta,
+.gg-scorebug__line,
+.gg-scorebug__footer,
+.gg-queue__item,
+.gg-shell__actions {
+  display: flex;
+  align-items: center;
+}
+
+.gg-shell__header,
+.gg-panel__header,
+.gg-scorebug__meta,
+.gg-scorebug__footer,
+.gg-queue__item {
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.gg-shell__title,
+.gg-panel__title {
+  margin: 0;
+  font-family: var(--gg-font-display);
+  font-size: clamp(2rem, 5vw, 4.5rem);
+  line-height: 0.92;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  text-wrap: balance;
+}
+
+.gg-shell__eyebrow,
+.gg-panel__eyebrow {
+  margin: 0 0 0.35rem;
+  font-family: var(--gg-font-display);
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  color: var(--gg-accent-2);
+}
+
+.gg-shell__deck,
+.gg-board__meta {
+  margin: 0.75rem 0 0;
+  max-width: 60ch;
+  font-size: clamp(1rem, 1.4vw, 1.2rem);
+  color: var(--gg-text-dim);
+}
+
+.gg-shell__body {
+  margin-top: 1.5rem;
+}
+
+.gg-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.8rem;
+  border: 1px solid color-mix(in oklab, var(--gg-accent) 45%, white 10%);
+  border-radius: var(--gg-radius-sm);
+  background: color-mix(in oklab, var(--gg-accent) 18%, transparent);
+  font-family: var(--gg-font-display);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.gg-chip--soft {
+  border-color: var(--gg-border);
+  background: color-mix(in oklab, var(--gg-surface-2) 75%, transparent);
+}
+
+.gg-panel {
+  padding: 1.25rem;
+  border: 1px solid var(--gg-border);
+  border-radius: var(--gg-radius-md);
+  background: color-mix(in oklab, var(--gg-surface) 88%, black);
+}
+
+.gg-board,
+.gg-queue {
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.gg-board__row,
+.gg-queue__item {
+  padding: 0.95rem 0;
+  border-bottom: 1px solid color-mix(in oklab, var(--gg-border) 55%, transparent);
+}
+
+.gg-board__row:last-child,
+.gg-queue__item:last-child {
+  border-bottom: 0;
+}
+
+.gg-board__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.gg-board__title,
+.gg-scorebug__label,
+.gg-scorebug__title {
+  margin: 0;
+  font-family: var(--gg-font-display);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.gg-board__votes,
+.gg-scorebug__score {
+  font-family: var(--gg-font-display);
+  font-size: clamp(1.8rem, 4vw, 3rem);
+  font-variant-numeric: tabular-nums;
+}
+
+.gg-empty {
+  margin: 1rem 0 0;
+  color: var(--gg-text-dim);
+}
+
+.gg-scorebug {
+  min-width: min(100%, 960px);
+  padding: 1rem 1.25rem;
+  border: 1px solid color-mix(in oklab, var(--gg-accent) 35%, var(--gg-border));
+  border-radius: calc(var(--gg-radius-lg) - 8px);
+  background:
+    linear-gradient(90deg, color-mix(in oklab, var(--gg-accent) 18%, transparent), transparent 20%),
+    color-mix(in oklab, var(--gg-surface) 92%, black);
+  backdrop-filter: blur(14px);
+}
+
+.gg-scorebug--transparent {
+  background: color-mix(in oklab, var(--gg-bg) 68%, transparent);
+}
+
+.gg-scorebug__line {
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0.85rem 0;
+}
+
+.gg-scorebug__player {
+  flex: 1;
+}
+
+.gg-scorebug__player:last-child {
+  text-align: right;
+}
+
+.gg-scorebug__versus {
+  padding: 0.45rem 0.9rem;
+  border-radius: var(--gg-radius-sm);
+  background: color-mix(in oklab, var(--gg-accent) 18%, transparent);
+  font-family: var(--gg-font-display);
+  text-transform: uppercase;
+}
+
+@media (max-width: 720px) {
+  .gg-shell__header,
+  .gg-panel__header,
+  .gg-scorebug__meta,
+  .gg-scorebug__line,
+  .gg-scorebug__footer {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .gg-scorebug__player:last-child {
+    text-align: left;
+  }
+}
