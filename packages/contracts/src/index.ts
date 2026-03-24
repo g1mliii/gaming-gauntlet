@@ -1,3 +1,4 @@
+export * from "./domain/auth";
 export * from "./domain/chat";
 export * from "./domain/games";
 export * from "./domain/match";

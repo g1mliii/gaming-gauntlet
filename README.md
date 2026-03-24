@@ -62,15 +62,26 @@ npm run test:e2e
 2. Create a dedicated shared bot account and authorize the required chat scopes.
 3. Create a Twitch Extension with `video_overlay` and `config` views.
 4. Populate `.env.example` values in local secrets or `.dev.vars`.
-5. Configure EventSub webhook callback URLs to the deployed Worker.
+5. Configure EventSub webhook callback URLs to the deployed Worker and set `TWITCH_EVENTSUB_SECRET`.
+
+## Phase 2 Local Flow
+
+1. Configure `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `TWITCH_REDIRECT_URI`, `TWITCH_EVENTSUB_SECRET`, `SESSION_SECRET`, and `TOKEN_ENCRYPTION_KEY`.
+2. Start the workspace with `npm run dev`.
+3. Open `/dashboard` and sign in with Twitch.
+4. Create a broadcaster invite for the opposing channel login.
+5. Open the generated `/link/:inviteCode` URL with the invited broadcaster account to activate the pair.
+6. Assign moderators after they have signed in once with Twitch.
+7. Draft matches from the active broadcaster pair in the dashboard.
 
 ## Cloudflare Setup Checklist
 
 1. `npx wrangler whoami`
 2. Create the D1 database and update `wrangler.toml`.
 3. Create the event ingest queue.
-4. Deploy the worker and Durable Object bindings.
-5. Point the web and extension assets to the deployed edge origins.
+4. Set Worker secrets for `TWITCH_CLIENT_SECRET`, `TWITCH_EVENTSUB_SECRET`, `SESSION_SECRET`, `TOKEN_ENCRYPTION_KEY`, and `TWITCH_EXTENSION_SECRET` as needed.
+5. Deploy the worker and Durable Object bindings.
+6. Point the web and extension assets to the deployed edge origins.
 
 ## Docs
 

@@ -3,6 +3,7 @@ import { BrowserRouter, Link, Route, Routes } from "react-router-dom";
 import { ControlRoomPage } from "./routes/control-room-page";
 import { DashboardPage } from "./routes/dashboard-page";
 import { HomePage } from "./routes/home-page";
+import { LinkInvitePage } from "./routes/link-invite-page";
 import { MatchPage } from "./routes/match-page";
 import { OverlayPage } from "./routes/overlay-page";
 
@@ -27,6 +28,7 @@ function AppLayout() {
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/link/:inviteCode" element={<LinkInvitePage />} />
           <Route path="/matches/:slug" element={<MatchPage />} />
           <Route path="/control/:matchId" element={<ControlRoomPage />} />
           <Route path="/overlay/:matchId" element={<OverlayPage />} />

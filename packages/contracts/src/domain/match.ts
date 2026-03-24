@@ -64,19 +64,11 @@ export const websocketEventEnvelopeSchema = z.object({
 });
 
 export const createMatchRequestSchema = z.object({
+  channelLinkId: z.string().min(1),
   title: z.string().min(3),
   slug: z.string().min(3),
-  targetWins: z.number().int().positive().nullable().default(null),
-  channels: z
-    .array(
-      z.object({
-        channelId: z.string().min(1),
-        channelLogin: z.string().min(1),
-        displayName: z.string().min(1)
-      })
-    )
-    .min(2)
-});
+  targetWins: z.number().int().positive().nullable().default(null)
+}).strict();
 
 export const extensionBootstrapRequestSchema = z.object({
   channelId: z.string().min(1),

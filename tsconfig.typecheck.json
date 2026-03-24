@@ -5,6 +5,8 @@
     "apps/**/*.tsx",
     "packages/**/*.ts",
     "packages/**/*.tsx",
+    "tests/**/*.ts",
+    "tests/**/*.tsx",
     "vitest.config.ts",
     "playwright.config.ts"
   ],
