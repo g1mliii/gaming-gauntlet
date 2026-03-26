@@ -10,11 +10,14 @@ enabled = true
 APP_ORIGIN = "http://localhost:5173"
 EXTENSION_ORIGIN = "http://localhost:5174"
 TWITCH_API_BASE = "https://api.twitch.tv/helix"
+TWITCH_CLIENT_ID = "fc5utkuzthjxl2xo28992adi7ymivw"
+TWITCH_REDIRECT_URI = "https://gaming-gauntlet-edge.pressplay-subai.workers.dev/api/auth/twitch/callback"
+
 
 [[d1_databases]]
 binding = "DB"
 database_name = "gaming-gauntlet"
-database_id = "replace-with-real-d1-database-id"
+database_id = "e342c961-37e4-4c5b-9764-0d4f097cfe8b"
 migrations_dir = "apps/edge/migrations"
 
 [[durable_objects.bindings]]

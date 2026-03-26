@@ -35,7 +35,7 @@ describe("DashboardPage", () => {
     expect(screen.getByText(/lock the command deck to real twitch channels/i)).toBeInTheDocument();
   });
 
-  it("shows pending invite state and disables match creation until a pair is active", async () => {
+  it("shows pending invite state and validates match creation inline until a pair is active", async () => {
     mockAuthenticatedFetches(fetchMock, {
       links: [
         {
@@ -80,14 +80,16 @@ describe("DashboardPage", () => {
           }
         }
       ],
-      matches: []
+      matches: [],
+      audit: []
     });
 
     renderDashboard();
 
-    expect(await screen.findByRole("button", { name: /create match draft/i })).toBeDisabled();
+    expect(await screen.findByRole("button", { name: /create match draft/i })).toBeInTheDocument();
     expect(screen.getByText(/24h invite window/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /create match draft/i })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: /create match draft/i }));
+    expect(await screen.findByText(/activate a broadcaster pair before creating a match/i)).toBeInTheDocument();
   });
 
   it("creates a match and refreshes the draft list", async () => {
@@ -116,7 +118,8 @@ describe("DashboardPage", () => {
           pendingInvite: null
         }
       ],
-      matches: []
+      matches: [],
+      audit: []
     }, 1);
     fetchMock.mockResolvedValueOnce(
       jsonResponse({
@@ -168,6 +171,29 @@ describe("DashboardPage", () => {
         ]
       })
     );
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        items: [
+          {
+            id: "audit_1",
+            createdAt: "2026-03-24T04:05:00.000Z",
+            action: "match.created",
+            actor: {
+              id: "user_1",
+              login: "pixelriot",
+              displayName: "PixelRiot"
+            },
+            channelLinkId: "link_1",
+            channelPairLabel: "@pixelriot vs @novarune",
+            matchId: "match_1",
+            matchTitle: "Gauntlet Finals",
+            payload: {
+              slug: "gauntlet-finals"
+            }
+          }
+        ]
+      })
+    );
 
     renderDashboard();
 
@@ -192,6 +218,7 @@ describe("DashboardPage", () => {
 
     expect(await screen.findByText(/match created and added to the draft rail/i)).toBeInTheDocument();
     expect(screen.getByText("Gauntlet Finals")).toBeInTheDocument();
+    expect(screen.getByText(/created gauntlet finals for @pixelriot vs @novarune/i)).toBeInTheDocument();
   });
 
   it("surfaces the signed-in moderator assignment error", async () => {
@@ -220,7 +247,8 @@ describe("DashboardPage", () => {
           pendingInvite: null
         }
       ],
-      matches: []
+      matches: [],
+      audit: []
     }, 1);
     fetchMock.mockResolvedValueOnce(
       jsonResponse(
@@ -241,6 +269,77 @@ describe("DashboardPage", () => {
 
     expect(await screen.findByText(/has not signed in with twitch yet/i)).toBeInTheDocument();
   });
+
+  it("renders the recent activity panel when audit items are present", async () => {
+    mockAuthenticatedFetches(fetchMock, {
+      links: [],
+      matches: [],
+      audit: [
+        {
+          id: "audit_1",
+          createdAt: "2026-03-24T04:00:00.000Z",
+          action: "channel_link.created",
+          actor: {
+            id: "user_1",
+            login: "pixelriot",
+            displayName: "PixelRiot"
+          },
+          channelLinkId: "link_1",
+          channelPairLabel: "@pixelriot vs @novarune",
+          matchId: null,
+          matchTitle: null,
+          payload: {
+            invitedChannelLogin: "novarune"
+          }
+        }
+      ]
+    });
+
+    renderDashboard();
+
+    expect(await screen.findByText(/phase 2 audit trail/i)).toBeInTheDocument();
+    expect(screen.getByText(/created an invite for @pixelriot vs @novarune/i)).toBeInTheDocument();
+  });
+
+  it("shows inline validation and focuses the first invalid field for match creation", async () => {
+    mockAuthenticatedFetches(fetchMock, {
+      links: [
+        {
+          id: "link_1",
+          status: "active",
+          pairKey: "channel_1:channel_2",
+          createdAt: "2026-03-24T04:00:00.000Z",
+          updatedAt: "2026-03-24T04:00:00.000Z",
+          ownerChannel: {
+            id: "channel_1",
+            twitchChannelId: "1001",
+            login: "pixelriot",
+            displayName: "PixelRiot"
+          },
+          linkedChannel: {
+            id: "channel_2",
+            twitchChannelId: "1002",
+            login: "novarune",
+            displayName: "NovaRune"
+          },
+          invitedChannelLogin: "novarune",
+          memberships: [],
+          pendingInvite: null
+        }
+      ],
+      matches: [],
+      audit: []
+    });
+
+    renderDashboard();
+
+    expect(await screen.findByRole("button", { name: /create match draft/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /create match draft/i }));
+
+    const error = await screen.findByText(/enter a match title with at least 3 characters/i);
+    expect(error.closest('[role="status"]')).toBeInTheDocument();
+    expect(screen.getByLabelText(/match title/i)).toHaveFocus();
+  });
 });
 
 function renderDashboard() {
@@ -258,6 +357,7 @@ function mockAuthenticatedFetches(
   payload: {
     links: unknown[];
     matches: unknown[];
+    audit: unknown[];
   },
   rounds = 2
 ) {
@@ -281,5 +381,6 @@ function mockAuthenticatedFetches(
     );
     fetchMock.mockResolvedValueOnce(jsonResponse({ items: payload.links }));
     fetchMock.mockResolvedValueOnce(jsonResponse({ items: payload.matches }));
+    fetchMock.mockResolvedValueOnce(jsonResponse({ items: payload.audit }));
   }
 }

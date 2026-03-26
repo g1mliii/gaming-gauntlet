@@ -1,4 +1,5 @@
 export * from "./domain/auth";
+export * from "./domain/audit";
 export * from "./domain/chat";
 export * from "./domain/games";
 export * from "./domain/match";

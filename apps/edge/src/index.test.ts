@@ -56,6 +56,7 @@ type RepoMock = {
   getInviteStatus: ReturnType<typeof vi.fn>;
   getRoleForUser: ReturnType<typeof vi.fn>;
   getSession: ReturnType<typeof vi.fn>;
+  listAuditLogForUser: ReturnType<typeof vi.fn>;
   listChannelLinksForUser: ReturnType<typeof vi.fn>;
   listMatchesForUser: ReturnType<typeof vi.fn>;
   removeModerator: ReturnType<typeof vi.fn>;
@@ -94,6 +95,7 @@ function createRepoMock(): RepoMock {
     getInviteStatus: vi.fn(),
     getRoleForUser: vi.fn(),
     getSession: vi.fn(),
+    listAuditLogForUser: vi.fn(),
     listChannelLinksForUser: vi.fn(),
     listMatchesForUser: vi.fn(),
     removeModerator: vi.fn(),
@@ -521,5 +523,108 @@ describe("handleRequest", () => {
         }
       ]
     });
+  });
+
+  it("returns audit log items for authenticated members", async () => {
+    const repo = createRepoMock();
+    createRepositoryMock.mockReturnValue(repo);
+    const cookie = await createSignedSessionCookie("session_1");
+
+    repo.getSession.mockResolvedValue(signedInSession());
+    repo.listAuditLogForUser.mockResolvedValue([
+      {
+        id: "audit_1",
+        createdAt: "2026-03-24T04:00:00.000Z",
+        action: "match.created",
+        actor: {
+          id: "user_1",
+          login: "pixelriot",
+          displayName: "PixelRiot"
+        },
+        channelLinkId: "link_1",
+        channelPairLabel: "@pixelriot vs @novarune",
+        matchId: "match_1",
+        matchTitle: "Gauntlet Finals",
+        payload: {
+          slug: "gauntlet-finals"
+        }
+      }
+    ]);
+
+    const response = await handleRequest(
+      new Request("http://localhost:8787/api/audit-log?limit=50", {
+        headers: {
+          Cookie: cookie,
+          Origin: env.APP_ORIGIN
+        }
+      }),
+      env
+    );
+
+    expect(response.status).toBe(200);
+    expect(repo.listAuditLogForUser).toHaveBeenCalledWith("user_1", {
+      channelLinkId: undefined,
+      limit: 50
+    });
+    expect(await response.json()).toEqual({
+      items: [
+        {
+          id: "audit_1",
+          createdAt: "2026-03-24T04:00:00.000Z",
+          action: "match.created",
+          actor: {
+            id: "user_1",
+            login: "pixelriot",
+            displayName: "PixelRiot"
+          },
+          channelLinkId: "link_1",
+          channelPairLabel: "@pixelriot vs @novarune",
+          matchId: "match_1",
+          matchTitle: "Gauntlet Finals",
+          payload: {
+            slug: "gauntlet-finals"
+          }
+        }
+      ]
+    });
+  });
+
+  it("requires authentication for the audit log endpoint", async () => {
+    const repo = createRepoMock();
+    createRepositoryMock.mockReturnValue(repo);
+
+    const response = await handleRequest(new Request("http://localhost:8787/api/audit-log"), env);
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({
+      error: "auth_required",
+      details: null
+    });
+  });
+
+  it("rejects audit log filters for inaccessible channel links", async () => {
+    const repo = createRepoMock();
+    createRepositoryMock.mockReturnValue(repo);
+    const cookie = await createSignedSessionCookie("session_1");
+
+    repo.getSession.mockResolvedValue(signedInSession());
+    repo.getRoleForUser.mockResolvedValue(null);
+
+    const response = await handleRequest(
+      new Request("http://localhost:8787/api/audit-log?channelLinkId=link_2", {
+        headers: {
+          Cookie: cookie,
+          Origin: env.APP_ORIGIN
+        }
+      }),
+      env
+    );
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      error: "insufficient_permissions",
+      details: null
+    });
+    expect(repo.listAuditLogForUser).not.toHaveBeenCalled();
   });
 });

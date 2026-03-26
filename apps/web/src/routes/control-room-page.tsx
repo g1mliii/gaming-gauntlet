@@ -17,7 +17,7 @@ export function ControlRoomPage() {
       [...match.suggestions]
         .filter((entry) => entry.status === "board")
         .sort((left, right) => right.voteCount - left.voteCount)[0] ?? null,
-    [match]
+    [match.suggestions]
   );
 
   const currentGameId = match.currentGameId;
@@ -29,11 +29,11 @@ export function ControlRoomPage() {
         eyebrow="Control room"
         title="Run the live set"
         deck="This bootstrap page simulates the moderation workflow with local demo state so the repo already has a tangible control-room surface."
-        actions={<span className="gg-chip">{match.status}</span>}
       >
         <ScoreBug match={match} />
-        <div className="control-grid" style={{ marginTop: "1rem" }}>
+        <div className="control-grid control-grid--spaced">
           <button
+            className="control-button control-button--utility"
             type="button"
             onClick={() => {
               if (!topSuggestion) {
@@ -45,6 +45,7 @@ export function ControlRoomPage() {
             Queue top chat pick
           </button>
           <button
+            className="control-button control-button--utility"
             type="button"
             onClick={() => {
               setMatch((current) => ({
@@ -56,6 +57,7 @@ export function ControlRoomPage() {
             Randomize queue order
           </button>
           <button
+            className="control-button control-button--team-alpha"
             type="button"
             onClick={() => {
               if (!currentGameId) {
@@ -67,6 +69,7 @@ export function ControlRoomPage() {
             Award win to {leftPlayer.displayName}
           </button>
           <button
+            className="control-button control-button--team-bravo"
             type="button"
             onClick={() => {
               if (!currentGameId) {
@@ -79,7 +82,7 @@ export function ControlRoomPage() {
           </button>
         </div>
       </PageShell>
-      <div className="dashboard-grid">
+      <div className="match-support-grid">
         <SuggestionBoard suggestions={match.suggestions} />
         <QueueList items={match.queue} />
       </div>

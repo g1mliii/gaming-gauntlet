@@ -5,6 +5,7 @@ type PageShellProps = PropsWithChildren<{
   title: string;
   deck: string;
   actions?: ReactNode;
+  emphasis?: "hero" | "section" | "compact";
   tone?: "default" | "overlay";
 }>;
 
@@ -13,11 +14,12 @@ export function PageShell({
   title,
   deck,
   actions,
+  emphasis = "hero",
   tone = "default",
   children
 }: PageShellProps) {
   return (
-    <section className={`gg-shell gg-shell--${tone}`}>
+    <section className={`gg-shell gg-shell--${tone} gg-shell--${emphasis}`}>
       <header className="gg-shell__header">
         <div>
           <p className="gg-shell__eyebrow">{eyebrow}</p>

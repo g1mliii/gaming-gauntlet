@@ -13,6 +13,17 @@ body {
   place-items: end start;
 }
 
+.extension-root--overlay {
+  place-items: start left;
+  gap: 0.9rem;
+  padding: 1rem;
+  background: transparent;
+}
+
+.extension-root--overlay > * {
+  width: min(100%, 620px);
+}
+
 .extension-config__grid {
   display: grid;
   gap: 1rem;

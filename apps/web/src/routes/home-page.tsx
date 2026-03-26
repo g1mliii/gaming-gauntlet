@@ -30,6 +30,7 @@ export function HomePage() {
         eyebrow="Bootstrap"
         title="Repo status"
         deck="This scaffold includes the monorepo layout, shared domain contracts, the Worker shell, D1 migration, route stubs, and testable sample data."
+        emphasis="section"
       >
         <div className="route-grid">
           <article className="route-card">

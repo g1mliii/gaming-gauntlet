@@ -115,12 +115,14 @@ export function LinkInvitePage() {
         </div>
 
         {search.get("invite") === "accepted" ? (
-          <p className="dashboard-message dashboard-message--success">
+          <p className="dashboard-message dashboard-message--success" role="status" aria-live="polite">
             Invite accepted. The broadcaster pair is active in the dashboard.
           </p>
         ) : null}
         {inviteError || pageError ? (
-          <p className="dashboard-message dashboard-message--warning">{inviteError ?? pageError}</p>
+          <p className="dashboard-message dashboard-message--warning" role="status" aria-live="polite">
+            {inviteError ?? pageError}
+          </p>
         ) : null}
 
         {invite.status === "not_found" ? (

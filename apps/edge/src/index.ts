@@ -149,6 +149,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
           "/api/channel-links",
           "/api/channel-links/invites/:inviteCode",
           "/api/matches",
+          "/api/audit-log",
           "/api/twitch/eventsub",
           "/api/extension/jwt",
           "/ws/matches/:matchId"
@@ -500,6 +501,34 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
         },
         { status: 201 }
       );
+    }
+
+    if (url.pathname === "/api/audit-log") {
+      if (request.method !== "GET") {
+        return withCors(request, env, methodNotAllowed(["GET"]));
+      }
+
+      const session = await requireAuthenticatedSession(request, env, repo);
+      const channelLinkId = url.searchParams.get("channelLinkId") ?? undefined;
+      const requestedLimit = Number(url.searchParams.get("limit") ?? "25");
+      const limit = Number.isFinite(requestedLimit)
+        ? Math.min(100, Math.max(1, Math.trunc(requestedLimit)))
+        : 25;
+
+      if (channelLinkId) {
+        const role = await repo.getRoleForUser(session.user.id, channelLinkId);
+
+        if (!role) {
+          throw new AppError(403, "insufficient_permissions");
+        }
+      }
+
+      return appJson(request, env, {
+        items: await repo.listAuditLogForUser(session.user.id, {
+          channelLinkId,
+          limit
+        })
+      });
     }
 
     if (url.pathname === "/api/twitch/eventsub") {

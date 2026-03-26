@@ -1,4 +1,5 @@
 import type {
+  AuditLogEntry,
   AuthChannel,
   AuthSession,
   AuthUser,
@@ -99,6 +100,22 @@ type MatchRow = {
   channel_display_name: string;
 };
 
+type AuditLogRow = {
+  id: string;
+  created_at: string;
+  action: AuditLogEntry["action"];
+  payload_json: string;
+  channel_link_id: string | null;
+  match_id: string | null;
+  match_title: string | null;
+  actor_user_id: string | null;
+  actor_login: string | null;
+  actor_display_name: string | null;
+  owner_login: string | null;
+  linked_login: string | null;
+  invited_channel_login: string | null;
+};
+
 export class AppError extends Error {
   constructor(
     readonly status: number,
@@ -164,6 +181,15 @@ function groupByLinkId<T extends { channel_link_id: string }>(rows: T[]): Map<st
   }
 
   return grouped;
+}
+
+function parseAuditPayload(value: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
 }
 
 export function createRepository(env: Env) {
@@ -1117,6 +1143,75 @@ export function createRepository(env: Env) {
     return [...grouped.values()];
   }
 
+  async function listAuditLogForUser(
+    userId: string,
+    options: {
+      channelLinkId?: string;
+      limit: number;
+    }
+  ): Promise<AuditLogEntry[]> {
+    const rows = await all<AuditLogRow>(
+      db,
+      `SELECT
+          audit.id,
+          audit.created_at,
+          audit.action,
+          audit.payload_json,
+          audit.channel_link_id,
+          audit.match_id,
+          match_row.title AS match_title,
+          actor.id AS actor_user_id,
+          actor.login AS actor_login,
+          actor.display_name AS actor_display_name,
+          owner_channel.login AS owner_login,
+          linked_channel.login AS linked_login,
+          link.invited_channel_login
+        FROM audit_log audit
+        LEFT JOIN users actor ON actor.id = audit.actor_user_id
+        LEFT JOIN matches match_row ON match_row.id = audit.match_id
+        LEFT JOIN channel_links link ON link.id = audit.channel_link_id
+        LEFT JOIN channels owner_channel ON owner_channel.id = link.owner_channel_id
+        LEFT JOIN channels linked_channel ON linked_channel.id = link.linked_channel_id
+        WHERE audit.channel_link_id IS NOT NULL
+          AND audit.action NOT IN ('auth.login', 'auth.logout')
+          AND EXISTS (
+            SELECT 1
+            FROM channel_link_memberships membership
+            WHERE membership.channel_link_id = audit.channel_link_id
+              AND membership.user_id = ?
+          )
+          AND (? IS NULL OR audit.channel_link_id = ?)
+        ORDER BY audit.created_at DESC
+        LIMIT ?`,
+      userId,
+      options.channelLinkId ?? null,
+      options.channelLinkId ?? null,
+      options.limit
+    );
+
+    return rows.map((row) => ({
+      id: row.id,
+      createdAt: row.created_at,
+      action: row.action,
+      actor:
+        row.actor_user_id && row.actor_login && row.actor_display_name
+          ? {
+              id: row.actor_user_id,
+              login: row.actor_login,
+              displayName: row.actor_display_name
+            }
+          : null,
+      channelLinkId: row.channel_link_id,
+      channelPairLabel:
+        row.owner_login && (row.linked_login ?? row.invited_channel_login)
+          ? `@${row.owner_login} vs @${row.linked_login ?? row.invited_channel_login}`
+          : null,
+      matchId: row.match_id,
+      matchTitle: row.match_title,
+      payload: parseAuditPayload(row.payload_json)
+    }));
+  }
+
   return {
     acceptInvite,
     addModerator,
@@ -1128,6 +1223,7 @@ export function createRepository(env: Env) {
     getInviteStatus,
     getRoleForUser,
     getSession,
+    listAuditLogForUser,
     listChannelLinksForUser,
     listMatchesForUser,
     removeModerator,

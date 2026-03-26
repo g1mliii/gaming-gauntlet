@@ -13,7 +13,7 @@ export function MatchPage() {
       >
         <ScoreBug match={demoMatch} />
       </PageShell>
-      <div className="dashboard-grid">
+      <div className="match-support-grid">
         <SuggestionBoard suggestions={demoMatch.suggestions} />
         <QueueList items={demoMatch.queue} />
       </div>

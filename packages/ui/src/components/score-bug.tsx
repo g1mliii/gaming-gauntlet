@@ -22,24 +22,25 @@ export function ScoreBug({ match, transparent = false }: ScoreBugProps) {
   return (
     <section className={`gg-scorebug ${transparent ? "gg-scorebug--transparent" : ""}`}>
       <div className="gg-scorebug__meta">
-        <span className="gg-chip">Live Match</span>
         <span className="gg-scorebug__title">{match.title}</span>
       </div>
       <div className="gg-scorebug__line">
-        <article className="gg-scorebug__player">
+        <article className="gg-scorebug__player gg-scorebug__player--left">
           <p className="gg-scorebug__label">{left.displayName}</p>
           <p className="gg-scorebug__score">{left.wins}</p>
         </article>
         <div className="gg-scorebug__versus">vs</div>
-        <article className="gg-scorebug__player">
+        <article className="gg-scorebug__player gg-scorebug__player--right">
           <p className="gg-scorebug__label">{right.displayName}</p>
           <p className="gg-scorebug__score">{right.wins}</p>
         </article>
       </div>
       <div className="gg-scorebug__footer">
-        <span>Current game</span>
-        <strong>{currentGame?.title ?? "Waiting for next pick"}</strong>
-        <span>{match.targetWins ? `First to ${match.targetWins}` : "Open mode"}</span>
+        <span className="gg-scorebug__meta-label">Current game</span>
+        <strong className="gg-scorebug__current-game">{currentGame?.title ?? "Waiting for next pick"}</strong>
+        <span className="gg-scorebug__meta-label gg-scorebug__meta-label--right">
+          {match.targetWins ? `First to ${match.targetWins}` : "Open mode"}
+        </span>
       </div>
     </section>
   );

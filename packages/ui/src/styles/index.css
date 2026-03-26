@@ -2,19 +2,24 @@
 
 :root {
   color-scheme: dark;
-  --gg-bg: oklch(0.17 0.02 20);
-  --gg-bg-soft: oklch(0.24 0.025 22);
+  --gg-bg: oklch(0.16 0.018 252);
+  --gg-bg-soft: oklch(0.24 0.03 248);
   --gg-surface: color-mix(in oklab, var(--gg-bg-soft) 82%, black);
-  --gg-surface-2: oklch(0.29 0.03 24);
-  --gg-border: oklch(0.44 0.05 28 / 0.45);
-  --gg-text: oklch(0.95 0.01 85);
-  --gg-text-dim: oklch(0.76 0.02 65);
-  --gg-accent: oklch(0.69 0.19 34);
-  --gg-accent-2: oklch(0.78 0.15 85);
-  --gg-shadow: 0 24px 80px oklch(0.08 0.02 20 / 0.38);
-  --gg-radius-lg: 28px;
-  --gg-radius-md: 18px;
-  --gg-radius-sm: 999px;
+  --gg-surface-2: oklch(0.28 0.035 244);
+  --gg-border: oklch(0.49 0.045 238 / 0.42);
+  --gg-text: oklch(0.95 0.01 255);
+  --gg-text-dim: oklch(0.79 0.025 240);
+  --gg-accent: oklch(0.81 0.14 82);
+  --gg-accent-2: oklch(0.83 0.08 165);
+  --gg-team-alpha: oklch(0.73 0.17 48);
+  --gg-team-alpha-soft: oklch(0.59 0.12 40);
+  --gg-team-bravo: oklch(0.8 0.1 170);
+  --gg-team-bravo-soft: oklch(0.62 0.08 170);
+  --gg-shadow: 0 18px 42px oklch(0.07 0.02 252 / 0.18);
+  --gg-radius-lg: 10px;
+  --gg-radius-md: 5px;
+  --gg-radius-sm: 2px;
+  --gg-cut-size: 14px;
   --gg-font-display: "Rajdhani", sans-serif;
   --gg-font-body: "Barlow Condensed", sans-serif;
 }
@@ -26,11 +31,15 @@
 body {
   margin: 0;
   min-width: 320px;
-  background:
-    radial-gradient(circle at top left, color-mix(in oklab, var(--gg-accent) 22%, transparent), transparent 35%),
-    linear-gradient(180deg, color-mix(in oklab, var(--gg-bg) 84%, black), var(--gg-bg));
+  background: color-mix(in oklab, var(--gg-bg) 92%, black);
   color: var(--gg-text);
   font-family: var(--gg-font-body);
+  line-height: 1.3;
+}
+
+html.gg-doc--overlay,
+body.gg-body--overlay {
+  background: transparent;
 }
 
 a {
@@ -43,14 +52,17 @@ input,
 textarea,
 select {
   font: inherit;
+  color: inherit;
 }
 
 .gg-shell {
-  padding: clamp(1.5rem, 2vw, 2.5rem);
+  padding: clamp(1.4rem, 2.1vw, 2.65rem);
   border: 1px solid var(--gg-border);
   border-radius: var(--gg-radius-lg);
-  background: linear-gradient(160deg, oklch(0.24 0.02 25 / 0.95), oklch(0.2 0.02 20 / 0.95));
+  background: color-mix(in oklab, var(--gg-surface) 92%, black);
   box-shadow: var(--gg-shadow);
+  overflow: clip;
+  clip-path: polygon(0 0, calc(100% - var(--gg-cut-size)) 0, 100% var(--gg-cut-size), 100% 100%, var(--gg-cut-size) 100%, 0 calc(100% - var(--gg-cut-size)));
 }
 
 .gg-shell--overlay {
@@ -63,8 +75,6 @@ select {
 .gg-shell__header,
 .gg-panel__header,
 .gg-scorebug__meta,
-.gg-scorebug__line,
-.gg-scorebug__footer,
 .gg-queue__item,
 .gg-shell__actions {
   display: flex;
@@ -74,18 +84,42 @@ select {
 .gg-shell__header,
 .gg-panel__header,
 .gg-scorebug__meta,
-.gg-scorebug__footer,
 .gg-queue__item {
   justify-content: space-between;
   gap: 1rem;
 }
 
-.gg-shell__title,
+.gg-shell__header {
+  align-items: start;
+}
+
+.gg-shell__title {
+  margin: 0;
+  font-family: var(--gg-font-display);
+  font-size: clamp(2.3rem, 5.5vw, 5.2rem);
+  line-height: 0.9;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  text-wrap: balance;
+  max-width: 12ch;
+}
+
+.gg-shell--section .gg-shell__title {
+  font-size: clamp(1.8rem, 3vw, 3.1rem);
+  max-width: 14ch;
+}
+
+.gg-shell--compact .gg-shell__title {
+  font-size: clamp(1.35rem, 2.2vw, 2rem);
+  line-height: 0.96;
+  max-width: 18ch;
+}
+
 .gg-panel__title {
   margin: 0;
   font-family: var(--gg-font-display);
-  font-size: clamp(2rem, 5vw, 4.5rem);
-  line-height: 0.92;
+  font-size: clamp(1.5rem, 2.4vw, 2.35rem);
+  line-height: 0.94;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   text-wrap: balance;
@@ -106,23 +140,30 @@ select {
   max-width: 60ch;
   font-size: clamp(1rem, 1.4vw, 1.2rem);
   color: var(--gg-text-dim);
+  line-height: 1.34;
 }
 
 .gg-shell__body {
-  margin-top: 1.5rem;
+  margin-top: 1.6rem;
 }
 
 .gg-chip {
-  display: inline-flex;
-  align-items: center;
+  display: inline-grid;
+  place-items: center;
   gap: 0.4rem;
-  padding: 0.45rem 0.8rem;
+  width: fit-content;
+  min-height: 2.1rem;
+  padding: 0.45rem 0.9rem;
   border: 1px solid color-mix(in oklab, var(--gg-accent) 45%, white 10%);
   border-radius: var(--gg-radius-sm);
   background: color-mix(in oklab, var(--gg-accent) 18%, transparent);
   font-family: var(--gg-font-display);
+  font-size: 0.82rem;
   letter-spacing: 0.12em;
+  line-height: 1;
+  text-align: center;
   text-transform: uppercase;
+  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
 }
 
 .gg-chip--soft {
@@ -130,16 +171,47 @@ select {
   background: color-mix(in oklab, var(--gg-surface-2) 75%, transparent);
 }
 
+.gg-chip--live {
+  position: relative;
+  padding-left: 1.8rem;
+  border-color: color-mix(in oklab, oklch(0.68 0.22 25) 68%, var(--gg-border));
+  background: color-mix(in oklab, oklch(0.68 0.22 25) 20%, var(--gg-surface));
+  color: oklch(0.95 0.01 20);
+}
+
+.gg-chip--live::before {
+  content: "";
+  position: absolute;
+  left: 0.72rem;
+  top: 50%;
+  width: 0.52rem;
+  height: 0.52rem;
+  background: oklch(0.68 0.22 25);
+  border-radius: 50%;
+  transform: translateY(-50%);
+  box-shadow: 0 0 0.8rem color-mix(in oklab, oklch(0.68 0.22 25) 55%, transparent);
+  animation: gg-live-pulse 1.1s ease-out infinite;
+}
+
 .gg-panel {
-  padding: 1.25rem;
+  display: grid;
+  gap: 0.95rem;
+  min-width: 0;
+  padding: 1.3rem;
   border: 1px solid var(--gg-border);
   border-radius: var(--gg-radius-md);
   background: color-mix(in oklab, var(--gg-surface) 88%, black);
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
+}
+
+.gg-panel--transparent {
+  background: color-mix(in oklab, var(--gg-bg) 30%, transparent);
+  border-color: color-mix(in oklab, var(--gg-text) 10%, var(--gg-border));
 }
 
 .gg-board,
 .gg-queue {
-  margin: 1rem 0 0;
+  margin: 0;
   padding: 0;
   list-style: none;
 }
@@ -156,9 +228,9 @@ select {
 }
 
 .gg-board__row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
   gap: 1rem;
 }
 
@@ -169,68 +241,203 @@ select {
   font-family: var(--gg-font-display);
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  overflow-wrap: anywhere;
+}
+
+.gg-board__title {
+  font-size: clamp(1rem, 1.5vw, 1.22rem);
+  line-height: 1;
 }
 
 .gg-board__votes,
 .gg-scorebug__score {
   font-family: var(--gg-font-display);
-  font-size: clamp(1.8rem, 4vw, 3rem);
+  font-variant-numeric: tabular-nums;
+}
+
+.gg-board__votes {
+  font-size: clamp(1.5rem, 2.6vw, 2.3rem);
+  line-height: 0.9;
+  text-align: right;
   font-variant-numeric: tabular-nums;
 }
 
 .gg-empty {
-  margin: 1rem 0 0;
+  margin: 0;
   color: var(--gg-text-dim);
 }
 
 .gg-scorebug {
-  min-width: min(100%, 960px);
-  padding: 1rem 1.25rem;
-  border: 1px solid color-mix(in oklab, var(--gg-accent) 35%, var(--gg-border));
-  border-radius: calc(var(--gg-radius-lg) - 8px);
-  background:
-    linear-gradient(90deg, color-mix(in oklab, var(--gg-accent) 18%, transparent), transparent 20%),
-    color-mix(in oklab, var(--gg-surface) 92%, black);
-  backdrop-filter: blur(14px);
+  display: grid;
+  gap: 1rem;
+  width: 100%;
+  min-width: 0;
+  padding: clamp(1rem, 2vw, 1.4rem);
+  border: 1px solid color-mix(in oklab, var(--gg-text) 10%, var(--gg-border));
+  border-radius: var(--gg-radius-md);
+  background: color-mix(in oklab, var(--gg-surface) 94%, black);
+  clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 16px 100%, 0 calc(100% - 16px));
 }
 
 .gg-scorebug--transparent {
-  background: color-mix(in oklab, var(--gg-bg) 68%, transparent);
+  background: color-mix(in oklab, var(--gg-bg) 24%, transparent);
+  border-color: color-mix(in oklab, var(--gg-text) 14%, var(--gg-border));
+}
+
+.gg-scorebug__meta {
+  flex-wrap: wrap;
+}
+
+.gg-scorebug__title {
+  font-size: clamp(1rem, 1.9vw, 1.35rem);
+  line-height: 1;
 }
 
 .gg-scorebug__line {
-  justify-content: space-between;
-  gap: 1rem;
-  margin: 0.85rem 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: clamp(0.8rem, 2vw, 1.4rem);
+  margin: 0;
 }
 
 .gg-scorebug__player {
-  flex: 1;
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+  position: relative;
+  padding: 0.85rem 1rem;
+  border: 1px solid color-mix(in oklab, var(--team-color) 48%, transparent);
+  border-radius: var(--gg-radius-md);
+  background: color-mix(in oklab, var(--team-color) 12%, var(--gg-bg));
+  overflow: clip;
+  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
 }
 
-.gg-scorebug__player:last-child {
+.gg-scorebug__player::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0.36rem;
+  border-radius: 0;
+  background: var(--team-color);
+}
+
+.gg-scorebug__player--left {
+  --team-color: var(--gg-team-alpha);
+}
+
+.gg-scorebug__player--right {
+  --team-color: var(--gg-team-bravo);
+  justify-items: end;
   text-align: right;
 }
 
+.gg-scorebug__player--right::before {
+  inset: 0 0 0 auto;
+}
+
+.gg-scorebug__label {
+  font-size: clamp(1rem, 1.7vw, 1.4rem);
+  line-height: 0.98;
+  text-wrap: balance;
+  color: color-mix(in oklab, var(--team-color) 58%, white 42%);
+}
+
+.gg-scorebug__score {
+  margin: 0;
+  font-size: clamp(3rem, 7vw, 5.4rem);
+  line-height: 0.82;
+  color: color-mix(in oklab, var(--team-color) 82%, white 18%);
+  text-shadow: 0 0 24px color-mix(in oklab, var(--team-color) 24%, transparent);
+}
+
 .gg-scorebug__versus {
-  padding: 0.45rem 0.9rem;
+  padding: 0.55rem 0.92rem;
   border-radius: var(--gg-radius-sm);
-  background: color-mix(in oklab, var(--gg-accent) 18%, transparent);
+  border: 1px solid color-mix(in oklab, var(--gg-text) 8%, var(--gg-border));
+  background: color-mix(in oklab, var(--gg-bg) 38%, transparent);
   font-family: var(--gg-font-display);
+  color: var(--gg-text-dim);
+  line-height: 1;
   text-transform: uppercase;
+  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
+}
+
+.gg-scorebug__footer {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 1rem;
+}
+
+.gg-scorebug__meta-label {
+  color: var(--gg-text-dim);
+}
+
+.gg-scorebug__meta-label--right {
+  text-align: right;
+}
+
+.gg-scorebug__current-game {
+  font-family: var(--gg-font-display);
+  font-size: clamp(1.1rem, 2vw, 1.45rem);
+  letter-spacing: 0.04em;
+  line-height: 1;
+  overflow-wrap: anywhere;
+}
+
+@keyframes gg-live-pulse {
+  0% {
+    opacity: 1;
+    transform: translateY(-50%) scale(1);
+  }
+
+  50% {
+    opacity: 0.3;
+    transform: translateY(-50%) scale(0.72);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(-50%) scale(1);
+  }
+}
+
+@media (max-width: 820px) {
+  .gg-shell__header {
+    flex-direction: column;
+  }
+
+  .gg-shell__actions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
 }
 
 @media (max-width: 720px) {
   .gg-shell__header,
   .gg-panel__header,
-  .gg-scorebug__meta,
-  .gg-scorebug__line,
-  .gg-scorebug__footer {
+  .gg-scorebug__meta {
     flex-direction: column;
     align-items: flex-start;
   }
 
-  .gg-scorebug__player:last-child {
+  .gg-scorebug__line,
+  .gg-scorebug__footer {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .gg-scorebug__player--right,
+  .gg-scorebug__meta-label--right {
     text-align: left;
+    justify-items: start;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gg-chip--live::before {
+    animation: none;
   }
 }

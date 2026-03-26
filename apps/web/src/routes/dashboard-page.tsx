@@ -1,11 +1,13 @@
 import type {
+  AuditLogEntry,
+  AuditLogResponse,
   AuthSession,
   ChannelLinkInvite,
   ChannelLinkSummary,
   MatchSummary
 } from "@gaming-gauntlet/contracts";
 import { PageShell } from "@gaming-gauntlet/ui";
-import { startTransition, useEffect, useEffectEvent, useState } from "react";
+import { startTransition, useEffect, useEffectEvent, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 
 import { buildEdgeUrl, EdgeError, edgeFetchJson, edgeNoContent, edgeSendJson } from "../lib/edge";
@@ -19,13 +21,79 @@ type MatchPayload = {
   items: MatchSummary[];
 };
 
+const TWITCH_LOGIN_PATTERN = /^[a-z0-9_]+$/;
 const EMPTY_SESSION: AuthSession = {
   authenticated: false,
   user: null,
   ownedChannel: null
 };
 
+function validateTwitchLogin(value: string): string | null {
+  const trimmed = value.trim().toLowerCase();
+
+  if (trimmed.length < 3) {
+    return "Enter a Twitch login with at least 3 characters.";
+  }
+
+  if (!TWITCH_LOGIN_PATTERN.test(trimmed)) {
+    return "Use lowercase letters, numbers, or underscores for Twitch logins.";
+  }
+
+  return null;
+}
+
+function validateMatchTitle(value: string): string | null {
+  return value.trim().length < 3 ? "Enter a match title with at least 3 characters." : null;
+}
+
+function validateMatchSlug(value: string): string | null {
+  return value.trim().length < 3 ? "Enter a slug with at least 3 characters." : null;
+}
+
+function validateTargetWins(value: string): string | null {
+  if (!value.trim()) {
+    return null;
+  }
+
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? null : "Target wins must be a whole number greater than 0.";
+}
+
+function describeAuditEntry(entry: AuditLogEntry): string {
+  const actor = entry.actor?.displayName ?? entry.actor?.login ?? "A broadcaster";
+  const pair = entry.channelPairLabel ?? "the broadcaster pair";
+  const assignedLogin = typeof entry.payload.login === "string" ? `@${entry.payload.login}` : "a moderator";
+
+  switch (entry.action) {
+    case "channel_link.created":
+      return `${actor} created an invite for ${pair}.`;
+    case "channel_link.accepted":
+      return `${actor} activated ${pair}.`;
+    case "member.assigned":
+      return `${actor} assigned ${assignedLogin} to ${pair}.`;
+    case "member.revoked":
+      return `${actor} removed a moderator from ${pair}.`;
+    case "match.created":
+      return `${actor} created ${entry.matchTitle ?? "a new match"} for ${pair}.`;
+    default:
+      return `${actor} updated ${pair}.`;
+  }
+}
+
+function formatAuditTimestamp(value: string): string {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(new Date(value));
+}
+
 function toFriendlyError(error: unknown): string {
+  if (error instanceof TypeError) {
+    return "The local match API is offline. Start the edge worker on port 8787 to load the dashboard.";
+  }
+
   if (!(error instanceof EdgeError)) {
     return "Something broke while syncing the dashboard. Try the action again.";
   }
@@ -56,6 +124,7 @@ export function DashboardPage() {
   const [session, setSession] = useState<AuthSession>(EMPTY_SESSION);
   const [links, setLinks] = useState<ChannelLinkSummary[]>([]);
   const [matches, setMatches] = useState<MatchSummary[]>([]);
+  const [activity, setActivity] = useState<AuditLogEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [pageError, setPageError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -71,6 +140,20 @@ export function DashboardPage() {
   const [slugTouched, setSlugTouched] = useState(false);
   const [targetWins, setTargetWins] = useState("");
   const [selectedLinkId, setSelectedLinkId] = useState("");
+  const [linkLoginError, setLinkLoginError] = useState<string | null>(null);
+  const [moderatorErrors, setModeratorErrors] = useState<Record<string, string | null>>({});
+  const [matchErrors, setMatchErrors] = useState({
+    selectedLinkId: null as string | null,
+    matchTitle: null as string | null,
+    matchSlug: null as string | null,
+    targetWins: null as string | null
+  });
+  const linkLoginRef = useRef<HTMLInputElement | null>(null);
+  const moderatorRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const selectedLinkRef = useRef<HTMLSelectElement | null>(null);
+  const matchTitleRef = useRef<HTMLInputElement | null>(null);
+  const matchSlugRef = useRef<HTMLInputElement | null>(null);
+  const targetWinsRef = useRef<HTMLInputElement | null>(null);
 
   const activeLinks = links.filter((link) => link.status === "active");
   const isLinkBusy = linkActionState !== "idle";
@@ -87,18 +170,21 @@ export function DashboardPage() {
         setSession(nextSession);
         setLinks([]);
         setMatches([]);
+        setActivity([]);
         setIsLoading(false);
         return;
       }
 
-      const [linkPayload, matchPayload] = await Promise.all([
+      const [linkPayload, matchPayload, activityPayload] = await Promise.all([
         edgeFetchJson<DashboardPayload>("/api/channel-links"),
-        edgeFetchJson<MatchPayload>("/api/matches")
+        edgeFetchJson<MatchPayload>("/api/matches"),
+        edgeFetchJson<AuditLogResponse>("/api/audit-log")
       ]);
 
       setSession(nextSession);
       setLinks(linkPayload.items);
       setMatches(matchPayload.items);
+      setActivity(activityPayload.items);
       setIsLoading(false);
     } catch (error) {
       setPageError(toFriendlyError(error));
@@ -117,6 +203,13 @@ export function DashboardPage() {
     const payload = await edgeFetchJson<MatchPayload>("/api/matches");
     startTransition(() => {
       setMatches(payload.items);
+    });
+  });
+
+  const refreshActivity = useEffectEvent(async () => {
+    const payload = await edgeFetchJson<AuditLogResponse>("/api/audit-log");
+    startTransition(() => {
+      setActivity(payload.items);
     });
   });
 
@@ -158,6 +251,7 @@ export function DashboardPage() {
         setSession(EMPTY_SESSION);
         setLinks([]);
         setMatches([]);
+        setActivity([]);
         setInviteResult(null);
       });
     });
@@ -166,6 +260,13 @@ export function DashboardPage() {
 
   async function handleCreateLink(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const nextError = validateTwitchLogin(linkLogin);
+
+    if (nextError) {
+      setLinkLoginError(nextError);
+      linkLoginRef.current?.focus();
+      return;
+    }
 
     setLinkActionState("creating");
     await runAction(async () => {
@@ -178,7 +279,8 @@ export function DashboardPage() {
 
       setInviteResult(payload.invite);
       setLinkLogin("");
-      await refreshLinks();
+      setLinkLoginError(null);
+      await Promise.all([refreshLinks(), refreshActivity()]);
     });
     setLinkActionState("idle");
   }
@@ -187,6 +289,13 @@ export function DashboardPage() {
     event.preventDefault();
 
     const login = moderatorDrafts[channelLinkId]?.trim().toLowerCase() ?? "";
+    const nextError = validateTwitchLogin(login);
+
+    if (nextError) {
+      setModeratorErrors((current) => ({ ...current, [channelLinkId]: nextError }));
+      moderatorRefs.current[channelLinkId]?.focus();
+      return;
+    }
 
     setLinkActionState("editing-members");
     await runAction(async () => {
@@ -195,7 +304,8 @@ export function DashboardPage() {
         role: "mod"
       });
       setModeratorDrafts((current) => ({ ...current, [channelLinkId]: "" }));
-      await refreshLinks();
+      setModeratorErrors((current) => ({ ...current, [channelLinkId]: null }));
+      await Promise.all([refreshLinks(), refreshActivity()]);
     });
     setLinkActionState("idle");
   }
@@ -206,13 +316,39 @@ export function DashboardPage() {
       await edgeNoContent(`/api/channel-links/${channelLinkId}/members/${membershipId}`, {
         method: "DELETE"
       });
-      await refreshLinks();
+      await Promise.all([refreshLinks(), refreshActivity()]);
     });
     setLinkActionState("idle");
   }
 
   async function handleCreateMatch(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const nextErrors = {
+      selectedLinkId:
+        selectedLinkId.trim().length > 0
+          ? null
+          : activeLinks.length > 0
+            ? "Select an active broadcaster pair."
+            : "Activate a broadcaster pair before creating a match.",
+      matchTitle: validateMatchTitle(matchTitle),
+      matchSlug: validateMatchSlug(matchSlug),
+      targetWins: validateTargetWins(targetWins)
+    };
+
+    setMatchErrors(nextErrors);
+
+    if (nextErrors.selectedLinkId || nextErrors.matchTitle || nextErrors.matchSlug || nextErrors.targetWins) {
+      if (nextErrors.selectedLinkId) {
+        selectedLinkRef.current?.focus();
+      } else if (nextErrors.matchTitle) {
+        matchTitleRef.current?.focus();
+      } else if (nextErrors.matchSlug) {
+        matchSlugRef.current?.focus();
+      } else if (nextErrors.targetWins) {
+        targetWinsRef.current?.focus();
+      }
+      return;
+    }
 
     setMatchActionState("creating");
     await runAction(async () => {
@@ -230,7 +366,13 @@ export function DashboardPage() {
       setMatchSlug("");
       setTargetWins("");
       setSlugTouched(false);
-      await refreshMatches();
+      setMatchErrors({
+        selectedLinkId: null,
+        matchTitle: null,
+        matchSlug: null,
+        targetWins: null
+      });
+      await Promise.all([refreshMatches(), refreshActivity()]);
     });
     setMatchActionState("idle");
   }
@@ -282,8 +424,16 @@ export function DashboardPage() {
             Sign in with Twitch
           </button>
         </section>
-        {notice ? <p className="dashboard-message dashboard-message--warning">{notice}</p> : null}
-        {pageError ? <p className="dashboard-message dashboard-message--warning">{pageError}</p> : null}
+        {notice ? (
+          <p className="dashboard-message dashboard-message--warning" role="status" aria-live="polite">
+            {notice}
+          </p>
+        ) : null}
+        {pageError ? (
+          <p className="dashboard-message dashboard-message--warning" role="status" aria-live="polite">
+            {pageError}
+          </p>
+        ) : null}
       </PageShell>
     );
   }
@@ -327,17 +477,27 @@ export function DashboardPage() {
         </section>
 
         {notice === "match-created" ? (
-          <p className="dashboard-message dashboard-message--success">Match created and added to the draft rail.</p>
+          <p className="dashboard-message dashboard-message--success" role="status" aria-live="polite">
+            Match created and added to the draft rail.
+          </p>
         ) : null}
         {search.get("auth") === "connected" ? (
-          <p className="dashboard-message dashboard-message--success">
+          <p className="dashboard-message dashboard-message--success" role="status" aria-live="polite">
             Twitch authentication is active. Start by linking the opposing broadcaster.
           </p>
         ) : null}
-        {pageError ? <p className="dashboard-message dashboard-message--warning">{pageError}</p> : null}
-        {actionError ? <p className="dashboard-message dashboard-message--warning">{actionError}</p> : null}
+        {pageError ? (
+          <p className="dashboard-message dashboard-message--warning" role="status" aria-live="polite">
+            {pageError}
+          </p>
+        ) : null}
+        {actionError ? (
+          <p className="dashboard-message dashboard-message--warning" role="status" aria-live="polite">
+            {actionError}
+          </p>
+        ) : null}
         {inviteResult ? (
-          <p className="dashboard-message dashboard-message--success">
+          <p className="dashboard-message dashboard-message--success" role="status" aria-live="polite">
             Invite live for @{inviteResult.invitedChannelLogin}. Share{" "}
             <a href={inviteResult.shareUrl}>{inviteResult.shareUrl}</a>
           </p>
@@ -356,17 +516,29 @@ export function DashboardPage() {
               <label className="dashboard-field">
                 <span>Invite by Twitch login</span>
                 <input
+                  ref={linkLoginRef}
                   name="invitedChannelLogin"
                   value={linkLogin}
-                  onChange={(event) => setLinkLogin(event.currentTarget.value)}
+                  onChange={(event) => {
+                    setLinkLogin(event.currentTarget.value);
+                    setLinkLoginError(null);
+                  }}
                   placeholder="novarune"
                   autoComplete="off"
+                  spellCheck={false}
+                  aria-invalid={linkLoginError ? "true" : "false"}
+                  aria-describedby={linkLoginError ? "invited-channel-login-error" : undefined}
                 />
               </label>
+              {linkLoginError ? (
+                <p id="invited-channel-login-error" className="dashboard-field__error" role="status" aria-live="polite">
+                  {linkLoginError}
+                </p>
+              ) : null}
               <button
                 className="dashboard-button dashboard-button--primary"
                 type="submit"
-                disabled={isLinkBusy || linkLogin.trim().length < 3}
+                disabled={isLinkBusy}
               >
                 Create broadcaster invite
               </button>
@@ -423,6 +595,10 @@ export function DashboardPage() {
                       <label className="dashboard-field">
                         <span>Add verified moderator</span>
                         <input
+                          ref={(element) => {
+                            moderatorRefs.current[link.id] = element;
+                          }}
+                          name={`moderatorLogin-${link.id}`}
                           value={moderatorDrafts[link.id] ?? ""}
                           onChange={(event) => {
                             const value = event.currentTarget.value;
@@ -430,15 +606,29 @@ export function DashboardPage() {
                               ...current,
                               [link.id]: value
                             }));
+                            setModeratorErrors((current) => ({ ...current, [link.id]: null }));
                           }}
                           placeholder="trustedmod"
                           autoComplete="off"
+                          spellCheck={false}
+                          aria-invalid={moderatorErrors[link.id] ? "true" : "false"}
+                          aria-describedby={moderatorErrors[link.id] ? `moderator-error-${link.id}` : undefined}
                         />
                       </label>
+                      {moderatorErrors[link.id] ? (
+                        <p
+                          id={`moderator-error-${link.id}`}
+                          className="dashboard-field__error"
+                          role="status"
+                          aria-live="polite"
+                        >
+                          {moderatorErrors[link.id]}
+                        </p>
+                      ) : null}
                       <button
                         className="dashboard-button dashboard-button--ghost"
                         type="submit"
-                        disabled={isLinkBusy || (moderatorDrafts[link.id] ?? "").trim().length < 3}
+                        disabled={isLinkBusy}
                       >
                         Assign mod
                       </button>
@@ -466,9 +656,16 @@ export function DashboardPage() {
               <label className="dashboard-field">
                 <span>Broadcaster pair</span>
                 <select
+                  ref={selectedLinkRef}
+                  name="channelLinkId"
                   value={selectedLinkId}
-                  onChange={(event) => setSelectedLinkId(event.currentTarget.value)}
+                  onChange={(event) => {
+                    setSelectedLinkId(event.currentTarget.value);
+                    setMatchErrors((current) => ({ ...current, selectedLinkId: null }));
+                  }}
                   disabled={activeLinks.length === 0}
+                  aria-invalid={matchErrors.selectedLinkId ? "true" : "false"}
+                  aria-describedby={matchErrors.selectedLinkId ? "match-link-error" : undefined}
                 >
                   <option value="">Select an active pair</option>
                   {activeLinks.map((link) => (
@@ -478,41 +675,84 @@ export function DashboardPage() {
                   ))}
                 </select>
               </label>
+              {matchErrors.selectedLinkId ? (
+                <p id="match-link-error" className="dashboard-field__error" role="status" aria-live="polite">
+                  {matchErrors.selectedLinkId}
+                </p>
+              ) : null}
               <label className="dashboard-field">
                 <span>Match title</span>
                 <input
+                  ref={matchTitleRef}
+                  name="matchTitle"
                   value={matchTitle}
-                  onChange={(event) => setMatchTitle(event.currentTarget.value)}
+                  onChange={(event) => {
+                    setMatchTitle(event.currentTarget.value);
+                    setMatchErrors((current) => ({ ...current, matchTitle: null }));
+                  }}
                   placeholder="Gauntlet Finals"
+                  autoComplete="off"
+                  aria-invalid={matchErrors.matchTitle ? "true" : "false"}
+                  aria-describedby={matchErrors.matchTitle ? "match-title-error" : undefined}
                 />
               </label>
+              {matchErrors.matchTitle ? (
+                <p id="match-title-error" className="dashboard-field__error" role="status" aria-live="polite">
+                  {matchErrors.matchTitle}
+                </p>
+              ) : null}
               <div className="dashboard-form__split">
                 <label className="dashboard-field">
                   <span>Slug</span>
                   <input
+                    ref={matchSlugRef}
+                    name="matchSlug"
                     value={matchSlug}
                     onChange={(event) => {
                       setSlugTouched(true);
                       setMatchSlug(event.currentTarget.value);
+                      setMatchErrors((current) => ({ ...current, matchSlug: null }));
                     }}
                     placeholder="gauntlet-finals"
+                    autoComplete="off"
+                    spellCheck={false}
+                    aria-invalid={matchErrors.matchSlug ? "true" : "false"}
+                    aria-describedby={matchErrors.matchSlug ? "match-slug-error" : undefined}
                   />
+                  {matchErrors.matchSlug ? (
+                    <p id="match-slug-error" className="dashboard-field__error" role="status" aria-live="polite">
+                      {matchErrors.matchSlug}
+                    </p>
+                  ) : null}
                 </label>
                 <label className="dashboard-field">
                   <span>Target wins</span>
                   <input
+                    ref={targetWinsRef}
+                    name="targetWins"
                     type="number"
                     min="1"
                     value={targetWins}
-                    onChange={(event) => setTargetWins(event.currentTarget.value)}
+                    onChange={(event) => {
+                      setTargetWins(event.currentTarget.value);
+                      setMatchErrors((current) => ({ ...current, targetWins: null }));
+                    }}
                     placeholder="3"
+                    inputMode="numeric"
+                    aria-invalid={matchErrors.targetWins ? "true" : "false"}
+                    aria-describedby={matchErrors.targetWins ? "target-wins-error" : undefined}
                   />
+                  {matchErrors.targetWins ? (
+                    <p id="target-wins-error" className="dashboard-field__error" role="status" aria-live="polite">
+                      {matchErrors.targetWins}
+                    </p>
+                  ) : null}
                 </label>
               </div>
               <button
                 className="dashboard-button dashboard-button--primary"
                 type="submit"
-                disabled={isMatchBusy || !selectedLinkId || matchTitle.trim().length < 3 || matchSlug.trim().length < 3}
+                disabled={isMatchBusy}
               >
                 Create match draft
               </button>
@@ -546,6 +786,34 @@ export function DashboardPage() {
             )}
           </section>
         </div>
+
+        <section className="dashboard-panel">
+          <div className="dashboard-panel__header">
+            <div>
+              <p className="dashboard-panel__eyebrow">Recent activity</p>
+              <h2 className="dashboard-panel__title">Phase 2 audit trail</h2>
+            </div>
+            <span className="gg-chip gg-chip--soft">{activity.length} events</span>
+          </div>
+          {activity.length > 0 ? (
+            <ol className="dashboard-activity-list" aria-label="Recent activity">
+              {activity.map((entry) => (
+                <li key={entry.id} className="dashboard-activity-item">
+                  <p className="dashboard-activity-item__summary">{describeAuditEntry(entry)}</p>
+                  <p className="dashboard-activity-item__meta">
+                    <span>{formatAuditTimestamp(entry.createdAt)}</span>
+                    {entry.channelPairLabel ? <span>{entry.channelPairLabel}</span> : null}
+                  </p>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <EmptyPanel
+              title="No recent activity yet"
+              body="Link a broadcaster, assign a moderator, or create a match to start the Phase 2 audit trail."
+            />
+          )}
+        </section>
       </PageShell>
     </div>
   );
