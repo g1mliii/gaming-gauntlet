@@ -6,8 +6,19 @@ import { hmacSha256Hex, timingSafeEqual } from "./crypto";
 const TWITCH_AUTHORIZE_URL = "https://id.twitch.tv/oauth2/authorize";
 const TWITCH_TOKEN_URL = "https://id.twitch.tv/oauth2/token";
 const TWITCH_VALIDATE_URL = "https://id.twitch.tv/oauth2/validate";
+const TWITCH_EVENTSUB_SUBSCRIPTIONS_URL = "https://api.twitch.tv/helix/eventsub/subscriptions";
+const TWITCH_CHAT_MESSAGES_URL = "https://api.twitch.tv/helix/chat/messages";
 const TWITCH_JWKS = createRemoteJWKSet(new URL("https://id.twitch.tv/oauth2/keys"));
 const EVENTSUB_MESSAGE_MAX_AGE_MS = 10 * 60 * 1000;
+
+const DEFAULT_TWITCH_AUTH_SCOPES = ["openid", "channel:bot"] as const;
+
+let cachedAppToken:
+  | {
+      accessToken: string;
+      expiresAt: number;
+    }
+  | null = null;
 
 type TwitchTokenResponse = {
   access_token: string;
@@ -41,12 +52,17 @@ export class TwitchAuthError extends Error {
   }
 }
 
-export function buildTwitchAuthorizeUrl(env: Env, state: string, nonce: string): string {
+export function buildTwitchAuthorizeUrl(
+  env: Env,
+  state: string,
+  nonce: string,
+  scopes: readonly string[] = DEFAULT_TWITCH_AUTH_SCOPES
+): string {
   const url = new URL(TWITCH_AUTHORIZE_URL);
   url.searchParams.set("client_id", env.TWITCH_CLIENT_ID);
   url.searchParams.set("redirect_uri", env.TWITCH_REDIRECT_URI);
   url.searchParams.set("response_type", "code");
-  url.searchParams.set("scope", "openid");
+  url.searchParams.set("scope", scopes.join(" "));
   url.searchParams.set("state", state);
   url.searchParams.set("nonce", nonce);
   return url.toString();
@@ -174,6 +190,142 @@ export function normalizeScopeValue(scope: string[] | string | undefined): strin
   }
 
   return [];
+}
+
+export async function getAppAccessToken(env: Env): Promise<string> {
+  if (cachedAppToken && cachedAppToken.expiresAt > Date.now() + 60_000) {
+    return cachedAppToken.accessToken;
+  }
+
+  const body = new URLSearchParams({
+    client_id: env.TWITCH_CLIENT_ID,
+    client_secret: env.TWITCH_CLIENT_SECRET,
+    grant_type: "client_credentials"
+  });
+
+  const response = await fetch(TWITCH_TOKEN_URL, {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded"
+    },
+    body
+  });
+
+  if (!response.ok) {
+    throw new Error(`Twitch app token exchange failed: ${response.status}`);
+  }
+
+  const payload = (await response.json()) as TwitchTokenResponse;
+
+  cachedAppToken = {
+    accessToken: payload.access_token,
+    expiresAt: Date.now() + payload.expires_in * 1000
+  };
+
+  return payload.access_token;
+}
+
+export async function createEventSubChatMessageSubscription(
+  env: Env,
+  appAccessToken: string,
+  input: {
+    broadcasterUserId: string;
+    userId: string;
+  }
+): Promise<{ id: string; status: string }> {
+  const callback = new URL("/api/twitch/eventsub", env.TWITCH_REDIRECT_URI).toString();
+  const response = await fetch(TWITCH_EVENTSUB_SUBSCRIPTIONS_URL, {
+    method: "POST",
+    headers: {
+      "Client-Id": env.TWITCH_CLIENT_ID,
+      Authorization: `Bearer ${appAccessToken}`,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      type: "channel.chat.message",
+      version: "1",
+      condition: {
+        broadcaster_user_id: input.broadcasterUserId,
+        user_id: input.userId
+      },
+      transport: {
+        method: "webhook",
+        callback,
+        secret: env.TWITCH_EVENTSUB_SECRET
+      }
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Twitch EventSub subscription failed: ${response.status}`);
+  }
+
+  const payload = (await response.json()) as {
+    data?: Array<{
+      id: string;
+      status: string;
+    }>;
+  };
+  const subscription = payload.data?.[0];
+
+  if (!subscription) {
+    throw new Error("Twitch EventSub subscription payload missing data");
+  }
+
+  return subscription;
+}
+
+export async function deleteEventSubSubscription(
+  env: Env,
+  appAccessToken: string,
+  subscriptionId: string
+): Promise<void> {
+  const url = new URL(TWITCH_EVENTSUB_SUBSCRIPTIONS_URL);
+  url.searchParams.set("id", subscriptionId);
+
+  const response = await fetch(url, {
+    method: "DELETE",
+    headers: {
+      "Client-Id": env.TWITCH_CLIENT_ID,
+      Authorization: `Bearer ${appAccessToken}`
+    }
+  });
+
+  if (!response.ok && response.status !== 404) {
+    throw new Error(`Twitch EventSub delete failed: ${response.status}`);
+  }
+}
+
+export async function sendChatMessage(
+  env: Env,
+  appAccessToken: string,
+  input: {
+    broadcasterId: string;
+    senderId: string;
+    message: string;
+    replyParentMessageId?: string | null;
+    forSourceOnly?: boolean;
+  }
+): Promise<void> {
+  const response = await fetch(TWITCH_CHAT_MESSAGES_URL, {
+    method: "POST",
+    headers: {
+      "Client-Id": env.TWITCH_CLIENT_ID,
+      Authorization: `Bearer ${appAccessToken}`,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      broadcaster_id: input.broadcasterId,
+      sender_id: input.senderId,
+      message: input.message,
+      reply_parent_message_id: input.replyParentMessageId ?? undefined,
+      for_source_only: input.forSourceOnly ?? true
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Twitch chat send failed: ${response.status}`);
+  }
 }
 
 export async function verifyEventSubRequest(env: Env, headers: Headers, bodyText: string): Promise<void> {

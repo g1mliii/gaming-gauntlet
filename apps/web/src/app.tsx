@@ -1,18 +1,40 @@
 import { lazy, Suspense } from "react";
-import { BrowserRouter, Link, Route, Routes, useLocation } from "react-router-dom";
+import {
+  BrowserRouter,
+  Link,
+  Route,
+  Routes,
+  useLocation,
+} from "react-router-dom";
 
-const HomePage = lazy(() => import("./routes/home-page").then((module) => ({ default: module.HomePage })));
+const HomePage = lazy(() =>
+  import("./routes/home-page").then((module) => ({ default: module.HomePage }))
+);
 const DashboardPage = lazy(() =>
-  import("./routes/dashboard-page").then((module) => ({ default: module.DashboardPage }))
+  import("./routes/dashboard-page").then((module) => ({
+    default: module.DashboardPage,
+  }))
 );
 const LinkInvitePage = lazy(() =>
-  import("./routes/link-invite-page").then((module) => ({ default: module.LinkInvitePage }))
+  import("./routes/link-invite-page").then((module) => ({
+    default: module.LinkInvitePage,
+  }))
 );
-const MatchPage = lazy(() => import("./routes/match-page").then((module) => ({ default: module.MatchPage })));
+const MatchPage = lazy(() =>
+  import("./routes/match-page").then((module) => ({
+    default: module.MatchPage,
+  }))
+);
 const ControlRoomPage = lazy(() =>
-  import("./routes/control-room-page").then((module) => ({ default: module.ControlRoomPage }))
+  import("./routes/control-room-page").then((module) => ({
+    default: module.ControlRoomPage,
+  }))
 );
-const OverlayPage = lazy(() => import("./routes/overlay-page").then((module) => ({ default: module.OverlayPage })));
+const OverlayPage = lazy(() =>
+  import("./routes/overlay-page").then((module) => ({
+    default: module.OverlayPage,
+  }))
+);
 
 function AppLayout() {
   const location = useLocation();
@@ -30,17 +52,17 @@ function AppLayout() {
           </Link>
           <nav className="site-header__nav" aria-label="Primary">
             <Link to="/dashboard">Dashboard</Link>
-            <Link to="/matches/speedrun-showdown">Live Match</Link>
-            <Link to="/control/match_demo_01">Control Room</Link>
-            <Link to="/overlay/match_demo_01">Overlay</Link>
           </nav>
         </header>
       )}
-      <main className={`site-main ${isOverlayRoute ? "site-main--overlay" : ""}`} id="main-content">
+      <main
+        className={`site-main ${isOverlayRoute ? "site-main--overlay" : ""}`}
+        id="main-content"
+      >
         <Suspense
           fallback={
             <div className="route-loading" role="status" aria-live="polite">
-              Loading route...
+              Loading Route…
             </div>
           }
         >

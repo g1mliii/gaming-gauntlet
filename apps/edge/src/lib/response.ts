@@ -9,7 +9,10 @@ type CookieOptions = {
 };
 
 function appendSecurityHeaders(headers: Headers): Headers {
-  headers.set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'");
+  headers.set(
+    "Content-Security-Policy",
+    "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+  );
   headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("X-Frame-Options", "DENY");
@@ -28,18 +31,23 @@ function setVary(headers: Headers, value: string): void {
     return;
   }
 
-  if (!current.split(",").map((entry) => entry.trim()).includes(value)) {
+  if (
+    !current
+      .split(",")
+      .map((entry) => entry.trim())
+      .includes(value)
+  ) {
     headers.set("Vary", `${current}, ${value}`);
   }
 }
 
 export function json(payload: unknown, init?: ResponseInit): Response {
-  return new Response(JSON.stringify(payload, null, 2), {
+  return new Response(JSON.stringify(payload), {
     ...init,
     headers: createHeaders({
       "content-type": "application/json; charset=utf-8",
-      ...init?.headers
-    })
+      ...init?.headers,
+    }),
   });
 }
 
@@ -48,8 +56,8 @@ export function plainText(payload: string, init?: ResponseInit): Response {
     ...init,
     headers: createHeaders({
       "content-type": "text/plain; charset=utf-8",
-      ...init?.headers
-    })
+      ...init?.headers,
+    }),
   });
 }
 
@@ -57,13 +65,13 @@ export function methodNotAllowed(allowed: string[]): Response {
   return json(
     {
       error: "method_not_allowed",
-      allowed
+      allowed,
     },
     {
       status: 405,
       headers: {
-        Allow: allowed.join(", ")
-      }
+        Allow: allowed.join(", "),
+      },
     }
   );
 }
@@ -74,8 +82,8 @@ export function redirect(location: string, init?: ResponseInit): Response {
     ...init,
     headers: createHeaders({
       Location: location,
-      ...init?.headers
-    })
+      ...init?.headers,
+    }),
   });
 }
 
@@ -83,7 +91,7 @@ export function noContent(init?: ResponseInit): Response {
   return new Response(null, {
     status: 204,
     ...init,
-    headers: createHeaders(init?.headers)
+    headers: createHeaders(init?.headers),
   });
 }
 
@@ -103,7 +111,11 @@ export function parseCookies(header: string | null): Record<string, string> {
     }, {});
 }
 
-export function serializeCookie(name: string, value: string, options: CookieOptions = {}): string {
+export function serializeCookie(
+  name: string,
+  value: string,
+  options: CookieOptions = {}
+): string {
   const parts = [`${name}=${encodeURIComponent(value)}`];
   parts.push(`Path=${options.path ?? "/"}`);
 
@@ -131,11 +143,15 @@ export function withSetCookie(response: Response, cookie: string): Response {
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
-    headers
+    headers,
   });
 }
 
-export function withCors(request: Request, env: Env, response: Response): Response {
+export function withCors(
+  request: Request,
+  env: Env,
+  response: Response
+): Response {
   const origin = request.headers.get("Origin");
 
   if (!origin || origin !== env.APP_ORIGIN) {
@@ -150,7 +166,7 @@ export function withCors(request: Request, env: Env, response: Response): Respon
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
-    headers
+    headers,
   });
 }
 
@@ -167,8 +183,8 @@ export function corsPreflight(request: Request, env: Env): Response {
       "Access-Control-Allow-Origin": origin,
       "Access-Control-Allow-Credentials": "true",
       "Access-Control-Allow-Headers": "Content-Type",
-      "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
-      Vary: "Origin"
-    })
+      "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
+      Vary: "Origin",
+    }),
   });
 }

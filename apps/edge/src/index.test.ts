@@ -11,24 +11,28 @@ const {
   fetchTwitchUserMock,
   normalizeScopeValueMock,
   validateAccessTokenMock,
-  validateIdTokenMock
+  validateIdTokenMock,
 } = vi.hoisted(() => ({
   buildTwitchAuthorizeUrlMock: vi.fn(),
   createRepositoryMock: vi.fn(),
   exchangeAuthorizationCodeMock: vi.fn(),
   fetchTwitchUserMock: vi.fn(),
   normalizeScopeValueMock: vi.fn((value: string[] | string | undefined) =>
-    Array.isArray(value) ? value : typeof value === "string" && value.length > 0 ? value.split(" ") : []
+    Array.isArray(value)
+      ? value
+      : typeof value === "string" && value.length > 0
+        ? value.split(" ")
+        : []
   ),
   validateAccessTokenMock: vi.fn(),
-  validateIdTokenMock: vi.fn()
+  validateIdTokenMock: vi.fn(),
 }));
 
 vi.mock("./lib/repository", async () => {
   const actual = await vi.importActual("./lib/repository");
   return {
     ...actual,
-    createRepository: createRepositoryMock
+    createRepository: createRepositoryMock,
   };
 });
 
@@ -41,7 +45,7 @@ vi.mock("./lib/twitch", async () => {
     fetchTwitchUser: fetchTwitchUserMock,
     normalizeScopeValue: normalizeScopeValueMock,
     validateAccessToken: validateAccessTokenMock,
-    validateIdToken: validateIdTokenMock
+    validateIdToken: validateIdTokenMock,
   };
 });
 
@@ -53,13 +57,19 @@ type RepoMock = {
   createSession: ReturnType<typeof vi.fn>;
   deleteSession: ReturnType<typeof vi.fn>;
   ensureFreshTwitchToken: ReturnType<typeof vi.fn>;
+  findSharedBotIdentity: ReturnType<typeof vi.fn>;
+  getCompactBoardForUser: ReturnType<typeof vi.fn>;
   getInviteStatus: ReturnType<typeof vi.fn>;
+  getMatchIdBySlug: ReturnType<typeof vi.fn>;
+  getMatchSnapshot: ReturnType<typeof vi.fn>;
+  getMatchSummaryForUser: ReturnType<typeof vi.fn>;
   getRoleForUser: ReturnType<typeof vi.fn>;
   getSession: ReturnType<typeof vi.fn>;
   listAuditLogForUser: ReturnType<typeof vi.fn>;
   listChannelLinksForUser: ReturnType<typeof vi.fn>;
   listMatchesForUser: ReturnType<typeof vi.fn>;
   removeModerator: ReturnType<typeof vi.fn>;
+  updateMatchStatusForUser: ReturnType<typeof vi.fn>;
   upsertIdentity: ReturnType<typeof vi.fn>;
   writeAuditLog: ReturnType<typeof vi.fn>;
 };
@@ -72,15 +82,17 @@ const env = {
   TWITCH_CLIENT_SECRET: "client-secret",
   TWITCH_REDIRECT_URI: "http://localhost:8787/api/auth/twitch/callback",
   TWITCH_EVENTSUB_SECRET: "eventsub-secret",
+  TWITCH_BOT_ACCESS_TOKEN: "bot-access-token",
+  TWITCH_BOT_REFRESH_TOKEN: "bot-refresh-token",
   SESSION_SECRET: "super-secret-session",
   TOKEN_ENCRYPTION_KEY: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
   TWITCH_EXTENSION_SECRET: "extension-secret",
   DB: {} as D1Database,
   MATCH_COORDINATOR: {
     idFromName: vi.fn(),
-    get: vi.fn()
+    get: vi.fn(),
   } as unknown as DurableObjectNamespace,
-  EVENT_INGEST_QUEUE: {} as Queue<unknown>
+  EVENT_INGEST_QUEUE: {} as Queue<unknown>,
 };
 
 function createRepoMock(): RepoMock {
@@ -92,15 +104,42 @@ function createRepoMock(): RepoMock {
     createSession: vi.fn(),
     deleteSession: vi.fn(),
     ensureFreshTwitchToken: vi.fn(),
+    findSharedBotIdentity: vi.fn(),
+    getCompactBoardForUser: vi.fn(),
     getInviteStatus: vi.fn(),
+    getMatchIdBySlug: vi.fn(),
+    getMatchSnapshot: vi.fn(),
+    getMatchSummaryForUser: vi.fn(),
     getRoleForUser: vi.fn(),
     getSession: vi.fn(),
     listAuditLogForUser: vi.fn(),
     listChannelLinksForUser: vi.fn(),
     listMatchesForUser: vi.fn(),
     removeModerator: vi.fn(),
+    updateMatchStatusForUser: vi.fn(),
     upsertIdentity: vi.fn(),
-    writeAuditLog: vi.fn()
+    writeAuditLog: vi.fn(),
+  };
+}
+
+function buildMatchSummary(
+  overrides: Partial<MatchSummary> = {}
+): MatchSummary {
+  return {
+    id: "match_1",
+    channelLinkId: "link_1",
+    slug: "gauntlet-finals",
+    title: "Gauntlet Finals",
+    status: "draft",
+    chatState: "idle",
+    chatEnabledUntil: null,
+    boardRevision: 0,
+    subscriptionHealth: "idle",
+    targetWins: 3,
+    players: [],
+    createdAt: "2026-03-24T04:00:00.000Z",
+    updatedAt: "2026-03-24T04:00:00.000Z",
+    ...overrides,
   };
 }
 
@@ -111,14 +150,14 @@ function signedInSession(): AuthSession {
       id: "user_1",
       twitchUserId: "1001",
       login: "pixelriot",
-      displayName: "PixelRiot"
+      displayName: "PixelRiot",
     },
     ownedChannel: {
       id: "channel_1",
       twitchChannelId: "1001",
       login: "pixelriot",
-      displayName: "PixelRiot"
-    }
+      displayName: "PixelRiot",
+    },
   };
 }
 
@@ -127,7 +166,9 @@ async function createSignedSessionCookie(sessionId: string): Promise<string> {
   return `gg_session=${encodeURIComponent(cookieValue)}`;
 }
 
-async function createEventSubHeaders(bodyText: string): Promise<Record<string, string>> {
+async function createEventSubHeaders(
+  bodyText: string
+): Promise<Record<string, string>> {
   const messageId = "eventsub-message-1";
   const timestamp = new Date().toISOString();
   const signature = `sha256=${await hmacSha256Hex(`${messageId}${timestamp}${bodyText}`, env.TWITCH_EVENTSUB_SECRET)}`;
@@ -136,7 +177,7 @@ async function createEventSubHeaders(bodyText: string): Promise<Record<string, s
     "content-type": "application/json",
     "Twitch-Eventsub-Message-Id": messageId,
     "Twitch-Eventsub-Message-Timestamp": timestamp,
-    "Twitch-Eventsub-Message-Signature": signature
+    "Twitch-Eventsub-Message-Signature": signature,
   };
 }
 
@@ -149,12 +190,16 @@ describe("handleRequest", () => {
     createRepositoryMock.mockReturnValue(createRepoMock());
 
     const response = await handleRequest(
-      new Request("http://localhost:8787/api/auth/twitch/callback?code=demo&state=bad-state"),
+      new Request(
+        "http://localhost:8787/api/auth/twitch/callback?code=demo&state=bad-state"
+      ),
       env
     );
 
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("http://localhost:5173/dashboard?authError=invalid_state");
+    expect(response.headers.get("Location")).toBe(
+      "http://localhost:5173/dashboard?authError=invalid_state"
+    );
   });
 
   it("completes Twitch login, creates a session cookie, and records auth.login", async () => {
@@ -163,7 +208,7 @@ describe("handleRequest", () => {
 
     const state = await createAuthState(env, {
       intent: "dashboard",
-      nonce: "dashboard-nonce"
+      nonce: "dashboard-nonce",
     });
 
     exchangeAuthorizationCodeMock.mockResolvedValue({
@@ -172,42 +217,49 @@ describe("handleRequest", () => {
       id_token: "id-token",
       expires_in: 3600,
       scope: ["openid"],
-      token_type: "bearer"
+      token_type: "bearer",
     });
-    validateIdTokenMock.mockResolvedValue({ sub: "1001", nonce: "dashboard-nonce" });
+    validateIdTokenMock.mockResolvedValue({
+      sub: "1001",
+      nonce: "dashboard-nonce",
+    });
     validateAccessTokenMock.mockResolvedValue({
       client_id: "client-id",
       login: "pixelriot",
       scopes: ["openid"],
       user_id: "1001",
-      expires_in: 3600
+      expires_in: 3600,
     });
     fetchTwitchUserMock.mockResolvedValue({
       id: "1001",
       login: "pixelriot",
-      display_name: "PixelRiot"
+      display_name: "PixelRiot",
     });
     repo.upsertIdentity.mockResolvedValue({
       user: signedInSession().user,
-      ownedChannel: signedInSession().ownedChannel
+      ownedChannel: signedInSession().ownedChannel,
     });
     repo.createSession.mockResolvedValue({
       id: "session_1",
-      expiresAt: "2026-04-24T04:00:00.000Z"
+      expiresAt: "2026-04-24T04:00:00.000Z",
     });
 
     const response = await handleRequest(
-      new Request(`http://localhost:8787/api/auth/twitch/callback?code=demo&state=${encodeURIComponent(state)}`),
+      new Request(
+        `http://localhost:8787/api/auth/twitch/callback?code=demo&state=${encodeURIComponent(state)}`
+      ),
       env
     );
 
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("http://localhost:5173/dashboard?auth=connected");
+    expect(response.headers.get("Location")).toBe(
+      "http://localhost:5173/dashboard?auth=connected"
+    );
     expect(response.headers.get("Set-Cookie")).toContain("gg_session=");
     expect(repo.writeAuditLog).toHaveBeenCalledWith(
       expect.objectContaining({
         action: "auth.login",
-        actorUserId: "user_1"
+        actorUserId: "user_1",
       })
     );
   });
@@ -219,7 +271,7 @@ describe("handleRequest", () => {
     const state = await createAuthState(env, {
       intent: "invite",
       inviteCode: "invite_demo",
-      nonce: "invite-nonce"
+      nonce: "invite-nonce",
     });
 
     exchangeAuthorizationCodeMock.mockResolvedValue({
@@ -228,12 +280,14 @@ describe("handleRequest", () => {
       id_token: "id-token",
       expires_in: 3600,
       scope: ["openid"],
-      token_type: "bearer"
+      token_type: "bearer",
     });
     validateIdTokenMock.mockRejectedValue(new AppError(401, "invalid_nonce"));
 
     const response = await handleRequest(
-      new Request(`http://localhost:8787/api/auth/twitch/callback?code=demo&state=${encodeURIComponent(state)}`),
+      new Request(
+        `http://localhost:8787/api/auth/twitch/callback?code=demo&state=${encodeURIComponent(state)}`
+      ),
       env
     );
 
@@ -250,7 +304,7 @@ describe("handleRequest", () => {
     const state = await createAuthState(env, {
       intent: "invite",
       inviteCode: "invite_demo",
-      nonce: "invite-nonce"
+      nonce: "invite-nonce",
     });
 
     exchangeAuthorizationCodeMock.mockResolvedValue({
@@ -259,33 +313,38 @@ describe("handleRequest", () => {
       id_token: "id-token",
       expires_in: 3600,
       scope: ["openid"],
-      token_type: "bearer"
+      token_type: "bearer",
     });
-    validateIdTokenMock.mockResolvedValue({ sub: "1001", nonce: "invite-nonce" });
+    validateIdTokenMock.mockResolvedValue({
+      sub: "1001",
+      nonce: "invite-nonce",
+    });
     validateAccessTokenMock.mockResolvedValue({
       client_id: "client-id",
       login: "pixelriot",
       scopes: ["openid"],
       user_id: "1001",
-      expires_in: 3600
+      expires_in: 3600,
     });
     fetchTwitchUserMock.mockResolvedValue({
       id: "1001",
       login: "pixelriot",
-      display_name: "PixelRiot"
+      display_name: "PixelRiot",
     });
     repo.upsertIdentity.mockResolvedValue({
       user: signedInSession().user,
-      ownedChannel: signedInSession().ownedChannel
+      ownedChannel: signedInSession().ownedChannel,
     });
     repo.createSession.mockResolvedValue({
       id: "session_1",
-      expiresAt: "2026-04-24T04:00:00.000Z"
+      expiresAt: "2026-04-24T04:00:00.000Z",
     });
     repo.acceptInvite.mockRejectedValue(new AppError(410, "invite_expired"));
 
     const response = await handleRequest(
-      new Request(`http://localhost:8787/api/auth/twitch/callback?code=demo&state=${encodeURIComponent(state)}`),
+      new Request(
+        `http://localhost:8787/api/auth/twitch/callback?code=demo&state=${encodeURIComponent(state)}`
+      ),
       env
     );
 
@@ -310,12 +369,12 @@ describe("handleRequest", () => {
         headers: {
           Cookie: cookie,
           Origin: env.APP_ORIGIN,
-          "content-type": "application/json"
+          "content-type": "application/json",
         },
         body: JSON.stringify({
           login: "trustedmod",
-          role: "mod"
-        })
+          role: "mod",
+        }),
       }),
       env
     );
@@ -323,7 +382,7 @@ describe("handleRequest", () => {
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({
       error: "insufficient_permissions",
-      details: null
+      details: null,
     });
   });
 
@@ -336,9 +395,9 @@ describe("handleRequest", () => {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          "Twitch-Eventsub-Message-Type": "notification"
+          "Twitch-Eventsub-Message-Type": "notification",
         },
-        body: JSON.stringify({ subscription: { type: "channel.follow" } })
+        body: JSON.stringify({ subscription: { type: "channel.follow" } }),
       }),
       env
     );
@@ -346,7 +405,7 @@ describe("handleRequest", () => {
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({
       error: "invalid_eventsub_signature",
-      details: null
+      details: null,
     });
   });
 
@@ -361,16 +420,18 @@ describe("handleRequest", () => {
         method: "POST",
         headers: {
           ...headers,
-          "Twitch-Eventsub-Message-Type": "webhook_callback_verification"
+          "Twitch-Eventsub-Message-Type": "webhook_callback_verification",
         },
-        body: bodyText
+        body: bodyText,
       }),
       env
     );
 
     expect(response.status).toBe(200);
     expect(await response.text()).toBe("challenge-token");
-    expect(response.headers.get("Content-Security-Policy")).toContain("default-src 'none'");
+    expect(response.headers.get("Content-Security-Policy")).toContain(
+      "default-src 'none'"
+    );
   });
 
   it("rejects extension bootstrap requests without an authenticated broadcaster session", async () => {
@@ -382,13 +443,13 @@ describe("handleRequest", () => {
         method: "POST",
         headers: {
           Origin: env.APP_ORIGIN,
-          "content-type": "application/json"
+          "content-type": "application/json",
         },
         body: JSON.stringify({
           channelId: "1001",
           role: "viewer",
-          opaqueUserId: "U-demo"
-        })
+          opaqueUserId: "U-demo",
+        }),
       }),
       env
     );
@@ -396,7 +457,7 @@ describe("handleRequest", () => {
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({
       error: "auth_required",
-      details: null
+      details: null,
     });
   });
 
@@ -413,13 +474,13 @@ describe("handleRequest", () => {
         headers: {
           Cookie: cookie,
           Origin: env.APP_ORIGIN,
-          "content-type": "application/json"
+          "content-type": "application/json",
         },
         body: JSON.stringify({
           channelId: "9999",
           role: "viewer",
-          opaqueUserId: "U-demo"
-        })
+          opaqueUserId: "U-demo",
+        }),
       }),
       env
     );
@@ -427,7 +488,7 @@ describe("handleRequest", () => {
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({
       error: "channel_access_denied",
-      details: null
+      details: null,
     });
   });
 
@@ -436,17 +497,7 @@ describe("handleRequest", () => {
     createRepositoryMock.mockReturnValue(repo);
     const cookie = await createSignedSessionCookie("session_1");
 
-    const match: MatchSummary = {
-      id: "match_1",
-      channelLinkId: "link_1",
-      slug: "gauntlet-finals",
-      title: "Gauntlet Finals",
-      status: "draft",
-      targetWins: 3,
-      players: [],
-      createdAt: "2026-03-24T04:00:00.000Z",
-      updatedAt: "2026-03-24T04:00:00.000Z"
-    };
+    const match: MatchSummary = buildMatchSummary();
 
     repo.getSession.mockResolvedValue(signedInSession());
     repo.getRoleForUser.mockResolvedValue("owner");
@@ -458,14 +509,14 @@ describe("handleRequest", () => {
         headers: {
           Cookie: cookie,
           Origin: env.APP_ORIGIN,
-          "content-type": "application/json"
+          "content-type": "application/json",
         },
         body: JSON.stringify({
           channelLinkId: "link_1",
           title: "Gauntlet Finals",
           slug: "gauntlet-finals",
-          targetWins: 3
-        })
+          targetWins: 3,
+        }),
       }),
       env
     );
@@ -473,7 +524,7 @@ describe("handleRequest", () => {
     expect(response.status).toBe(201);
     expect(await response.json()).toEqual({
       ok: true,
-      match
+      match,
     });
   });
 
@@ -483,46 +534,88 @@ describe("handleRequest", () => {
     const cookie = await createSignedSessionCookie("session_1");
 
     repo.getSession.mockResolvedValue(signedInSession());
-    repo.listMatchesForUser.mockResolvedValue([
-      {
-        id: "match_1",
-        channelLinkId: "link_1",
-        slug: "gauntlet-finals",
-        title: "Gauntlet Finals",
-        status: "draft",
-        targetWins: 3,
-        players: [],
-        createdAt: "2026-03-24T04:00:00.000Z",
-        updatedAt: "2026-03-24T04:00:00.000Z"
-      }
-    ]);
+    repo.listMatchesForUser.mockResolvedValue([buildMatchSummary()]);
 
     const response = await handleRequest(
       new Request("http://localhost:8787/api/matches", {
         headers: {
           Cookie: cookie,
-          Origin: env.APP_ORIGIN
-        }
+          Origin: env.APP_ORIGIN,
+        },
       }),
       env
     );
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
-      items: [
-        {
-          id: "match_1",
-          channelLinkId: "link_1",
-          slug: "gauntlet-finals",
-          title: "Gauntlet Finals",
-          status: "draft",
-          targetWins: 3,
-          players: [],
-          createdAt: "2026-03-24T04:00:00.000Z",
-          updatedAt: "2026-03-24T04:00:00.000Z"
-        }
-      ]
+      items: [buildMatchSummary()],
     });
+  });
+
+  it("resolves public snapshots by slug without loading the full snapshot from the repository", async () => {
+    const repo = createRepoMock();
+    const coordinatorFetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ matchId: "match_public" }), {
+        headers: {
+          "content-type": "application/json",
+          ETag: 'W/"match_public:2026-03-24T04:00:00.000Z:1"',
+        },
+      })
+    );
+
+    createRepositoryMock.mockReturnValue(repo);
+    repo.getMatchIdBySlug.mockResolvedValue("match_public");
+    vi.mocked(env.MATCH_COORDINATOR.idFromName).mockReturnValue(
+      "durable-id" as unknown as DurableObjectId
+    );
+    vi.mocked(env.MATCH_COORDINATOR.get).mockReturnValue({
+      fetch: coordinatorFetch,
+    } as unknown as DurableObjectStub);
+
+    const response = await handleRequest(
+      new Request(
+        "http://localhost:8787/api/public/matches/gauntlet-finals/snapshot"
+      ),
+      env
+    );
+
+    expect(response.status).toBe(200);
+    expect(repo.getMatchIdBySlug).toHaveBeenCalledWith("gauntlet-finals");
+    expect(repo.getMatchSnapshot).not.toHaveBeenCalled();
+    expect(coordinatorFetch).toHaveBeenCalledTimes(1);
+    expect(await response.json()).toEqual({ matchId: "match_public" });
+  });
+
+  it("decodes encoded public match slugs before resolving snapshots", async () => {
+    const repo = createRepoMock();
+    const coordinatorFetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ matchId: "match_public" }), {
+        headers: {
+          "content-type": "application/json",
+          ETag: 'W/"match_public:2026-03-24T04:00:00.000Z:1"',
+        },
+      })
+    );
+
+    createRepositoryMock.mockReturnValue(repo);
+    repo.getMatchIdBySlug.mockResolvedValue("match_public");
+    vi.mocked(env.MATCH_COORDINATOR.idFromName).mockReturnValue(
+      "durable-id" as unknown as DurableObjectId
+    );
+    vi.mocked(env.MATCH_COORDINATOR.get).mockReturnValue({
+      fetch: coordinatorFetch,
+    } as unknown as DurableObjectStub);
+
+    const response = await handleRequest(
+      new Request(
+        "http://localhost:8787/api/public/matches/grand%20finals/snapshot"
+      ),
+      env
+    );
+
+    expect(response.status).toBe(200);
+    expect(repo.getMatchIdBySlug).toHaveBeenCalledWith("grand finals");
+    expect(await response.json()).toEqual({ matchId: "match_public" });
   });
 
   it("returns audit log items for authenticated members", async () => {
@@ -539,24 +632,24 @@ describe("handleRequest", () => {
         actor: {
           id: "user_1",
           login: "pixelriot",
-          displayName: "PixelRiot"
+          displayName: "PixelRiot",
         },
         channelLinkId: "link_1",
         channelPairLabel: "@pixelriot vs @novarune",
         matchId: "match_1",
         matchTitle: "Gauntlet Finals",
         payload: {
-          slug: "gauntlet-finals"
-        }
-      }
+          slug: "gauntlet-finals",
+        },
+      },
     ]);
 
     const response = await handleRequest(
       new Request("http://localhost:8787/api/audit-log?limit=50", {
         headers: {
           Cookie: cookie,
-          Origin: env.APP_ORIGIN
-        }
+          Origin: env.APP_ORIGIN,
+        },
       }),
       env
     );
@@ -564,7 +657,7 @@ describe("handleRequest", () => {
     expect(response.status).toBe(200);
     expect(repo.listAuditLogForUser).toHaveBeenCalledWith("user_1", {
       channelLinkId: undefined,
-      limit: 50
+      limit: 50,
     });
     expect(await response.json()).toEqual({
       items: [
@@ -575,17 +668,17 @@ describe("handleRequest", () => {
           actor: {
             id: "user_1",
             login: "pixelriot",
-            displayName: "PixelRiot"
+            displayName: "PixelRiot",
           },
           channelLinkId: "link_1",
           channelPairLabel: "@pixelriot vs @novarune",
           matchId: "match_1",
           matchTitle: "Gauntlet Finals",
           payload: {
-            slug: "gauntlet-finals"
-          }
-        }
-      ]
+            slug: "gauntlet-finals",
+          },
+        },
+      ],
     });
   });
 
@@ -593,12 +686,15 @@ describe("handleRequest", () => {
     const repo = createRepoMock();
     createRepositoryMock.mockReturnValue(repo);
 
-    const response = await handleRequest(new Request("http://localhost:8787/api/audit-log"), env);
+    const response = await handleRequest(
+      new Request("http://localhost:8787/api/audit-log"),
+      env
+    );
 
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({
       error: "auth_required",
-      details: null
+      details: null,
     });
   });
 
@@ -614,8 +710,8 @@ describe("handleRequest", () => {
       new Request("http://localhost:8787/api/audit-log?channelLinkId=link_2", {
         headers: {
           Cookie: cookie,
-          Origin: env.APP_ORIGIN
-        }
+          Origin: env.APP_ORIGIN,
+        },
       }),
       env
     );
@@ -623,7 +719,7 @@ describe("handleRequest", () => {
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({
       error: "insufficient_permissions",
-      details: null
+      details: null,
     });
     expect(repo.listAuditLogForUser).not.toHaveBeenCalled();
   });

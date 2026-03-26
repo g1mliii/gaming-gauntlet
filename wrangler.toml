@@ -34,5 +34,5 @@ queue = "gaming-gauntlet-event-ingest"
 
 [[queues.consumers]]
 queue = "gaming-gauntlet-event-ingest"
-max_batch_size = 10
-max_batch_timeout = 5
+max_batch_size = 50
+max_batch_timeout = 2

@@ -1,11 +1,33 @@
-import { useEffect } from "react";
-
-import { createDemoMatchSnapshot } from "@gaming-gauntlet/contracts";
 import { QueueList, ScoreBug } from "@gaming-gauntlet/ui";
+import { useEffect } from "react";
+import { useParams } from "react-router-dom";
 
-const demoMatch = createDemoMatchSnapshot();
+import { EdgeError } from "../lib/edge";
+import { useLiveSnapshot } from "../lib/live-snapshot";
+
+const OVERLAY_POLL_INTERVAL_MS = 10_000;
+
+function toFriendlyError(error: unknown): string {
+  if (error instanceof TypeError) {
+    return "The overlay feed is offline right now.";
+  }
+
+  if (error instanceof EdgeError && error.code === "match_not_found") {
+    return "That overlay match could not be found.";
+  }
+
+  return "The overlay failed to load.";
+}
 
 export function OverlayPage() {
+  const { matchId = "" } = useParams();
+  const { pageError, snapshot } = useLiveSnapshot({
+    missingPathError: "No match id was provided.",
+    path: matchId ? `/api/matches/${matchId}/snapshot` : null,
+    pollIntervalMs: OVERLAY_POLL_INTERVAL_MS,
+    toFriendlyError,
+  });
+
   useEffect(() => {
     document.documentElement.classList.add("gg-doc--overlay");
     document.body.classList.add("gg-body--overlay");
@@ -19,8 +41,9 @@ export function OverlayPage() {
   return (
     <div className="overlay-page">
       <div className="overlay-frame">
-        <ScoreBug match={demoMatch} transparent />
-        <QueueList items={demoMatch.queue} title="Next in queue" transparent />
+        {snapshot ? <ScoreBug match={snapshot} transparent /> : null}
+        {snapshot ? <QueueList items={snapshot.queue} title="Next in queue" transparent /> : null}
+        {pageError ? <p className="dashboard-message dashboard-message--warning">{pageError}</p> : null}
       </div>
     </div>
   );

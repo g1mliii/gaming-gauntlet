@@ -23,7 +23,9 @@ export function buildEdgeUrl(path: string, params?: Record<string, string | numb
 }
 
 export async function edgeFetchJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(buildEdgeUrl(path), {
+  const url = buildEdgeUrl(path);
+
+  const response = await fetch(url, {
     credentials: "include",
     ...init,
     headers: {
@@ -55,7 +57,9 @@ export async function edgeSendJson<T>(path: string, body?: unknown, init?: Reque
 }
 
 export async function edgeNoContent(path: string, init?: RequestInit): Promise<void> {
-  const response = await fetch(buildEdgeUrl(path), {
+  const url = buildEdgeUrl(path);
+
+  const response = await fetch(url, {
     credentials: "include",
     ...init
   });

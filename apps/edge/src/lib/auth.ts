@@ -67,20 +67,33 @@ export async function readSessionIdFromRequest(request: Request, env: Env): Prom
   return readSignedValue(value, env.SESSION_SECRET);
 }
 
-export function buildSessionCookie(sessionValue: string, request: Request): string {
+export function resolveSessionSameSite(
+  env: Env,
+  request: Request
+): "Lax" | "None" {
+  const appOrigin = new URL(env.APP_ORIGIN);
+  const requestOrigin = new URL(request.url);
+
+  return appOrigin.protocol === requestOrigin.protocol &&
+    appOrigin.hostname === requestOrigin.hostname
+    ? "Lax"
+    : "None";
+}
+
+export function buildSessionCookie(sessionValue: string, request: Request, env: Env): string {
   return serializeCookie(SESSION_COOKIE_NAME, sessionValue, {
     httpOnly: true,
     maxAge: SESSION_MAX_AGE_SECONDS,
-    sameSite: "Lax",
+    sameSite: resolveSessionSameSite(env, request),
     secure: new URL(request.url).protocol === "https:"
   });
 }
 
-export function buildExpiredSessionCookie(request: Request): string {
+export function buildExpiredSessionCookie(request: Request, env: Env): string {
   return serializeCookie(SESSION_COOKIE_NAME, "", {
     httpOnly: true,
     maxAge: 0,
-    sameSite: "Lax",
+    sameSite: resolveSessionSameSite(env, request),
     secure: new URL(request.url).protocol === "https:"
   });
 }

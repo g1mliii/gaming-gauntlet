@@ -70,6 +70,11 @@ describe("auth contracts", () => {
         invitedChannelLogin: "novarune",
         expiresAt: "2026-03-25T04:00:00.000Z",
         claimedAt: null
+      },
+      chatIntegration: {
+        ownerAuthorized: true,
+        linkedAuthorized: false,
+        status: "needs_consent"
       }
     });
 

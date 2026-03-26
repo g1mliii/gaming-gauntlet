@@ -262,11 +262,34 @@
   gap: 1.25rem;
 }
 
+.dashboard-stage .gg-shell--compact .gg-shell__header {
+  margin-bottom: -0.35rem;
+}
+
 .dashboard-header-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.75rem;
+}
+
+.dashboard-toolbar,
+.dashboard-toolbar__left,
+.dashboard-toolbar__right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.dashboard-toolbar {
+  justify-content: space-between;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.dashboard-toolbar__right {
+  justify-content: flex-end;
+  flex-wrap: wrap;
 }
 
 .dashboard-button,
@@ -456,8 +479,13 @@
 }
 
 .dashboard-lanes {
-  grid-template-columns: 1.1fr 0.9fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   align-items: start;
+}
+
+.dashboard-lane-stack {
+  display: grid;
+  gap: 1rem;
 }
 
 .dashboard-panel {
@@ -470,6 +498,10 @@
 .dashboard-panel--accent {
   background: color-mix(in oklab, var(--gg-surface) 92%, black);
   border-color: color-mix(in oklab, var(--gg-accent) 30%, var(--gg-border));
+}
+
+.dashboard-panel--operator {
+  min-height: 38rem;
 }
 
 .dashboard-panel__header,
@@ -583,7 +615,7 @@
   align-items: center;
   gap: 0.75rem;
   flex-wrap: wrap;
-  justify-content: flex-end;
+  justify-content: flex-start;
 }
 
 .dashboard-inline-form {
@@ -601,8 +633,39 @@
 }
 
 .dashboard-match-card {
+  grid-template-columns: minmax(0, 1fr);
   content-visibility: auto;
   contain-intrinsic-size: 7rem;
+}
+
+.dashboard-match-operator {
+  display: grid;
+  gap: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid color-mix(in oklab, var(--gg-border) 55%, transparent);
+}
+
+.dashboard-match-operator__header,
+.dashboard-match-operator__grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.dashboard-match-operator__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.dashboard-match-operator__header {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.dashboard-match-operator__grid {
+  grid-template-columns: minmax(22rem, 1.3fr) minmax(22rem, 0.95fr);
+  align-items: start;
 }
 
 .dashboard-empty {
@@ -735,7 +798,9 @@
   .dashboard-membership,
   .dashboard-inline-form,
   .dashboard-match-card,
-  .invite-card {
+  .invite-card,
+  .dashboard-match-operator__header,
+  .dashboard-match-operator__grid {
     grid-template-columns: 1fr;
     align-items: start;
   }

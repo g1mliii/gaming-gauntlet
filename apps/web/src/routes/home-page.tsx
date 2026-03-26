@@ -41,17 +41,17 @@ export function HomePage() {
             </Link>
           </article>
           <article className="route-card">
-            <strong>Control room</strong>
-            <p>Queue, score, and moderation controls for the current head-to-head match.</p>
-            <Link className="route-card__link" to="/control/match_demo_01">
-              Open control room
+            <strong>Operator board</strong>
+            <p>Live board, status controls, and match operations now live directly inside the dashboard.</p>
+            <Link className="route-card__link" to="/dashboard">
+              Open dashboard
             </Link>
           </article>
           <article className="route-card">
             <strong>Overlay</strong>
             <p>Transparent scoreboard variant sized for OBS browser sources and Twitch surfaces.</p>
-            <Link className="route-card__link" to="/overlay/match_demo_01">
-              Open overlay
+            <Link className="route-card__link" to="/dashboard">
+              Open dashboard
             </Link>
           </article>
         </div>

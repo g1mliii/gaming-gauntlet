@@ -4,13 +4,31 @@ import type {
   AuthSession,
   ChannelLinkInvite,
   ChannelLinkSummary,
-  MatchSummary
+  MatchSnapshot,
+  MatchSummary,
 } from "@gaming-gauntlet/contracts";
-import { PageShell } from "@gaming-gauntlet/ui";
-import { startTransition, useEffect, useEffectEvent, useRef, useState } from "react";
+import {
+  PageShell,
+  QueueList,
+  ScoreBug,
+  SuggestionBoard,
+} from "@gaming-gauntlet/ui";
+import {
+  startTransition,
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+} from "react";
 import { Link, useLocation } from "react-router-dom";
 
-import { buildEdgeUrl, EdgeError, edgeFetchJson, edgeNoContent, edgeSendJson } from "../lib/edge";
+import {
+  buildEdgeUrl,
+  EdgeError,
+  edgeFetchJson,
+  edgeNoContent,
+  edgeSendJson,
+} from "../lib/edge";
 import { slugifyMatchTitle } from "../lib/slug";
 
 type DashboardPayload = {
@@ -22,10 +40,12 @@ type MatchPayload = {
 };
 
 const TWITCH_LOGIN_PATTERN = /^[a-z0-9_]+$/;
+const MATCH_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const SNAPSHOT_POLL_INTERVAL_MS = 60_000;
 const EMPTY_SESSION: AuthSession = {
   authenticated: false,
   user: null,
-  ownedChannel: null
+  ownedChannel: null,
 };
 
 function validateTwitchLogin(value: string): string | null {
@@ -43,11 +63,21 @@ function validateTwitchLogin(value: string): string | null {
 }
 
 function validateMatchTitle(value: string): string | null {
-  return value.trim().length < 3 ? "Enter a match title with at least 3 characters." : null;
+  return value.trim().length < 3
+    ? "Enter a match title with at least 3 characters."
+    : null;
 }
 
 function validateMatchSlug(value: string): string | null {
-  return value.trim().length < 3 ? "Enter a slug with at least 3 characters." : null;
+  const trimmed = value.trim();
+
+  if (trimmed.length < 3) {
+    return "Enter a slug with at least 3 characters.";
+  }
+
+  return MATCH_SLUG_PATTERN.test(trimmed)
+    ? null
+    : "Use lowercase letters, numbers, and single hyphens only.";
 }
 
 function validateTargetWins(value: string): string | null {
@@ -56,13 +86,19 @@ function validateTargetWins(value: string): string | null {
   }
 
   const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed > 0 ? null : "Target wins must be a whole number greater than 0.";
+  return Number.isInteger(parsed) && parsed > 0
+    ? null
+    : "Target wins must be a whole number greater than 0.";
 }
 
 function describeAuditEntry(entry: AuditLogEntry): string {
-  const actor = entry.actor?.displayName ?? entry.actor?.login ?? "A broadcaster";
+  const actor =
+    entry.actor?.displayName ?? entry.actor?.login ?? "A broadcaster";
   const pair = entry.channelPairLabel ?? "the broadcaster pair";
-  const assignedLogin = typeof entry.payload.login === "string" ? `@${entry.payload.login}` : "a moderator";
+  const assignedLogin =
+    typeof entry.payload.login === "string"
+      ? `@${entry.payload.login}`
+      : "a moderator";
 
   switch (entry.action) {
     case "channel_link.created":
@@ -75,17 +111,19 @@ function describeAuditEntry(entry: AuditLogEntry): string {
       return `${actor} removed a moderator from ${pair}.`;
     case "match.created":
       return `${actor} created ${entry.matchTitle ?? "a new match"} for ${pair}.`;
+    case "match.status.updated":
+      return `${actor} updated ${entry.matchTitle ?? "the match"} to ${String(entry.payload.toStatus ?? "a new status")}.`;
     default:
       return `${actor} updated ${pair}.`;
   }
 }
 
 function formatAuditTimestamp(value: string): string {
-  return new Intl.DateTimeFormat("en-US", {
+  return new Intl.DateTimeFormat(undefined, {
     month: "short",
     day: "numeric",
     hour: "numeric",
-    minute: "2-digit"
+    minute: "2-digit",
   }).format(new Date(value));
 }
 
@@ -113,6 +151,10 @@ function toFriendlyError(error: unknown): string {
       return "The broadcaster pair is not active yet. Accept the invite before creating matches.";
     case "cannot_invite_self":
       return "Invite the opposing broadcaster, not the channel you already own.";
+    case "live_match_exists":
+      return "Only one live match can own chat ingestion for a broadcaster pair at a time.";
+    case "shared_bot_not_configured":
+      return "The shared chat bot is not configured yet on the edge worker.";
     default:
       return error.code.replaceAll("_", " ");
   }
@@ -129,11 +171,19 @@ export function DashboardPage() {
   const [pageError, setPageError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(search.get("authError"));
-  const [inviteResult, setInviteResult] = useState<ChannelLinkInvite | null>(null);
+  const [inviteResult, setInviteResult] = useState<ChannelLinkInvite | null>(
+    null
+  );
   const [linkLogin, setLinkLogin] = useState("");
-  const [moderatorDrafts, setModeratorDrafts] = useState<Record<string, string>>({});
-  const [linkActionState, setLinkActionState] = useState<"idle" | "creating" | "editing-members">("idle");
-  const [matchActionState, setMatchActionState] = useState<"idle" | "creating">("idle");
+  const [moderatorDrafts, setModeratorDrafts] = useState<
+    Record<string, string>
+  >({});
+  const [linkActionState, setLinkActionState] = useState<
+    "idle" | "creating" | "editing-members"
+  >("idle");
+  const [matchActionState, setMatchActionState] = useState<
+    "idle" | "creating" | "updating-status"
+  >("idle");
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [matchTitle, setMatchTitle] = useState("");
   const [matchSlug, setMatchSlug] = useState("");
@@ -141,12 +191,14 @@ export function DashboardPage() {
   const [targetWins, setTargetWins] = useState("");
   const [selectedLinkId, setSelectedLinkId] = useState("");
   const [linkLoginError, setLinkLoginError] = useState<string | null>(null);
-  const [moderatorErrors, setModeratorErrors] = useState<Record<string, string | null>>({});
+  const [moderatorErrors, setModeratorErrors] = useState<
+    Record<string, string | null>
+  >({});
   const [matchErrors, setMatchErrors] = useState({
     selectedLinkId: null as string | null,
     matchTitle: null as string | null,
     matchSlug: null as string | null,
-    targetWins: null as string | null
+    targetWins: null as string | null,
   });
   const linkLoginRef = useRef<HTMLInputElement | null>(null);
   const moderatorRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -154,10 +206,32 @@ export function DashboardPage() {
   const matchTitleRef = useRef<HTMLInputElement | null>(null);
   const matchSlugRef = useRef<HTMLInputElement | null>(null);
   const targetWinsRef = useRef<HTMLInputElement | null>(null);
+  const [activityLoaded, setActivityLoaded] = useState(false);
+  const [activityLoading, setActivityLoading] = useState(false);
+  const [activityExpanded, setActivityExpanded] = useState(false);
+  const [linkRailExpanded, setLinkRailExpanded] = useState(true);
+  const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null);
+  const [expandedMatchId, setExpandedMatchId] = useState<string | null>(null);
+  const [matchRailExpanded, setMatchRailExpanded] = useState(true);
+  const [operatorSnapshot, setOperatorSnapshot] =
+    useState<MatchSnapshot | null>(null);
+  const [operatorSnapshotLoading, setOperatorSnapshotLoading] = useState(false);
+  const [operatorSnapshotError, setOperatorSnapshotError] = useState<
+    string | null
+  >(null);
+  const operatorEtagRef = useRef<string | null>(null);
+  const operatorPollAbortRef = useRef<AbortController | null>(null);
+  const operatorPollTimerRef = useRef<number | null>(null);
+  const operatorFetchInFlightRef = useRef(false);
+  const operatorLastLoadedAtRef = useRef(0);
 
   const activeLinks = links.filter((link) => link.status === "active");
   const isLinkBusy = linkActionState !== "idle";
   const isMatchBusy = matchActionState !== "idle";
+  const selectedHeaderMatch =
+    matches.find((match) => match.id === selectedMatchId) ?? null;
+  const selectedOperatorMatch =
+    matches.find((match) => match.id === expandedMatchId) ?? null;
 
   const loadDashboard = useEffectEvent(async () => {
     setIsLoading(true);
@@ -175,16 +249,14 @@ export function DashboardPage() {
         return;
       }
 
-      const [linkPayload, matchPayload, activityPayload] = await Promise.all([
+      const [linkPayload, matchPayload] = await Promise.all([
         edgeFetchJson<DashboardPayload>("/api/channel-links"),
         edgeFetchJson<MatchPayload>("/api/matches"),
-        edgeFetchJson<AuditLogResponse>("/api/audit-log")
       ]);
 
       setSession(nextSession);
       setLinks(linkPayload.items);
       setMatches(matchPayload.items);
-      setActivity(activityPayload.items);
       setIsLoading(false);
     } catch (error) {
       setPageError(toFriendlyError(error));
@@ -207,10 +279,17 @@ export function DashboardPage() {
   });
 
   const refreshActivity = useEffectEvent(async () => {
-    const payload = await edgeFetchJson<AuditLogResponse>("/api/audit-log");
-    startTransition(() => {
-      setActivity(payload.items);
-    });
+    setActivityLoading(true);
+
+    try {
+      const payload = await edgeFetchJson<AuditLogResponse>("/api/audit-log");
+      startTransition(() => {
+        setActivity(payload.items);
+        setActivityLoaded(true);
+      });
+    } finally {
+      setActivityLoading(false);
+    }
   });
 
   useEffect(() => {
@@ -226,12 +305,168 @@ export function DashboardPage() {
   }, [matchTitle, slugTouched]);
 
   useEffect(() => {
-    if (selectedLinkId && activeLinks.some((link) => link.id === selectedLinkId)) {
+    if (
+      selectedLinkId &&
+      activeLinks.some((link) => link.id === selectedLinkId)
+    ) {
       return;
     }
 
     setSelectedLinkId(activeLinks[0]?.id ?? "");
   }, [activeLinks, selectedLinkId]);
+
+  useEffect(() => {
+    if (
+      selectedMatchId &&
+      matches.some((match) => match.id === selectedMatchId)
+    ) {
+      return;
+    }
+
+    setSelectedMatchId(matches[0]?.id ?? null);
+  }, [matches, selectedMatchId]);
+
+  const loadOperatorSnapshot = useEffectEvent(
+    async (matchId: string, signal?: AbortSignal) => {
+      operatorFetchInFlightRef.current = true;
+
+      const headers: HeadersInit = {};
+
+      if (operatorEtagRef.current) {
+        headers["If-None-Match"] = operatorEtagRef.current;
+      }
+
+      const response = await fetch(
+        buildEdgeUrl(`/api/matches/${matchId}/snapshot`),
+        {
+          credentials: "include",
+          headers,
+          signal,
+        }
+      );
+
+      if (response.status === 304) {
+        operatorLastLoadedAtRef.current = Date.now();
+        operatorFetchInFlightRef.current = false;
+        return;
+      }
+
+      const text = await response.text();
+      const payload = text
+        ? (JSON.parse(text) as
+            | MatchSnapshot
+            | { error: string; details?: unknown })
+        : null;
+
+      if (!response.ok) {
+        const errorPayload =
+          payload && typeof payload === "object" && "error" in payload
+            ? payload
+            : { error: "request_failed" };
+        throw new EdgeError(
+          response.status,
+          errorPayload.error,
+          errorPayload.details
+        );
+      }
+
+      operatorEtagRef.current = response.headers.get("ETag");
+      operatorLastLoadedAtRef.current = Date.now();
+      startTransition(() => {
+        setOperatorSnapshot(payload as MatchSnapshot);
+      });
+      operatorFetchInFlightRef.current = false;
+    }
+  );
+
+  useEffect(() => {
+    if (!expandedMatchId) {
+      operatorPollAbortRef.current?.abort();
+      if (operatorPollTimerRef.current !== null) {
+        window.clearInterval(operatorPollTimerRef.current);
+        operatorPollTimerRef.current = null;
+      }
+      setOperatorSnapshot(null);
+      setOperatorSnapshotError(null);
+      setOperatorSnapshotLoading(false);
+      operatorEtagRef.current = null;
+      operatorFetchInFlightRef.current = false;
+      operatorLastLoadedAtRef.current = 0;
+      return;
+    }
+
+    const abortController = new AbortController();
+    operatorPollAbortRef.current = abortController;
+    operatorEtagRef.current = null;
+    operatorFetchInFlightRef.current = false;
+    operatorLastLoadedAtRef.current = 0;
+    setOperatorSnapshot(null);
+    setOperatorSnapshotLoading(true);
+    setOperatorSnapshotError(null);
+
+    void (async () => {
+      try {
+        await loadOperatorSnapshot(expandedMatchId, abortController.signal);
+      } catch (error) {
+        if (!abortController.signal.aborted) {
+          setOperatorSnapshotError(toFriendlyError(error));
+        }
+      } finally {
+        operatorFetchInFlightRef.current = false;
+        if (!abortController.signal.aborted) {
+          setOperatorSnapshotLoading(false);
+        }
+      }
+    })();
+
+    const tick = () => {
+      if (document.visibilityState !== "visible") {
+        return;
+      }
+
+      if (operatorFetchInFlightRef.current) {
+        return;
+      }
+
+      if (Date.now() - operatorLastLoadedAtRef.current < 10_000) {
+        return;
+      }
+
+      const nextAbortController = new AbortController();
+      operatorPollAbortRef.current = nextAbortController;
+
+      void loadOperatorSnapshot(
+        expandedMatchId,
+        nextAbortController.signal
+      ).catch((error) => {
+        operatorFetchInFlightRef.current = false;
+        if (!nextAbortController.signal.aborted) {
+          setOperatorSnapshotError(toFriendlyError(error));
+        }
+      });
+    };
+
+    operatorPollTimerRef.current = window.setInterval(
+      tick,
+      SNAPSHOT_POLL_INTERVAL_MS
+    );
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        tick();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      abortController.abort();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      if (operatorPollTimerRef.current !== null) {
+        window.clearInterval(operatorPollTimerRef.current);
+        operatorPollTimerRef.current = null;
+      }
+    };
+  }, [expandedMatchId, loadOperatorSnapshot]);
 
   async function runAction(action: () => Promise<void>) {
     setActionError(null);
@@ -258,6 +493,12 @@ export function DashboardPage() {
     setIsLoggingOut(false);
   }
 
+  function handleReconnectChat() {
+    window.location.assign(
+      buildEdgeUrl("/api/auth/twitch/login", { intent: "chat" })
+    );
+  }
+
   async function handleCreateLink(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const nextError = validateTwitchLogin(linkLogin);
@@ -273,26 +514,35 @@ export function DashboardPage() {
       const payload = await edgeSendJson<{ invite: ChannelLinkInvite }>(
         "/api/channel-links",
         {
-          invitedChannelLogin: linkLogin.trim().toLowerCase()
+          invitedChannelLogin: linkLogin.trim().toLowerCase(),
         }
       );
 
       setInviteResult(payload.invite);
       setLinkLogin("");
       setLinkLoginError(null);
-      await Promise.all([refreshLinks(), refreshActivity()]);
+      await Promise.all([
+        refreshLinks(),
+        activityLoaded ? refreshActivity() : Promise.resolve(),
+      ]);
     });
     setLinkActionState("idle");
   }
 
-  async function handleAddModerator(event: React.FormEvent<HTMLFormElement>, channelLinkId: string) {
+  async function handleAddModerator(
+    event: React.FormEvent<HTMLFormElement>,
+    channelLinkId: string
+  ) {
     event.preventDefault();
 
     const login = moderatorDrafts[channelLinkId]?.trim().toLowerCase() ?? "";
     const nextError = validateTwitchLogin(login);
 
     if (nextError) {
-      setModeratorErrors((current) => ({ ...current, [channelLinkId]: nextError }));
+      setModeratorErrors((current) => ({
+        ...current,
+        [channelLinkId]: nextError,
+      }));
       moderatorRefs.current[channelLinkId]?.focus();
       return;
     }
@@ -301,22 +551,34 @@ export function DashboardPage() {
     await runAction(async () => {
       await edgeSendJson(`/api/channel-links/${channelLinkId}/members`, {
         login,
-        role: "mod"
+        role: "mod",
       });
       setModeratorDrafts((current) => ({ ...current, [channelLinkId]: "" }));
       setModeratorErrors((current) => ({ ...current, [channelLinkId]: null }));
-      await Promise.all([refreshLinks(), refreshActivity()]);
+      await Promise.all([
+        refreshLinks(),
+        activityLoaded ? refreshActivity() : Promise.resolve(),
+      ]);
     });
     setLinkActionState("idle");
   }
 
-  async function handleRemoveModerator(channelLinkId: string, membershipId: string) {
+  async function handleRemoveModerator(
+    channelLinkId: string,
+    membershipId: string
+  ) {
     setLinkActionState("editing-members");
     await runAction(async () => {
-      await edgeNoContent(`/api/channel-links/${channelLinkId}/members/${membershipId}`, {
-        method: "DELETE"
-      });
-      await Promise.all([refreshLinks(), refreshActivity()]);
+      await edgeNoContent(
+        `/api/channel-links/${channelLinkId}/members/${membershipId}`,
+        {
+          method: "DELETE",
+        }
+      );
+      await Promise.all([
+        refreshLinks(),
+        activityLoaded ? refreshActivity() : Promise.resolve(),
+      ]);
     });
     setLinkActionState("idle");
   }
@@ -332,12 +594,17 @@ export function DashboardPage() {
             : "Activate a broadcaster pair before creating a match.",
       matchTitle: validateMatchTitle(matchTitle),
       matchSlug: validateMatchSlug(matchSlug),
-      targetWins: validateTargetWins(targetWins)
+      targetWins: validateTargetWins(targetWins),
     };
 
     setMatchErrors(nextErrors);
 
-    if (nextErrors.selectedLinkId || nextErrors.matchTitle || nextErrors.matchSlug || nextErrors.targetWins) {
+    if (
+      nextErrors.selectedLinkId ||
+      nextErrors.matchTitle ||
+      nextErrors.matchSlug ||
+      nextErrors.targetWins
+    ) {
       if (nextErrors.selectedLinkId) {
         selectedLinkRef.current?.focus();
       } else if (nextErrors.matchTitle) {
@@ -356,7 +623,7 @@ export function DashboardPage() {
         channelLinkId: selectedLinkId,
         title: matchTitle,
         slug: matchSlug,
-        targetWins: targetWins ? Number(targetWins) : null
+        targetWins: targetWins ? Number(targetWins) : null,
       });
 
       startTransition(() => {
@@ -370,11 +637,100 @@ export function DashboardPage() {
         selectedLinkId: null,
         matchTitle: null,
         matchSlug: null,
-        targetWins: null
+        targetWins: null,
       });
-      await Promise.all([refreshMatches(), refreshActivity()]);
+      await Promise.all([
+        refreshMatches(),
+        activityLoaded ? refreshActivity() : Promise.resolve(),
+      ]);
     });
     setMatchActionState("idle");
+  }
+
+  async function handleSetMatchStatus(
+    matchId: string,
+    status: MatchSummary["status"]
+  ) {
+    setMatchActionState("updating-status");
+    await runAction(async () => {
+      await edgeSendJson<{ match: MatchSummary }>(
+        `/api/matches/${matchId}/status`,
+        { status },
+        { method: "PATCH" }
+      );
+      await Promise.all([
+        refreshMatches(),
+        refreshLinks(),
+        activityLoaded ? refreshActivity() : Promise.resolve(),
+      ]);
+
+      if (expandedMatchId === matchId) {
+        operatorEtagRef.current = null;
+        await loadOperatorSnapshot(matchId);
+      }
+    });
+    setMatchActionState("idle");
+  }
+
+  async function handleToggleOperatorPanel(matchId: string) {
+    setSelectedMatchId(matchId);
+
+    if (expandedMatchId === matchId) {
+      setExpandedMatchId(null);
+      return;
+    }
+
+    setExpandedMatchId(matchId);
+  }
+
+  async function handleToggleActivityExpanded() {
+    const nextExpanded = !activityExpanded;
+    setActivityExpanded(nextExpanded);
+
+    if (nextExpanded && !activityLoaded && !activityLoading) {
+      await runAction(async () => {
+        await refreshActivity();
+      });
+    }
+  }
+
+  function handleToggleMatchRailExpanded() {
+    setMatchRailExpanded((current) => !current);
+  }
+
+  function getOperatorPrimaryAction(match: MatchSummary): {
+    label: string;
+    status: MatchSummary["status"];
+  } {
+    if (match.status === "live") {
+      return {
+        label: "Pause",
+        status: "paused",
+      };
+    }
+
+    if (match.status === "paused") {
+      return {
+        label: "Resume match",
+        status: "live",
+      };
+    }
+
+    if (match.status === "draft") {
+      return {
+        label: "Start match",
+        status: "live",
+      };
+    }
+
+    return {
+      label: "Route chat live",
+      status: "live",
+    };
+  }
+
+  function handleToggleLinkRailExpanded() {
+    setLinkRailExpanded((current) => !current);
   }
 
   if (isLoading) {
@@ -408,29 +764,42 @@ export function DashboardPage() {
         <section className="dashboard-auth-gate">
           <div className="dashboard-auth-gate__copy">
             <p className="dashboard-auth-gate__label">Broadcaster auth only</p>
-            <h2 className="dashboard-auth-gate__title">Lock the command deck to real Twitch channels.</h2>
+            <h2 className="dashboard-auth-gate__title">
+              Lock the command deck to real Twitch channels.
+            </h2>
             <p className="dashboard-auth-gate__body">
-              The website never handles raw Twitch tokens. The Worker owns sign-in, session cookies,
-              channel linking, and every protected match mutation.
+              The website never handles raw Twitch tokens. The Worker owns
+              sign-in, session cookies, channel linking, and every protected
+              match mutation.
             </p>
           </div>
           <button
             className="dashboard-button dashboard-button--primary"
             type="button"
             onClick={() => {
-              window.location.assign(buildEdgeUrl("/api/auth/twitch/login", { intent: "dashboard" }));
+              window.location.assign(
+                buildEdgeUrl("/api/auth/twitch/login", { intent: "dashboard" })
+              );
             }}
           >
             Sign in with Twitch
           </button>
         </section>
         {notice ? (
-          <p className="dashboard-message dashboard-message--warning" role="status" aria-live="polite">
+          <p
+            className="dashboard-message dashboard-message--warning"
+            role="status"
+            aria-live="polite"
+          >
             {notice}
           </p>
         ) : null}
         {pageError ? (
-          <p className="dashboard-message dashboard-message--warning" role="status" aria-live="polite">
+          <p
+            className="dashboard-message dashboard-message--warning"
+            role="status"
+            aria-live="polite"
+          >
             {pageError}
           </p>
         ) : null}
@@ -440,13 +809,28 @@ export function DashboardPage() {
 
   return (
     <div className="dashboard-stage">
-      <PageShell
-        eyebrow="Broadcaster Dashboard"
-        title={`Queue the gauntlet for @${session.ownedChannel.login}`}
-        deck="Invite the second broadcaster, assign verified moderators, and draft the match before the live control room takes over."
-        actions={
-          <div className="dashboard-header-actions">
+      <PageShell eyebrow="" title="" deck="" emphasis="compact">
+        <section className="dashboard-toolbar">
+          <div className="dashboard-toolbar__left">
             <span className="gg-chip">Twitch verified</span>
+          </div>
+          <div className="dashboard-toolbar__right">
+            {selectedHeaderMatch ? (
+              <>
+                <Link
+                  className="dashboard-link"
+                  to={`/matches/${selectedHeaderMatch.slug}`}
+                >
+                  Open public page
+                </Link>
+                <Link
+                  className="dashboard-link"
+                  to={`/overlay/${selectedHeaderMatch.id}`}
+                >
+                  Open overlay
+                </Link>
+              </>
+            ) : null}
             <button
               className="dashboard-button dashboard-button--ghost"
               type="button"
@@ -456,8 +840,8 @@ export function DashboardPage() {
               Sign out
             </button>
           </div>
-        }
-      >
+        </section>
+
         <section className="dashboard-hero">
           <article className="dashboard-banner dashboard-banner--identity">
             <p className="dashboard-banner__label">Signed in broadcaster</p>
@@ -477,30 +861,176 @@ export function DashboardPage() {
         </section>
 
         {notice === "match-created" ? (
-          <p className="dashboard-message dashboard-message--success" role="status" aria-live="polite">
+          <p
+            className="dashboard-message dashboard-message--success"
+            role="status"
+            aria-live="polite"
+          >
             Match created and added to the draft rail.
           </p>
         ) : null}
         {search.get("auth") === "connected" ? (
-          <p className="dashboard-message dashboard-message--success" role="status" aria-live="polite">
-            Twitch authentication is active. Start by linking the opposing broadcaster.
+          <p
+            className="dashboard-message dashboard-message--success"
+            role="status"
+            aria-live="polite"
+          >
+            Twitch authentication is active. Start by linking the opposing
+            broadcaster.
+          </p>
+        ) : null}
+        {search.get("chatAuth") === "connected" ? (
+          <p
+            className="dashboard-message dashboard-message--success"
+            role="status"
+            aria-live="polite"
+          >
+            Chat authorization updated. The worker will reconcile subscriptions
+            for active pairs.
           </p>
         ) : null}
         {pageError ? (
-          <p className="dashboard-message dashboard-message--warning" role="status" aria-live="polite">
+          <p
+            className="dashboard-message dashboard-message--warning"
+            role="status"
+            aria-live="polite"
+          >
             {pageError}
           </p>
         ) : null}
         {actionError ? (
-          <p className="dashboard-message dashboard-message--warning" role="status" aria-live="polite">
+          <p
+            className="dashboard-message dashboard-message--warning"
+            role="status"
+            aria-live="polite"
+          >
             {actionError}
           </p>
         ) : null}
         {inviteResult ? (
-          <p className="dashboard-message dashboard-message--success" role="status" aria-live="polite">
+          <p
+            className="dashboard-message dashboard-message--success"
+            role="status"
+            aria-live="polite"
+          >
             Invite live for @{inviteResult.invitedChannelLogin}. Share{" "}
             <a href={inviteResult.shareUrl}>{inviteResult.shareUrl}</a>
           </p>
+        ) : null}
+
+        {selectedOperatorMatch ? (
+          <section className="dashboard-panel dashboard-panel--operator">
+            {(() => {
+              const primaryAction = getOperatorPrimaryAction(
+                selectedOperatorMatch
+              );
+
+              return (
+                <>
+                  <div className="dashboard-panel__header">
+                    <div>
+                      <p className="dashboard-panel__eyebrow">Operator board</p>
+                      <h2 className="dashboard-panel__title">
+                        Live match operator view
+                      </h2>
+                    </div>
+                    <span className="gg-chip gg-chip--soft">
+                      1m visible-tab refresh
+                    </span>
+                  </div>
+                  {operatorSnapshotError ? (
+                    <p
+                      className="dashboard-message dashboard-message--warning"
+                      role="status"
+                      aria-live="polite"
+                    >
+                      {operatorSnapshotError}
+                    </p>
+                  ) : null}
+                  {operatorSnapshot ? (
+                    <div className="dashboard-match-operator">
+                      <div className="dashboard-match-operator__header">
+                        <div>
+                          <p className="dashboard-panel__eyebrow">
+                            {selectedOperatorMatch.status}
+                          </p>
+                          <h3 className="dashboard-panel__title">
+                            {selectedOperatorMatch.title}
+                          </h3>
+                        </div>
+                        <span className="gg-chip gg-chip--soft">
+                          Chat {selectedOperatorMatch.chatState ?? "idle"}
+                        </span>
+                      </div>
+                      <div className="dashboard-match-operator__actions">
+                        <span className="gg-chip gg-chip--soft">
+                          {selectedOperatorMatch.targetWins
+                            ? `FT${selectedOperatorMatch.targetWins}`
+                            : "Open mode"}
+                        </span>
+                        <button
+                          className="dashboard-button dashboard-button--ghost"
+                          type="button"
+                          disabled={isMatchBusy}
+                          onClick={() =>
+                            void handleSetMatchStatus(
+                              selectedOperatorMatch.id,
+                              primaryAction.status
+                            )
+                          }
+                        >
+                          {primaryAction.label}
+                        </button>
+                        <button
+                          className="dashboard-button dashboard-button--ghost"
+                          type="button"
+                          disabled={isMatchBusy}
+                          onClick={() =>
+                            void handleSetMatchStatus(
+                              selectedOperatorMatch.id,
+                              "complete"
+                            )
+                          }
+                        >
+                          Complete
+                        </button>
+                        <button
+                          className="dashboard-button dashboard-button--ghost"
+                          type="button"
+                          onClick={() =>
+                            void handleToggleOperatorPanel(
+                              selectedOperatorMatch.id
+                            )
+                          }
+                        >
+                          Close operator board
+                        </button>
+                      </div>
+                      <div className="dashboard-match-operator__grid">
+                        <ScoreBug match={operatorSnapshot} />
+                        <div className="match-support-grid">
+                          <SuggestionBoard
+                            suggestions={operatorSnapshot.suggestions}
+                            title="Compact chat board"
+                          />
+                          <QueueList
+                            items={operatorSnapshot.queue}
+                            title="Upcoming flow"
+                            transparent
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ) : operatorSnapshotLoading ? (
+                    <EmptyPanel
+                      title="Syncing operator board"
+                      body="Loading the live snapshot for the selected match."
+                    />
+                  ) : null}
+                </>
+              );
+            })()}
+          </section>
         ) : null}
 
         <div className="dashboard-lanes">
@@ -508,138 +1038,245 @@ export function DashboardPage() {
             <div className="dashboard-panel__header">
               <div>
                 <p className="dashboard-panel__eyebrow">Channel linking</p>
-                <h2 className="dashboard-panel__title">Bring the rival broadcaster in</h2>
+                <h2 className="dashboard-panel__title">
+                  Bring the rival broadcaster in
+                </h2>
               </div>
-              <span className="gg-chip gg-chip--soft">24h invite window</span>
+              <div className="dashboard-membership__actions">
+                <span className="gg-chip gg-chip--soft">24h invite window</span>
+                <button
+                  className="dashboard-button dashboard-button--ghost"
+                  type="button"
+                  onClick={handleToggleLinkRailExpanded}
+                >
+                  {linkRailExpanded ? "Collapse links" : "Expand links"}
+                </button>
+              </div>
             </div>
-            <form className="dashboard-form" onSubmit={(event) => void handleCreateLink(event)}>
-              <label className="dashboard-field">
-                <span>Invite by Twitch login</span>
-                <input
-                  ref={linkLoginRef}
-                  name="invitedChannelLogin"
-                  value={linkLogin}
-                  onChange={(event) => {
-                    setLinkLogin(event.currentTarget.value);
-                    setLinkLoginError(null);
-                  }}
-                  placeholder="novarune"
-                  autoComplete="off"
-                  spellCheck={false}
-                  aria-invalid={linkLoginError ? "true" : "false"}
-                  aria-describedby={linkLoginError ? "invited-channel-login-error" : undefined}
-                />
-              </label>
-              {linkLoginError ? (
-                <p id="invited-channel-login-error" className="dashboard-field__error" role="status" aria-live="polite">
-                  {linkLoginError}
-                </p>
-              ) : null}
-              <button
-                className="dashboard-button dashboard-button--primary"
-                type="submit"
-                disabled={isLinkBusy}
-              >
-                Create broadcaster invite
-              </button>
-            </form>
-            {links.length > 0 ? (
-              <div className="dashboard-link-stack">
-                {links.map((link) => (
-                  <article key={link.id} className="dashboard-link-card">
-                    <div className="dashboard-link-card__header">
-                      <div>
-                        <p className="dashboard-link-card__eyebrow">Channel pair</p>
-                        <h3 className="dashboard-link-card__title">
-                          @{link.ownerChannel.login} <span>vs</span>{" "}
-                          {link.linkedChannel ? `@${link.linkedChannel.login}` : `@${link.invitedChannelLogin}`}
-                        </h3>
-                      </div>
-                      <span className={`gg-chip ${link.status === "active" ? "" : "gg-chip--soft"}`}>
-                        {link.status}
-                      </span>
-                    </div>
+            {linkRailExpanded ? (
+              <>
+                <form
+                  className="dashboard-form"
+                  onSubmit={(event) => void handleCreateLink(event)}
+                >
+                  <label className="dashboard-field">
+                    <span>Invite by Twitch login</span>
+                    <input
+                      ref={linkLoginRef}
+                      name="invitedChannelLogin"
+                      value={linkLogin}
+                      onChange={(event) => {
+                        setLinkLogin(event.currentTarget.value);
+                        setLinkLoginError(null);
+                      }}
+                      placeholder="novarune"
+                      autoComplete="off"
+                      spellCheck={false}
+                      aria-invalid={linkLoginError ? "true" : "false"}
+                      aria-describedby={
+                        linkLoginError
+                          ? "invited-channel-login-error"
+                          : undefined
+                      }
+                    />
+                  </label>
+                  {linkLoginError ? (
+                    <p
+                      id="invited-channel-login-error"
+                      className="dashboard-field__error"
+                      role="status"
+                      aria-live="polite"
+                    >
+                      {linkLoginError}
+                    </p>
+                  ) : null}
+                  <button
+                    className="dashboard-button dashboard-button--primary"
+                    type="submit"
+                    disabled={isLinkBusy}
+                  >
+                    Create broadcaster invite
+                  </button>
+                </form>
+                {links.length > 0 ? (
+                  <div className="dashboard-link-stack">
+                    {links.map((link) => (
+                      <article key={link.id} className="dashboard-link-card">
+                        {(() => {
+                          const chatIntegration = link.chatIntegration ?? {
+                            ownerAuthorized: false,
+                            linkedAuthorized: false,
+                            status: "idle",
+                          };
 
-                    {link.pendingInvite ? (
-                      <p className="dashboard-link-card__meta">
-                        Invite locked to @{link.pendingInvite.invitedChannelLogin}. Share{" "}
-                        <a href={link.pendingInvite.shareUrl}>{link.pendingInvite.shareUrl}</a>
-                      </p>
-                    ) : null}
+                          return (
+                            <>
+                              <div className="dashboard-link-card__header">
+                                <div>
+                                  <p className="dashboard-link-card__eyebrow">
+                                    Channel pair
+                                  </p>
+                                  <h3 className="dashboard-link-card__title">
+                                    @{link.ownerChannel.login} <span>vs</span>{" "}
+                                    {link.linkedChannel
+                                      ? `@${link.linkedChannel.login}`
+                                      : `@${link.invitedChannelLogin}`}
+                                  </h3>
+                                </div>
+                                <span
+                                  className={`gg-chip ${link.status === "active" ? "" : "gg-chip--soft"}`}
+                                >
+                                  {link.status}
+                                </span>
+                              </div>
 
-                    <div className="dashboard-memberships">
-                      {link.memberships.map((membership) => (
-                        <div key={membership.id} className="dashboard-membership">
-                          <div>
-                            <strong>{membership.user.displayName}</strong>
-                            <span>@{membership.user.login}</span>
-                          </div>
-                          <div className="dashboard-membership__actions">
-                            <span className="gg-chip gg-chip--soft">{membership.role}</span>
-                            {membership.role === "mod" ? (
-                              <button
-                                className="dashboard-button dashboard-button--ghost"
-                                type="button"
-                                disabled={isLinkBusy}
-                                onClick={() => void handleRemoveModerator(link.id, membership.id)}
-                              >
-                                Remove
-                              </button>
-                            ) : null}
-                          </div>
+                              {link.pendingInvite ? (
+                                <p className="dashboard-link-card__meta">
+                                  Invite locked to @
+                                  {link.pendingInvite.invitedChannelLogin}.
+                                  Share{" "}
+                                  <a href={link.pendingInvite.shareUrl}>
+                                    {link.pendingInvite.shareUrl}
+                                  </a>
+                                </p>
+                              ) : null}
+                              <div className="dashboard-membership">
+                                <div>
+                                  <strong>Chat integration</strong>
+                                  <span>
+                                    {chatIntegration.status} • owner{" "}
+                                    {chatIntegration.ownerAuthorized
+                                      ? "ready"
+                                      : "missing"}{" "}
+                                    • rival{" "}
+                                    {chatIntegration.linkedAuthorized
+                                      ? "ready"
+                                      : "missing"}
+                                  </span>
+                                </div>
+                                <div className="dashboard-membership__actions">
+                                  <span className="gg-chip gg-chip--soft">
+                                    {chatIntegration.status}
+                                  </span>
+                                  {chatIntegration.status ===
+                                  "needs_consent" ? (
+                                    <button
+                                      className="dashboard-button dashboard-button--ghost"
+                                      type="button"
+                                      onClick={handleReconnectChat}
+                                    >
+                                      Reconnect chat
+                                    </button>
+                                  ) : null}
+                                </div>
+                              </div>
+                            </>
+                          );
+                        })()}
+                        <div className="dashboard-memberships">
+                          {link.memberships.map((membership) => (
+                            <div
+                              key={membership.id}
+                              className="dashboard-membership"
+                            >
+                              <div>
+                                <strong>{membership.user.displayName}</strong>
+                                <span>@{membership.user.login}</span>
+                              </div>
+                              <div className="dashboard-membership__actions">
+                                <span className="gg-chip gg-chip--soft">
+                                  {membership.role}
+                                </span>
+                                {membership.role === "mod" ? (
+                                  <button
+                                    className="dashboard-button dashboard-button--ghost"
+                                    type="button"
+                                    disabled={isLinkBusy}
+                                    onClick={() =>
+                                      void handleRemoveModerator(
+                                        link.id,
+                                        membership.id
+                                      )
+                                    }
+                                  >
+                                    Remove
+                                  </button>
+                                ) : null}
+                              </div>
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
 
-                    <form className="dashboard-inline-form" onSubmit={(event) => void handleAddModerator(event, link.id)}>
-                      <label className="dashboard-field">
-                        <span>Add verified moderator</span>
-                        <input
-                          ref={(element) => {
-                            moderatorRefs.current[link.id] = element;
-                          }}
-                          name={`moderatorLogin-${link.id}`}
-                          value={moderatorDrafts[link.id] ?? ""}
-                          onChange={(event) => {
-                            const value = event.currentTarget.value;
-                            setModeratorDrafts((current) => ({
-                              ...current,
-                              [link.id]: value
-                            }));
-                            setModeratorErrors((current) => ({ ...current, [link.id]: null }));
-                          }}
-                          placeholder="trustedmod"
-                          autoComplete="off"
-                          spellCheck={false}
-                          aria-invalid={moderatorErrors[link.id] ? "true" : "false"}
-                          aria-describedby={moderatorErrors[link.id] ? `moderator-error-${link.id}` : undefined}
-                        />
-                      </label>
-                      {moderatorErrors[link.id] ? (
-                        <p
-                          id={`moderator-error-${link.id}`}
-                          className="dashboard-field__error"
-                          role="status"
-                          aria-live="polite"
+                        <form
+                          className="dashboard-inline-form"
+                          onSubmit={(event) =>
+                            void handleAddModerator(event, link.id)
+                          }
                         >
-                          {moderatorErrors[link.id]}
-                        </p>
-                      ) : null}
-                      <button
-                        className="dashboard-button dashboard-button--ghost"
-                        type="submit"
-                        disabled={isLinkBusy}
-                      >
-                        Assign mod
-                      </button>
-                    </form>
-                  </article>
-                ))}
-              </div>
+                          <label className="dashboard-field">
+                            <span>Add verified moderator</span>
+                            <input
+                              ref={(element) => {
+                                moderatorRefs.current[link.id] = element;
+                              }}
+                              name={`moderatorLogin-${link.id}`}
+                              value={moderatorDrafts[link.id] ?? ""}
+                              onChange={(event) => {
+                                const value = event.currentTarget.value;
+                                setModeratorDrafts((current) => ({
+                                  ...current,
+                                  [link.id]: value,
+                                }));
+                                setModeratorErrors((current) => ({
+                                  ...current,
+                                  [link.id]: null,
+                                }));
+                              }}
+                              placeholder="trustedmod"
+                              autoComplete="off"
+                              spellCheck={false}
+                              aria-invalid={
+                                moderatorErrors[link.id] ? "true" : "false"
+                              }
+                              aria-describedby={
+                                moderatorErrors[link.id]
+                                  ? `moderator-error-${link.id}`
+                                  : undefined
+                              }
+                            />
+                          </label>
+                          {moderatorErrors[link.id] ? (
+                            <p
+                              id={`moderator-error-${link.id}`}
+                              className="dashboard-field__error"
+                              role="status"
+                              aria-live="polite"
+                            >
+                              {moderatorErrors[link.id]}
+                            </p>
+                          ) : null}
+                          <button
+                            className="dashboard-button dashboard-button--ghost"
+                            type="submit"
+                            disabled={isLinkBusy}
+                          >
+                            Assign mod
+                          </button>
+                        </form>
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyPanel
+                    title="No linked rivalry yet"
+                    body="Create the first broadcaster invite to unlock moderator assignment and match creation."
+                  />
+                )}
+              </>
             ) : (
               <EmptyPanel
-                title="No linked rivalry yet"
-                body="Create the first broadcaster invite to unlock moderator assignment and match creation."
+                title="Channel linking collapsed"
+                body="Expand this rail when you need to invite a broadcaster, reconnect chat, or manage moderators."
               />
             )}
           </section>
@@ -650,9 +1287,23 @@ export function DashboardPage() {
                 <p className="dashboard-panel__eyebrow">Match drafting</p>
                 <h2 className="dashboard-panel__title">Seed the next set</h2>
               </div>
-              <span className="gg-chip gg-chip--soft">{activeLinks.length} active pairs</span>
+              <div className="dashboard-membership__actions">
+                <span className="gg-chip gg-chip--soft">
+                  {activeLinks.length} active pairs
+                </span>
+                <button
+                  className="dashboard-button dashboard-button--ghost"
+                  type="button"
+                  onClick={handleToggleMatchRailExpanded}
+                >
+                  {matchRailExpanded ? "Collapse matches" : "Expand matches"}
+                </button>
+              </div>
             </div>
-            <form className="dashboard-form" onSubmit={(event) => void handleCreateMatch(event)}>
+            <form
+              className="dashboard-form"
+              onSubmit={(event) => void handleCreateMatch(event)}
+            >
               <label className="dashboard-field">
                 <span>Broadcaster pair</span>
                 <select
@@ -661,11 +1312,16 @@ export function DashboardPage() {
                   value={selectedLinkId}
                   onChange={(event) => {
                     setSelectedLinkId(event.currentTarget.value);
-                    setMatchErrors((current) => ({ ...current, selectedLinkId: null }));
+                    setMatchErrors((current) => ({
+                      ...current,
+                      selectedLinkId: null,
+                    }));
                   }}
                   disabled={activeLinks.length === 0}
                   aria-invalid={matchErrors.selectedLinkId ? "true" : "false"}
-                  aria-describedby={matchErrors.selectedLinkId ? "match-link-error" : undefined}
+                  aria-describedby={
+                    matchErrors.selectedLinkId ? "match-link-error" : undefined
+                  }
                 >
                   <option value="">Select an active pair</option>
                   {activeLinks.map((link) => (
@@ -676,7 +1332,12 @@ export function DashboardPage() {
                 </select>
               </label>
               {matchErrors.selectedLinkId ? (
-                <p id="match-link-error" className="dashboard-field__error" role="status" aria-live="polite">
+                <p
+                  id="match-link-error"
+                  className="dashboard-field__error"
+                  role="status"
+                  aria-live="polite"
+                >
                   {matchErrors.selectedLinkId}
                 </p>
               ) : null}
@@ -688,16 +1349,26 @@ export function DashboardPage() {
                   value={matchTitle}
                   onChange={(event) => {
                     setMatchTitle(event.currentTarget.value);
-                    setMatchErrors((current) => ({ ...current, matchTitle: null }));
+                    setMatchErrors((current) => ({
+                      ...current,
+                      matchTitle: null,
+                    }));
                   }}
                   placeholder="Gauntlet Finals"
                   autoComplete="off"
                   aria-invalid={matchErrors.matchTitle ? "true" : "false"}
-                  aria-describedby={matchErrors.matchTitle ? "match-title-error" : undefined}
+                  aria-describedby={
+                    matchErrors.matchTitle ? "match-title-error" : undefined
+                  }
                 />
               </label>
               {matchErrors.matchTitle ? (
-                <p id="match-title-error" className="dashboard-field__error" role="status" aria-live="polite">
+                <p
+                  id="match-title-error"
+                  className="dashboard-field__error"
+                  role="status"
+                  aria-live="polite"
+                >
                   {matchErrors.matchTitle}
                 </p>
               ) : null}
@@ -711,16 +1382,26 @@ export function DashboardPage() {
                     onChange={(event) => {
                       setSlugTouched(true);
                       setMatchSlug(event.currentTarget.value);
-                      setMatchErrors((current) => ({ ...current, matchSlug: null }));
+                      setMatchErrors((current) => ({
+                        ...current,
+                        matchSlug: null,
+                      }));
                     }}
                     placeholder="gauntlet-finals"
                     autoComplete="off"
                     spellCheck={false}
                     aria-invalid={matchErrors.matchSlug ? "true" : "false"}
-                    aria-describedby={matchErrors.matchSlug ? "match-slug-error" : undefined}
+                    aria-describedby={
+                      matchErrors.matchSlug ? "match-slug-error" : undefined
+                    }
                   />
                   {matchErrors.matchSlug ? (
-                    <p id="match-slug-error" className="dashboard-field__error" role="status" aria-live="polite">
+                    <p
+                      id="match-slug-error"
+                      className="dashboard-field__error"
+                      role="status"
+                      aria-live="polite"
+                    >
                       {matchErrors.matchSlug}
                     </p>
                   ) : null}
@@ -735,15 +1416,25 @@ export function DashboardPage() {
                     value={targetWins}
                     onChange={(event) => {
                       setTargetWins(event.currentTarget.value);
-                      setMatchErrors((current) => ({ ...current, targetWins: null }));
+                      setMatchErrors((current) => ({
+                        ...current,
+                        targetWins: null,
+                      }));
                     }}
                     placeholder="3"
                     inputMode="numeric"
                     aria-invalid={matchErrors.targetWins ? "true" : "false"}
-                    aria-describedby={matchErrors.targetWins ? "target-wins-error" : undefined}
+                    aria-describedby={
+                      matchErrors.targetWins ? "target-wins-error" : undefined
+                    }
                   />
                   {matchErrors.targetWins ? (
-                    <p id="target-wins-error" className="dashboard-field__error" role="status" aria-live="polite">
+                    <p
+                      id="target-wins-error"
+                      className="dashboard-field__error"
+                      role="status"
+                      aria-live="polite"
+                    >
                       {matchErrors.targetWins}
                     </p>
                   ) : null}
@@ -758,26 +1449,64 @@ export function DashboardPage() {
               </button>
             </form>
 
-            {matches.length > 0 ? (
+            {matches.length > 0 && matchRailExpanded ? (
               <div className="dashboard-match-list">
                 {matches.map((match) => (
                   <article key={match.id} className="dashboard-match-card">
-                    <div>
-                      <p className="dashboard-match-card__eyebrow">{match.status}</p>
-                      <h3 className="dashboard-match-card__title">{match.title}</h3>
-                      <p className="dashboard-match-card__meta">
-                        {match.players.map((player) => player.displayName).join(" vs ")}
-                      </p>
-                    </div>
-                    <div className="dashboard-match-card__actions">
-                      <span className="gg-chip gg-chip--soft">{match.targetWins ? `FT${match.targetWins}` : "Open mode"}</span>
-                      <Link className="dashboard-link" to={`/control/${match.id}`}>
-                        Open control room
-                      </Link>
-                    </div>
+                    {(() => {
+                      const chatState = match.chatState ?? "idle";
+                      const boardRevision = match.boardRevision ?? 0;
+                      const subscriptionHealth =
+                        match.subscriptionHealth ?? "idle";
+
+                      return (
+                        <>
+                          <div>
+                            <p className="dashboard-match-card__eyebrow">
+                              {match.status}
+                            </p>
+                            <h3 className="dashboard-match-card__title">
+                              {match.title}
+                            </h3>
+                            <p className="dashboard-match-card__meta">
+                              {match.players
+                                .map((player) => player.displayName)
+                                .join(" vs ")}
+                            </p>
+                            <p className="dashboard-match-card__meta">
+                              Chat {chatState} • board rev {boardRevision} •
+                              subs {subscriptionHealth}
+                            </p>
+                          </div>
+                          <span className="gg-chip gg-chip--soft">
+                            {match.targetWins
+                              ? `FT${match.targetWins}`
+                              : "Open mode"}
+                          </span>
+                          <div className="dashboard-match-card__actions">
+                            <button
+                              className="dashboard-button dashboard-button--ghost"
+                              type="button"
+                              onClick={() =>
+                                void handleToggleOperatorPanel(match.id)
+                              }
+                            >
+                              {expandedMatchId === match.id
+                                ? "Selected in operator board"
+                                : "Open operator board"}
+                            </button>
+                          </div>
+                        </>
+                      );
+                    })()}
                   </article>
                 ))}
               </div>
+            ) : matches.length > 0 ? (
+              <EmptyPanel
+                title="Matches collapsed"
+                body="Expand the drafted match rail when you need to review or operate older sets."
+              />
             ) : (
               <EmptyPanel
                 title="No matches drafted"
@@ -790,27 +1519,59 @@ export function DashboardPage() {
         <section className="dashboard-panel">
           <div className="dashboard-panel__header">
             <div>
-              <p className="dashboard-panel__eyebrow">Recent activity</p>
-              <h2 className="dashboard-panel__title">Phase 2 audit trail</h2>
+              <p className="dashboard-panel__eyebrow">Events</p>
+              <h2 className="dashboard-panel__title">Operational event rail</h2>
             </div>
-            <span className="gg-chip gg-chip--soft">{activity.length} events</span>
+            <div className="dashboard-membership__actions">
+              <span className="gg-chip gg-chip--soft">
+                {activityLoaded
+                  ? `${activity.length} events`
+                  : activityLoading
+                    ? "Loading…"
+                    : "Deferred"}
+              </span>
+              <button
+                className="dashboard-button dashboard-button--ghost"
+                type="button"
+                onClick={() => void handleToggleActivityExpanded()}
+              >
+                {activityExpanded ? "Collapse" : "Expand"}
+              </button>
+            </div>
           </div>
-          {activity.length > 0 ? (
-            <ol className="dashboard-activity-list" aria-label="Recent activity">
+          {!activityExpanded ? (
+            <EmptyPanel
+              title="Events collapsed"
+              body="Open this panel only when you need the audit trail."
+            />
+          ) : !activityLoaded ? (
+            <EmptyPanel
+              title="Events deferred"
+              body="This rail loads only when expanded so normal dashboard use stays cheap."
+            />
+          ) : activity.length > 0 ? (
+            <ol
+              className="dashboard-activity-list"
+              aria-label="Recent activity"
+            >
               {activity.map((entry) => (
                 <li key={entry.id} className="dashboard-activity-item">
-                  <p className="dashboard-activity-item__summary">{describeAuditEntry(entry)}</p>
+                  <p className="dashboard-activity-item__summary">
+                    {describeAuditEntry(entry)}
+                  </p>
                   <p className="dashboard-activity-item__meta">
                     <span>{formatAuditTimestamp(entry.createdAt)}</span>
-                    {entry.channelPairLabel ? <span>{entry.channelPairLabel}</span> : null}
+                    {entry.channelPairLabel ? (
+                      <span>{entry.channelPairLabel}</span>
+                    ) : null}
                   </p>
                 </li>
               ))}
             </ol>
           ) : (
             <EmptyPanel
-              title="No recent activity yet"
-              body="Link a broadcaster, assign a moderator, or create a match to start the Phase 2 audit trail."
+              title="No events yet"
+              body="Link a broadcaster, assign a moderator, or create a match to start the event rail."
             />
           )}
         </section>

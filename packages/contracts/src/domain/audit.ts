@@ -9,7 +9,8 @@ export const auditActionSchema = z.enum([
   "channel_link.accepted",
   "member.assigned",
   "member.revoked",
-  "match.created"
+  "match.created",
+  "match.status.updated"
 ]);
 
 export const auditActorSchema = z.object({

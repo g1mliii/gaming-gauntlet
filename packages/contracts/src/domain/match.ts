@@ -5,6 +5,8 @@ import { roleSchema } from "./roles";
 export const matchStatusSchema = z.enum(["draft", "live", "paused", "complete"]);
 export const suggestionStatusSchema = z.enum(["board", "approved", "queued", "played", "rejected"]);
 export const queueStatusSchema = z.enum(["queued", "live", "completed"]);
+export const chatStateSchema = z.enum(["idle", "live", "paused_grace", "expired"]);
+export const subscriptionHealthSchema = z.enum(["idle", "ready", "repairing", "revoked", "error"]);
 export const websocketEventTypeSchema = z.enum([
   "match.snapshot",
   "suggestions.updated",
@@ -48,6 +50,10 @@ export const matchSnapshotSchema = z.object({
   slug: z.string().min(1),
   title: z.string().min(1),
   status: matchStatusSchema,
+  chatState: chatStateSchema,
+  chatEnabledUntil: z.string().datetime().nullable(),
+  boardRevision: z.number().int().nonnegative(),
+  subscriptionHealth: subscriptionHealthSchema,
   targetWins: z.number().int().positive().nullable(),
   players: z.array(playerSchema).min(2),
   suggestions: z.array(suggestionSchema),
@@ -66,8 +72,12 @@ export const websocketEventEnvelopeSchema = z.object({
 export const createMatchRequestSchema = z.object({
   channelLinkId: z.string().min(1),
   title: z.string().min(3),
-  slug: z.string().min(3),
+  slug: z.string().min(3).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
   targetWins: z.number().int().positive().nullable().default(null)
+}).strict();
+
+export const updateMatchStatusRequestSchema = z.object({
+  status: matchStatusSchema
 }).strict();
 
 export const extensionBootstrapRequestSchema = z.object({
@@ -77,11 +87,55 @@ export const extensionBootstrapRequestSchema = z.object({
   userId: z.string().min(1).optional()
 });
 
+export const boardResponseSchema = z.object({
+  matchId: z.string().min(1),
+  boardRevision: z.number().int().nonnegative(),
+  updatedAt: z.string().datetime(),
+  suggestions: z.array(suggestionSchema)
+});
+
+export const chatCommandQueueMessageSchema = z.object({
+  type: z.literal("chat_command"),
+  messageId: z.string().min(1),
+  sentAt: z.string().datetime(),
+  sourceChannelId: z.string().min(1),
+  broadcasterId: z.string().min(1),
+  viewerId: z.string().min(1),
+  messageText: z.string().min(1),
+  replyParentId: z.string().min(1).nullable()
+});
+
+export const subscriptionReconcileQueueMessageSchema = z.object({
+  type: z.literal("subscription_reconcile"),
+  channelLinkId: z.string().min(1),
+  reason: z.enum(["match_status", "link_accepted", "chat_auth", "manual_repair"])
+});
+
+export const subscriptionRevokedQueueMessageSchema = z.object({
+  type: z.literal("subscription_revoked"),
+  subscriptionId: z.string().min(1),
+  broadcasterId: z.string().min(1).nullable(),
+  sourceChannelId: z.string().min(1).nullable(),
+  reason: z.string().min(1)
+});
+
+export const edgeQueueMessageSchema = z.discriminatedUnion("type", [
+  chatCommandQueueMessageSchema,
+  subscriptionReconcileQueueMessageSchema,
+  subscriptionRevokedQueueMessageSchema
+]);
+
+export type BoardResponse = z.infer<typeof boardResponseSchema>;
+export type ChatCommandQueueMessage = z.infer<typeof chatCommandQueueMessageSchema>;
 export type CreateMatchRequest = z.infer<typeof createMatchRequestSchema>;
+export type EdgeQueueMessage = z.infer<typeof edgeQueueMessageSchema>;
 export type MatchSnapshot = z.infer<typeof matchSnapshotSchema>;
 export type Player = z.infer<typeof playerSchema>;
 export type QueueItem = z.infer<typeof queueItemSchema>;
 export type Suggestion = z.infer<typeof suggestionSchema>;
+export type SubscriptionReconcileQueueMessage = z.infer<typeof subscriptionReconcileQueueMessageSchema>;
+export type SubscriptionRevokedQueueMessage = z.infer<typeof subscriptionRevokedQueueMessageSchema>;
+export type UpdateMatchStatusRequest = z.infer<typeof updateMatchStatusRequestSchema>;
 export type WebsocketEventEnvelope = z.infer<typeof websocketEventEnvelopeSchema>;
 
 export function approveSuggestion(snapshot: MatchSnapshot, suggestionId: string): MatchSnapshot {

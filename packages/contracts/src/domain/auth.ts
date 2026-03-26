@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { matchStatusSchema, playerSchema } from "./match";
+import { chatStateSchema, matchStatusSchema, playerSchema, subscriptionHealthSchema } from "./match";
 import { roleSchema } from "./roles";
 
 export const twitchLoginSchema = z
@@ -10,8 +10,9 @@ export const twitchLoginSchema = z
   .max(25)
   .regex(/^[a-z0-9_]+$/);
 
-export const authIntentSchema = z.enum(["dashboard", "invite"]);
+export const authIntentSchema = z.enum(["dashboard", "invite", "chat"]);
 export const channelLinkStatusSchema = z.enum(["pending", "active"]);
+export const chatIntegrationStatusSchema = z.enum(["idle", "ready", "needs_consent", "repairing", "revoked"]);
 
 export const authUserSchema = z.object({
   id: z.string().min(1),
@@ -59,7 +60,12 @@ export const channelLinkSummarySchema = z.object({
   linkedChannel: authChannelSchema.nullable(),
   invitedChannelLogin: twitchLoginSchema.nullable(),
   memberships: z.array(channelLinkMembershipSchema),
-  pendingInvite: channelLinkInviteSchema.nullable()
+  pendingInvite: channelLinkInviteSchema.nullable(),
+  chatIntegration: z.object({
+    ownerAuthorized: z.boolean(),
+    linkedAuthorized: z.boolean(),
+    status: chatIntegrationStatusSchema
+  })
 });
 
 export const channelLinksResponseSchema = z.object({
@@ -90,6 +96,10 @@ export const matchSummarySchema = z.object({
   slug: z.string().min(1),
   title: z.string().min(1),
   status: matchStatusSchema,
+  chatState: chatStateSchema,
+  chatEnabledUntil: z.string().datetime().nullable(),
+  boardRevision: z.number().int().nonnegative(),
+  subscriptionHealth: subscriptionHealthSchema,
   targetWins: z.number().int().positive().nullable(),
   players: z.array(playerSchema).min(2),
   createdAt: z.string().datetime(),
@@ -106,6 +116,7 @@ export type AuthChannel = z.infer<typeof authChannelSchema>;
 export type AuthSession = z.infer<typeof authSessionSchema>;
 export type AuthUser = z.infer<typeof authUserSchema>;
 export type ChannelLinkInvite = z.infer<typeof channelLinkInviteSchema>;
+export type ChatIntegrationStatus = z.infer<typeof chatIntegrationStatusSchema>;
 export type ChannelLinkMembership = z.infer<typeof channelLinkMembershipSchema>;
 export type ChannelLinkSummary = z.infer<typeof channelLinkSummarySchema>;
 export type CreateChannelLinkRequest = z.infer<typeof createChannelLinkRequestSchema>;

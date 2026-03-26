@@ -9,6 +9,10 @@ export function createDemoMatchSnapshot(partial?: Partial<MatchSnapshot>): Match
     slug: partial?.slug ?? "speedrun-showdown",
     title: partial?.title ?? "Gaming Gauntlet: Speedrun Showdown",
     status: partial?.status ?? "live",
+    chatState: partial?.chatState ?? "live",
+    chatEnabledUntil: partial?.chatEnabledUntil ?? null,
+    boardRevision: partial?.boardRevision ?? 7,
+    subscriptionHealth: partial?.subscriptionHealth ?? "ready",
     targetWins,
     players: partial?.players ?? [
       {
@@ -90,12 +94,12 @@ export function createOverlayViewModel(snapshot: MatchSnapshot) {
   const currentGame = snapshot.queue.find((entry) => entry.id === snapshot.currentGameId) ?? null;
   const nextGames = snapshot.queue.filter((entry) => entry.status === "queued").slice(0, 3);
 
-  return {
-    matchId: snapshot.matchId,
-    title: snapshot.title,
-    players: snapshot.players,
-    currentGame,
-    nextGames,
-    targetWins: snapshot.targetWins
-  };
+    return {
+      matchId: snapshot.matchId,
+      title: snapshot.title,
+      players: snapshot.players,
+      currentGame,
+      nextGames,
+      targetWins: snapshot.targetWins
+    };
 }

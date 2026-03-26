@@ -16,15 +16,19 @@ export function PageShell({
   actions,
   emphasis = "hero",
   tone = "default",
-  children
+  children,
 }: PageShellProps) {
+  const TitleTag = emphasis === "hero" ? "h1" : "h2";
+
   return (
     <section className={`gg-shell gg-shell--${tone} gg-shell--${emphasis}`}>
       <header className="gg-shell__header">
         <div>
-          <p className="gg-shell__eyebrow">{eyebrow}</p>
-          <h1 className="gg-shell__title">{title}</h1>
-          <p className="gg-shell__deck">{deck}</p>
+          {eyebrow ? <p className="gg-shell__eyebrow">{eyebrow}</p> : null}
+          {title ? (
+            <TitleTag className="gg-shell__title">{title}</TitleTag>
+          ) : null}
+          {deck ? <p className="gg-shell__deck">{deck}</p> : null}
         </div>
         {actions ? <div className="gg-shell__actions">{actions}</div> : null}
       </header>
