@@ -5,7 +5,7 @@ import { useParams } from "react-router-dom";
 import { EdgeError } from "../lib/edge";
 import { useLiveSnapshot } from "../lib/live-snapshot";
 
-const OVERLAY_POLL_INTERVAL_MS = 10_000;
+const OVERLAY_POLL_INTERVAL_MS = 15_000;
 
 function toFriendlyError(error: unknown): string {
   if (error instanceof TypeError) {

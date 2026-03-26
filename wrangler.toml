@@ -12,6 +12,7 @@ EXTENSION_ORIGIN = "http://localhost:5174"
 TWITCH_API_BASE = "https://api.twitch.tv/helix"
 TWITCH_CLIENT_ID = "fc5utkuzthjxl2xo28992adi7ymivw"
 TWITCH_REDIRECT_URI = "https://gaming-gauntlet-edge.pressplay-subai.workers.dev/api/auth/twitch/callback"
+TWITCH_SHARED_BOT_LOGIN = "gauntlet_b0t"
 
 
 [[d1_databases]]

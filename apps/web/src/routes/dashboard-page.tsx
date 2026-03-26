@@ -155,6 +155,14 @@ function toFriendlyError(error: unknown): string {
       return "Only one live match can own chat ingestion for a broadcaster pair at a time.";
     case "shared_bot_not_configured":
       return "The shared chat bot is not configured yet on the edge worker.";
+    case "shared_bot_login_not_configured":
+      return "Set TWITCH_SHARED_BOT_LOGIN before connecting the shared bot account.";
+    case "shared_bot_login_mismatch":
+      return "That Twitch account does not match the configured shared bot login.";
+    case "invalid_shared_bot_scopes":
+      return "The shared bot is missing one or more required Twitch chat scopes.";
+    case "auth_state_user_mismatch":
+      return "The shared bot connect flow expired or changed operators. Start it again from the dashboard.";
     default:
       return error.code.replaceAll("_", " ");
   }
@@ -499,6 +507,12 @@ export function DashboardPage() {
     );
   }
 
+  function handleConnectSharedBot() {
+    window.location.assign(
+      buildEdgeUrl("/api/auth/twitch/login", { intent: "bot" })
+    );
+  }
+
   async function handleCreateLink(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const nextError = validateTwitchLogin(linkLogin);
@@ -834,6 +848,13 @@ export function DashboardPage() {
             <button
               className="dashboard-button dashboard-button--ghost"
               type="button"
+              onClick={handleConnectSharedBot}
+            >
+              Connect shared bot
+            </button>
+            <button
+              className="dashboard-button dashboard-button--ghost"
+              type="button"
               disabled={isLoggingOut}
               onClick={() => void handleLogout()}
             >
@@ -887,6 +908,16 @@ export function DashboardPage() {
           >
             Chat authorization updated. The worker will reconcile subscriptions
             for active pairs.
+          </p>
+        ) : null}
+        {search.get("botAuth") === "connected" ? (
+          <p
+            className="dashboard-message dashboard-message--success"
+            role="status"
+            aria-live="polite"
+          >
+            Shared bot connected. Future EventSub repairs can use the stored bot
+            refresh token instead of Worker secrets.
           </p>
         ) : null}
         {pageError ? (

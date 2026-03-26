@@ -11,7 +11,13 @@ const TWITCH_CHAT_MESSAGES_URL = "https://api.twitch.tv/helix/chat/messages";
 const TWITCH_JWKS = createRemoteJWKSet(new URL("https://id.twitch.tv/oauth2/keys"));
 const EVENTSUB_MESSAGE_MAX_AGE_MS = 10 * 60 * 1000;
 
-const DEFAULT_TWITCH_AUTH_SCOPES = ["openid", "channel:bot"] as const;
+export const BROADCASTER_CHAT_AUTH_SCOPES = ["openid", "channel:bot"] as const;
+export const SHARED_BOT_AUTH_SCOPES = [
+  "openid",
+  "user:bot",
+  "user:read:chat",
+  "user:write:chat",
+] as const;
 
 let cachedAppToken:
   | {
@@ -56,7 +62,7 @@ export function buildTwitchAuthorizeUrl(
   env: Env,
   state: string,
   nonce: string,
-  scopes: readonly string[] = DEFAULT_TWITCH_AUTH_SCOPES
+  scopes: readonly string[] = BROADCASTER_CHAT_AUTH_SCOPES
 ): string {
   const url = new URL(TWITCH_AUTHORIZE_URL);
   url.searchParams.set("client_id", env.TWITCH_CLIENT_ID);

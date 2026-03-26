@@ -41,6 +41,7 @@ import {
   withSetCookie,
 } from "./lib/response";
 import {
+  BROADCASTER_CHAT_AUTH_SCOPES,
   buildTwitchAuthorizeUrl,
   createEventSubChatMessageSubscription,
   deleteEventSubSubscription,
@@ -50,6 +51,7 @@ import {
   normalizeScopeValue,
   refreshAccessToken,
   sendChatMessage,
+  SHARED_BOT_AUTH_SCOPES,
   TwitchAuthError,
   validateAccessToken,
   validateIdToken,
@@ -89,9 +91,44 @@ type RoutedChatCommand = QueuedChatCommand & {
 
 const VIEWER_SNAPSHOT_CACHE_TTL_SECONDS = 2;
 const VIEWER_SNAPSHOT_STALE_SECONDS = 8;
+const REQUIRED_SHARED_BOT_SCOPES = [
+  "user:bot",
+  "user:read:chat",
+  "user:write:chat",
+] as const;
 const queueReplyCooldowns = new Map<string, number>();
 const queueReplyCooldownExpirations: ExpiringEntry[] = [];
 let queueReplyCooldownExpirationHead = 0;
+
+function normalizeLogin(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function getMissingSharedBotScopes(scopes: string[]): string[] {
+  const grantedScopes = new Set(scopes);
+
+  return REQUIRED_SHARED_BOT_SCOPES.filter((scope) => !grantedScopes.has(scope));
+}
+
+function assertSharedBotScopes(scopes: string[]): void {
+  const missingScopes = getMissingSharedBotScopes(scopes);
+
+  if (missingScopes.length > 0) {
+    throw new AppError(400, "invalid_shared_bot_scopes", {
+      missingScopes,
+    });
+  }
+}
+
+function assertSharedBotLogin(env: Env, login: string): void {
+  if (!env.TWITCH_SHARED_BOT_LOGIN) {
+    throw new AppError(503, "shared_bot_login_not_configured");
+  }
+
+  if (normalizeLogin(env.TWITCH_SHARED_BOT_LOGIN) !== normalizeLogin(login)) {
+    throw new AppError(403, "shared_bot_login_mismatch");
+  }
+}
 
 function cleanupQueueReplyCooldowns(now: number): void {
   while (
@@ -311,7 +348,8 @@ async function ensureSharedBotIdentity(
   const stored = await repo.findSharedBotIdentity();
 
   if (stored) {
-    await repo.ensureFreshTwitchToken(stored.user_id);
+    const token = await repo.ensureFreshTwitchToken(stored.user_id);
+    assertSharedBotScopes(token.scopes);
     return {
       senderId: stored.twitch_user_id,
     };
@@ -334,7 +372,12 @@ async function ensureSharedBotIdentity(
     validatedToken = await validateAccessToken(accessToken);
   }
 
+  assertSharedBotScopes(validatedToken.scopes);
+
   const profile = await fetchTwitchUser(env, accessToken);
+  if (env.TWITCH_SHARED_BOT_LOGIN) {
+    assertSharedBotLogin(env, profile.login);
+  }
   const identity = await repo.upsertIdentity(
     profile,
     {
@@ -774,14 +817,24 @@ export async function handleRequest(
         );
       }
 
+      let actorUserId: string | undefined;
+      let scopes: readonly string[] = BROADCASTER_CHAT_AUTH_SCOPES;
+
+      if (intent.data === "bot") {
+        const session = await requireAuthenticatedSession(request, env, repo);
+        actorUserId = session.user.id;
+        scopes = SHARED_BOT_AUTH_SCOPES;
+      }
+
       const nonce = createNonce();
       const state = await createAuthState(env, {
         intent: intent.data,
         inviteCode,
+        actorUserId,
         nonce,
       });
 
-      return redirect(buildTwitchAuthorizeUrl(env, state, nonce));
+      return redirect(buildTwitchAuthorizeUrl(env, state, nonce, scopes));
     }
 
     if (url.pathname === "/api/auth/twitch/callback") {
@@ -853,6 +906,23 @@ export async function handleRequest(
           },
           validatedAccessToken
         );
+
+        if (state.intent === "bot") {
+          const existingSession = await requireAuthenticatedSession(
+            request,
+            env,
+            repo
+          );
+
+          if (state.actorUserId && existingSession.user.id !== state.actorUserId) {
+            throw new AppError(401, "auth_state_user_mismatch");
+          }
+
+          assertSharedBotLogin(env, identity.user.login);
+          assertSharedBotScopes(normalizeScopeValue(tokenPayload.scope));
+
+          return redirect(buildDashboardRedirect(env, { botAuth: "connected" }));
+        }
 
         const session = await repo.createSession(identity.user.id);
         await repo.writeAuditLog({

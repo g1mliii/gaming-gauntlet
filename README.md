@@ -59,20 +59,22 @@ npm run test:e2e
 ## Twitch Setup Checklist
 
 1. Create a Twitch application for broadcaster OAuth.
-2. Create a dedicated shared bot account and authorize the required chat scopes.
-3. Create a Twitch Extension with `video_overlay` and `config` views.
-4. Populate `.env.example` values in local secrets or `.dev.vars`.
-5. Configure EventSub webhook callback URLs to the deployed Worker and set `TWITCH_EVENTSUB_SECRET`.
+2. Create a dedicated shared bot account and set `TWITCH_SHARED_BOT_LOGIN` to its Twitch login.
+3. Use the dashboard's `Connect shared bot` action once to authorize `user:bot`, `user:read:chat`, and `user:write:chat` for that account.
+4. Create a Twitch Extension with `video_overlay` and `config` views.
+5. Populate `.env.example` values in local secrets or `.dev.vars`.
+6. Configure EventSub webhook callback URLs to the deployed Worker and set `TWITCH_EVENTSUB_SECRET`.
 
 ## Phase 2 Local Flow
 
-1. Configure `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `TWITCH_REDIRECT_URI`, `TWITCH_EVENTSUB_SECRET`, `SESSION_SECRET`, and `TOKEN_ENCRYPTION_KEY`.
+1. Configure `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `TWITCH_REDIRECT_URI`, `TWITCH_EVENTSUB_SECRET`, `TWITCH_SHARED_BOT_LOGIN`, `SESSION_SECRET`, and `TOKEN_ENCRYPTION_KEY`.
 2. Start the workspace with `npm run dev`.
 3. Open `/dashboard` and sign in with Twitch.
-4. Create a broadcaster invite for the opposing channel login.
-5. Open the generated `/link/:inviteCode` URL with the invited broadcaster account to activate the pair.
-6. Assign moderators after they have signed in once with Twitch.
-7. Draft matches from the active broadcaster pair in the dashboard.
+4. Use `Connect shared bot` in the dashboard to store the shared bot refresh token in D1.
+5. Create a broadcaster invite for the opposing channel login.
+6. Open the generated `/link/:inviteCode` URL with the invited broadcaster account to activate the pair.
+7. Assign moderators after they have signed in once with Twitch.
+8. Draft matches from the active broadcaster pair in the dashboard.
 
 ## Cloudflare Setup Checklist
 

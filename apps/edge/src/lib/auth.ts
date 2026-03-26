@@ -7,6 +7,7 @@ import { parseCookies, serializeCookie } from "./response";
 type AuthState = {
   intent: AuthIntent;
   inviteCode?: string;
+  actorUserId?: string;
   nonce: string;
   expiresAt: string;
 };
@@ -17,7 +18,7 @@ const AUTH_STATE_TTL_MS = 1000 * 60 * 10;
 
 export async function createAuthState(
   env: Env,
-  input: Pick<AuthState, "intent" | "inviteCode" | "nonce">
+  input: Pick<AuthState, "intent" | "inviteCode" | "actorUserId" | "nonce">
 ): Promise<string> {
   return createSignedValue(
     JSON.stringify({

@@ -10,7 +10,7 @@ export const twitchLoginSchema = z
   .max(25)
   .regex(/^[a-z0-9_]+$/);
 
-export const authIntentSchema = z.enum(["dashboard", "invite", "chat"]);
+export const authIntentSchema = z.enum(["dashboard", "invite", "chat", "bot"]);
 export const channelLinkStatusSchema = z.enum(["pending", "active"]);
 export const chatIntegrationStatusSchema = z.enum(["idle", "ready", "needs_consent", "repairing", "revoked"]);
 

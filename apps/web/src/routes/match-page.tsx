@@ -4,7 +4,7 @@ import { useParams } from "react-router-dom";
 import { EdgeError } from "../lib/edge";
 import { useLiveSnapshot } from "../lib/live-snapshot";
 
-const PUBLIC_MATCH_POLL_INTERVAL_MS = 20_000;
+const PUBLIC_MATCH_POLL_INTERVAL_MS = 30_000;
 
 function toFriendlyError(error: unknown): string {
   if (error instanceof TypeError) {

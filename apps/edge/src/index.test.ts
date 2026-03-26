@@ -82,6 +82,7 @@ const env = {
   TWITCH_CLIENT_SECRET: "client-secret",
   TWITCH_REDIRECT_URI: "http://localhost:8787/api/auth/twitch/callback",
   TWITCH_EVENTSUB_SECRET: "eventsub-secret",
+  TWITCH_SHARED_BOT_LOGIN: "ggbot",
   TWITCH_BOT_ACCESS_TOKEN: "bot-access-token",
   TWITCH_BOT_REFRESH_TOKEN: "bot-refresh-token",
   SESSION_SECRET: "super-secret-session",
@@ -202,6 +203,37 @@ describe("handleRequest", () => {
     );
   });
 
+  it("starts shared bot auth with the bot-specific Twitch scopes", async () => {
+    const repo = createRepoMock();
+    createRepositoryMock.mockReturnValue(repo);
+    buildTwitchAuthorizeUrlMock.mockReturnValue(
+      "https://id.twitch.tv/oauth2/authorize?client_id=client-id"
+    );
+    const cookie = await createSignedSessionCookie("session_1");
+
+    repo.getSession.mockResolvedValue(signedInSession());
+
+    const response = await handleRequest(
+      new Request("http://localhost:8787/api/auth/twitch/login?intent=bot", {
+        headers: {
+          Cookie: cookie,
+        },
+      }),
+      env
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe(
+      "https://id.twitch.tv/oauth2/authorize?client_id=client-id"
+    );
+    expect(buildTwitchAuthorizeUrlMock).toHaveBeenCalledWith(
+      env,
+      expect.any(String),
+      expect.any(String),
+      ["openid", "user:bot", "user:read:chat", "user:write:chat"]
+    );
+  });
+
   it("completes Twitch login, creates a session cookie, and records auth.login", async () => {
     const repo = createRepoMock();
     createRepositoryMock.mockReturnValue(repo);
@@ -262,6 +294,78 @@ describe("handleRequest", () => {
         actorUserId: "user_1",
       })
     );
+  });
+
+  it("completes shared bot auth without replacing the broadcaster session", async () => {
+    const repo = createRepoMock();
+    createRepositoryMock.mockReturnValue(repo);
+    const cookie = await createSignedSessionCookie("session_1");
+
+    const state = await createAuthState(env, {
+      intent: "bot",
+      actorUserId: "user_1",
+      nonce: "bot-nonce",
+    });
+
+    exchangeAuthorizationCodeMock.mockResolvedValue({
+      access_token: "bot-access-token",
+      refresh_token: "bot-refresh-token",
+      id_token: "bot-id-token",
+      expires_in: 3600,
+      scope: ["openid", "user:bot", "user:read:chat", "user:write:chat"],
+      token_type: "bearer",
+    });
+    validateIdTokenMock.mockResolvedValue({
+      sub: "2002",
+      nonce: "bot-nonce",
+    });
+    validateAccessTokenMock.mockResolvedValue({
+      client_id: "client-id",
+      login: "ggbot",
+      scopes: ["openid", "user:bot", "user:read:chat", "user:write:chat"],
+      user_id: "2002",
+      expires_in: 3600,
+    });
+    fetchTwitchUserMock.mockResolvedValue({
+      id: "2002",
+      login: "ggbot",
+      display_name: "GGBot",
+    });
+    repo.upsertIdentity.mockResolvedValue({
+      user: {
+        id: "user_bot",
+        twitchUserId: "2002",
+        login: "ggbot",
+        displayName: "GGBot",
+      },
+      ownedChannel: {
+        id: "channel_bot",
+        twitchChannelId: "2002",
+        login: "ggbot",
+        displayName: "GGBot",
+      },
+    });
+    repo.getSession.mockResolvedValue(signedInSession());
+
+    const response = await handleRequest(
+      new Request(
+        `http://localhost:8787/api/auth/twitch/callback?code=demo&state=${encodeURIComponent(state)}`,
+        {
+          headers: {
+            Cookie: cookie,
+          },
+        }
+      ),
+      env
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe(
+      "http://localhost:5173/dashboard?botAuth=connected"
+    );
+    expect(response.headers.get("Set-Cookie")).toBeNull();
+    expect(repo.createSession).not.toHaveBeenCalled();
+    expect(repo.writeAuditLog).not.toHaveBeenCalled();
   });
 
   it("redirects invite callbacks with the invite-specific error when the nonce check fails", async () => {
