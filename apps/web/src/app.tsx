@@ -72,7 +72,7 @@ function AppLayout() {
             <Route path="/link/:inviteCode" element={<LinkInvitePage />} />
             <Route path="/matches/:slug" element={<MatchPage />} />
             <Route path="/control/:matchId" element={<ControlRoomPage />} />
-            <Route path="/overlay/:matchId" element={<OverlayPage />} />
+            <Route path="/overlay/:slug" element={<OverlayPage />} />
           </Routes>
         </Suspense>
       </main>

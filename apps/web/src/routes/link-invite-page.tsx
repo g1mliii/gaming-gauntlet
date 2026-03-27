@@ -8,7 +8,8 @@ import { buildEdgeUrl, EdgeError, edgeFetchJson } from "../lib/edge";
 const EMPTY_SESSION: AuthSession = {
   authenticated: false,
   user: null,
-  ownedChannel: null
+  ownedChannel: null,
+  sharedBotConnected: false
 };
 
 function describeInviteError(code: string | null): string | null {

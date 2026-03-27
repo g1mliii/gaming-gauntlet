@@ -9,10 +9,15 @@ import type {
   InviteStatus,
   MatchSnapshot,
   MatchSummary,
+  MatchAutoCompleteReason,
   Suggestion,
   Role,
 } from "@gaming-gauntlet/contracts";
-import { canCreateMatches } from "@gaming-gauntlet/contracts";
+import {
+  canCreateMatches,
+  getMatchAutoCompleteReason,
+  MATCH_PAUSE_GRACE_MS,
+} from "@gaming-gauntlet/contracts";
 
 import type { Env } from "../env";
 import { decryptString, encryptString, randomToken, sha256Hex } from "./crypto";
@@ -29,6 +34,7 @@ type QueryResult<T> = {
 type SessionRow = {
   session_id: string;
   expires_at: string;
+  last_seen_at: string;
   user_id: string;
   twitch_user_id: string;
   user_login: string;
@@ -176,6 +182,7 @@ type QueueRow = {
 };
 
 type SharedBotIdentityRow = {
+  login: string;
   user_id: string;
   twitch_user_id: string;
 };
@@ -190,6 +197,8 @@ export class AppError extends Error {
   }
 }
 
+const SESSION_LAST_SEEN_UPDATE_INTERVAL_MS = 15 * 60 * 1000;
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -200,10 +209,6 @@ function plusDays(days: number): string {
 
 function plusHours(hours: number): string {
   return new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
-}
-
-function plusMinutes(minutes: number): string {
-  return new Date(Date.now() + minutes * 60 * 1000).toISOString();
 }
 
 function stableUserId(twitchUserId: string): string {
@@ -224,6 +229,20 @@ function normalizeLogin(login: string): string {
 
 function buildPairKey(channelA: string, channelB: string): string {
   return [channelA, channelB].sort().join(":");
+}
+
+function shouldTouchSessionLastSeen(lastSeenAt: string | null): boolean {
+  if (!lastSeenAt) {
+    return true;
+  }
+
+  const lastSeenAtMs = Date.parse(lastSeenAt);
+
+  if (Number.isNaN(lastSeenAtMs)) {
+    return true;
+  }
+
+  return Date.now() - lastSeenAtMs >= SESSION_LAST_SEEN_UPDATE_INTERVAL_MS;
 }
 
 async function all<T>(
@@ -506,12 +525,19 @@ export function createRepository(env: Env) {
     return { id, expiresAt };
   }
 
-  async function getSession(sessionId: string): Promise<AuthSession | null> {
+  async function getSession(
+    sessionId: string,
+    options?: {
+      includeSharedBotConnected?: boolean;
+      touchLastSeen?: boolean;
+    }
+  ): Promise<AuthSession | null> {
     const row = await first<SessionRow>(
       db,
       `SELECT
           s.id AS session_id,
           s.expires_at,
+          s.last_seen_at,
           u.id AS user_id,
           u.twitch_user_id,
           u.login AS user_login,
@@ -535,12 +561,17 @@ export function createRepository(env: Env) {
       return null;
     }
 
-    await run(
-      db,
-      `UPDATE sessions SET last_seen_at = ? WHERE id = ?`,
-      nowIso(),
-      sessionId
-    );
+    if (
+      (options?.touchLastSeen ?? true) &&
+      shouldTouchSessionLastSeen(row.last_seen_at)
+    ) {
+      await run(
+        db,
+        `UPDATE sessions SET last_seen_at = ? WHERE id = ?`,
+        nowIso(),
+        sessionId
+      );
+    }
 
     return {
       authenticated: true,
@@ -550,6 +581,9 @@ export function createRepository(env: Env) {
         login: row.user_login,
         displayName: row.user_display_name,
       },
+      sharedBotConnected: options?.includeSharedBotConnected
+        ? (await findSharedBotIdentity()) !== null
+        : false,
       ownedChannel:
         row.channel_id &&
         row.twitch_channel_id &&
@@ -1733,6 +1767,35 @@ export function createRepository(env: Env) {
       return null;
     }
 
+    return getMatchSummaryById(matchId);
+  }
+
+  async function getMatchSummaryById(
+    matchId: string
+  ): Promise<MatchSummary | null> {
+    const match = await first<MatchMetaRow>(
+      db,
+      `SELECT
+          id,
+          channel_link_id,
+          slug,
+          title,
+          status,
+          board_revision,
+          chat_enabled_until,
+          target_wins,
+          created_at,
+          updated_at
+        FROM matches
+        WHERE id = ?
+        LIMIT 1`,
+      matchId
+    );
+
+    if (!match) {
+      return null;
+    }
+
     const playerRows = await all<MatchRow>(
       db,
       `SELECT
@@ -1806,7 +1869,10 @@ export function createRepository(env: Env) {
 
     const previousStatus = match.status;
     const timestamp = nowIso();
-    const chatEnabledUntil = nextStatus === "paused" ? plusMinutes(10) : null;
+    const chatEnabledUntil =
+      nextStatus === "paused"
+        ? new Date(Date.now() + MATCH_PAUSE_GRACE_MS).toISOString()
+        : null;
 
     if (nextStatus === "live") {
       const existingLive = await first<{ id: string }>(
@@ -1851,13 +1917,87 @@ export function createRepository(env: Env) {
       },
     });
 
-    const summary = await getMatchSummaryForUser(userId, matchId);
+    const summary = await getMatchSummaryById(matchId);
 
     if (!summary) {
       throw new AppError(404, "match_not_found");
     }
 
     return summary;
+  }
+
+  async function autoCompleteInactiveMatch(
+    matchId: string,
+    requestedReason?: MatchAutoCompleteReason
+  ): Promise<MatchSummary | null> {
+    const match = await first<MatchMetaRow>(
+      db,
+      `SELECT
+          id,
+          channel_link_id,
+          slug,
+          title,
+          status,
+          board_revision,
+          chat_enabled_until,
+          target_wins,
+          created_at,
+          updated_at
+        FROM matches
+        WHERE id = ?
+        LIMIT 1`,
+      matchId
+    );
+
+    if (!match) {
+      return null;
+    }
+
+    const actualReason = getMatchAutoCompleteReason({
+      status: match.status,
+      chatEnabledUntil: match.chat_enabled_until,
+      updatedAt: match.updated_at,
+    });
+
+    if (
+      !actualReason ||
+      (requestedReason && requestedReason !== actualReason)
+    ) {
+      return null;
+    }
+
+    const timestamp = nowIso();
+    const result = await db
+      .prepare(
+        `UPDATE matches
+          SET status = 'complete',
+              chat_enabled_until = NULL,
+              updated_at = ?
+          WHERE id = ?
+            AND status IN ('live', 'paused')`
+      )
+      .bind(timestamp, matchId)
+      .run();
+
+    if ((result.meta?.changes ?? 0) === 0) {
+      return null;
+    }
+
+    await syncChatTargetsForChannelLink(match.channel_link_id);
+    await writeAuditLog({
+      action: "match.status.updated",
+      actorUserId: null,
+      matchId,
+      channelLinkId: match.channel_link_id,
+      payload: {
+        fromStatus: match.status,
+        toStatus: "complete",
+        automatic: true,
+        reason: actualReason,
+      },
+    });
+
+    return getMatchSummaryById(matchId);
   }
 
   async function getCompactBoardForUser(
@@ -2066,16 +2206,24 @@ export function createRepository(env: Env) {
   }
 
   async function findSharedBotIdentity(): Promise<SharedBotIdentityRow | null> {
+    const configuredLogin = env.TWITCH_SHARED_BOT_LOGIN
+      ? normalizeLogin(env.TWITCH_SHARED_BOT_LOGIN)
+      : null;
+
     return first<SharedBotIdentityRow>(
       db,
       `SELECT
           token.subject_user_id AS user_id,
+          user.login,
           user.twitch_user_id
         FROM twitch_tokens token
         JOIN users user ON user.id = token.subject_user_id
         WHERE token.scopes_json LIKE '%user:bot%'
+          AND (? IS NULL OR user.login = ?)
         ORDER BY token.created_at DESC
-        LIMIT 1`
+        LIMIT 1`,
+      configuredLogin,
+      configuredLogin
     );
   }
 
@@ -2169,6 +2317,7 @@ export function createRepository(env: Env) {
     listChannelLinksForUser,
     listMatchesForUser,
     removeModerator,
+    autoCompleteInactiveMatch,
     updateMatchStatusForUser,
     upsertIdentity,
     writeAuditLog,

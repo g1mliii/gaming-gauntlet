@@ -47,6 +47,10 @@ body {
   color: var(--gg-text-dim);
 }
 
+.extension-config__board {
+  margin-top: 1rem;
+}
+
 @media (max-width: 800px) {
   .extension-config__grid {
     grid-template-columns: 1fr;

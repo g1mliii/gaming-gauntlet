@@ -4,15 +4,9 @@ import type {
   AuthSession,
   ChannelLinkInvite,
   ChannelLinkSummary,
-  MatchSnapshot,
   MatchSummary,
 } from "@gaming-gauntlet/contracts";
-import {
-  PageShell,
-  QueueList,
-  ScoreBug,
-  SuggestionBoard,
-} from "@gaming-gauntlet/ui";
+import { PageShell } from "@gaming-gauntlet/ui";
 import {
   startTransition,
   useEffect,
@@ -41,11 +35,11 @@ type MatchPayload = {
 
 const TWITCH_LOGIN_PATTERN = /^[a-z0-9_]+$/;
 const MATCH_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-const SNAPSHOT_POLL_INTERVAL_MS = 60_000;
 const EMPTY_SESSION: AuthSession = {
   authenticated: false,
   user: null,
   ownedChannel: null,
+  sharedBotConnected: false,
 };
 
 function validateTwitchLogin(value: string): string | null {
@@ -219,27 +213,13 @@ export function DashboardPage() {
   const [activityExpanded, setActivityExpanded] = useState(false);
   const [linkRailExpanded, setLinkRailExpanded] = useState(true);
   const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null);
-  const [expandedMatchId, setExpandedMatchId] = useState<string | null>(null);
   const [matchRailExpanded, setMatchRailExpanded] = useState(true);
-  const [operatorSnapshot, setOperatorSnapshot] =
-    useState<MatchSnapshot | null>(null);
-  const [operatorSnapshotLoading, setOperatorSnapshotLoading] = useState(false);
-  const [operatorSnapshotError, setOperatorSnapshotError] = useState<
-    string | null
-  >(null);
-  const operatorEtagRef = useRef<string | null>(null);
-  const operatorPollAbortRef = useRef<AbortController | null>(null);
-  const operatorPollTimerRef = useRef<number | null>(null);
-  const operatorFetchInFlightRef = useRef(false);
-  const operatorLastLoadedAtRef = useRef(0);
 
   const activeLinks = links.filter((link) => link.status === "active");
   const isLinkBusy = linkActionState !== "idle";
   const isMatchBusy = matchActionState !== "idle";
   const selectedHeaderMatch =
     matches.find((match) => match.id === selectedMatchId) ?? null;
-  const selectedOperatorMatch =
-    matches.find((match) => match.id === expandedMatchId) ?? null;
 
   const loadDashboard = useEffectEvent(async () => {
     setIsLoading(true);
@@ -333,148 +313,6 @@ export function DashboardPage() {
 
     setSelectedMatchId(matches[0]?.id ?? null);
   }, [matches, selectedMatchId]);
-
-  const loadOperatorSnapshot = useEffectEvent(
-    async (matchId: string, signal?: AbortSignal) => {
-      operatorFetchInFlightRef.current = true;
-
-      const headers: HeadersInit = {};
-
-      if (operatorEtagRef.current) {
-        headers["If-None-Match"] = operatorEtagRef.current;
-      }
-
-      const response = await fetch(
-        buildEdgeUrl(`/api/matches/${matchId}/snapshot`),
-        {
-          credentials: "include",
-          headers,
-          signal,
-        }
-      );
-
-      if (response.status === 304) {
-        operatorLastLoadedAtRef.current = Date.now();
-        operatorFetchInFlightRef.current = false;
-        return;
-      }
-
-      const text = await response.text();
-      const payload = text
-        ? (JSON.parse(text) as
-            | MatchSnapshot
-            | { error: string; details?: unknown })
-        : null;
-
-      if (!response.ok) {
-        const errorPayload =
-          payload && typeof payload === "object" && "error" in payload
-            ? payload
-            : { error: "request_failed" };
-        throw new EdgeError(
-          response.status,
-          errorPayload.error,
-          errorPayload.details
-        );
-      }
-
-      operatorEtagRef.current = response.headers.get("ETag");
-      operatorLastLoadedAtRef.current = Date.now();
-      startTransition(() => {
-        setOperatorSnapshot(payload as MatchSnapshot);
-      });
-      operatorFetchInFlightRef.current = false;
-    }
-  );
-
-  useEffect(() => {
-    if (!expandedMatchId) {
-      operatorPollAbortRef.current?.abort();
-      if (operatorPollTimerRef.current !== null) {
-        window.clearInterval(operatorPollTimerRef.current);
-        operatorPollTimerRef.current = null;
-      }
-      setOperatorSnapshot(null);
-      setOperatorSnapshotError(null);
-      setOperatorSnapshotLoading(false);
-      operatorEtagRef.current = null;
-      operatorFetchInFlightRef.current = false;
-      operatorLastLoadedAtRef.current = 0;
-      return;
-    }
-
-    const abortController = new AbortController();
-    operatorPollAbortRef.current = abortController;
-    operatorEtagRef.current = null;
-    operatorFetchInFlightRef.current = false;
-    operatorLastLoadedAtRef.current = 0;
-    setOperatorSnapshot(null);
-    setOperatorSnapshotLoading(true);
-    setOperatorSnapshotError(null);
-
-    void (async () => {
-      try {
-        await loadOperatorSnapshot(expandedMatchId, abortController.signal);
-      } catch (error) {
-        if (!abortController.signal.aborted) {
-          setOperatorSnapshotError(toFriendlyError(error));
-        }
-      } finally {
-        operatorFetchInFlightRef.current = false;
-        if (!abortController.signal.aborted) {
-          setOperatorSnapshotLoading(false);
-        }
-      }
-    })();
-
-    const tick = () => {
-      if (document.visibilityState !== "visible") {
-        return;
-      }
-
-      if (operatorFetchInFlightRef.current) {
-        return;
-      }
-
-      if (Date.now() - operatorLastLoadedAtRef.current < 10_000) {
-        return;
-      }
-
-      const nextAbortController = new AbortController();
-      operatorPollAbortRef.current = nextAbortController;
-
-      void loadOperatorSnapshot(
-        expandedMatchId,
-        nextAbortController.signal
-      ).catch((error) => {
-        operatorFetchInFlightRef.current = false;
-        if (!nextAbortController.signal.aborted) {
-          setOperatorSnapshotError(toFriendlyError(error));
-        }
-      });
-    };
-
-    operatorPollTimerRef.current = window.setInterval(
-      tick,
-      SNAPSHOT_POLL_INTERVAL_MS
-    );
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        tick();
-      }
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-
-    return () => {
-      abortController.abort();
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-      if (operatorPollTimerRef.current !== null) {
-        window.clearInterval(operatorPollTimerRef.current);
-        operatorPollTimerRef.current = null;
-      }
-    };
-  }, [expandedMatchId, loadOperatorSnapshot]);
 
   async function runAction(action: () => Promise<void>) {
     setActionError(null);
@@ -661,40 +499,8 @@ export function DashboardPage() {
     setMatchActionState("idle");
   }
 
-  async function handleSetMatchStatus(
-    matchId: string,
-    status: MatchSummary["status"]
-  ) {
-    setMatchActionState("updating-status");
-    await runAction(async () => {
-      await edgeSendJson<{ match: MatchSummary }>(
-        `/api/matches/${matchId}/status`,
-        { status },
-        { method: "PATCH" }
-      );
-      await Promise.all([
-        refreshMatches(),
-        refreshLinks(),
-        activityLoaded ? refreshActivity() : Promise.resolve(),
-      ]);
-
-      if (expandedMatchId === matchId) {
-        operatorEtagRef.current = null;
-        await loadOperatorSnapshot(matchId);
-      }
-    });
-    setMatchActionState("idle");
-  }
-
-  async function handleToggleOperatorPanel(matchId: string) {
+  function handleSelectMatch(matchId: string) {
     setSelectedMatchId(matchId);
-
-    if (expandedMatchId === matchId) {
-      setExpandedMatchId(null);
-      return;
-    }
-
-    setExpandedMatchId(matchId);
   }
 
   async function handleToggleActivityExpanded() {
@@ -710,37 +516,6 @@ export function DashboardPage() {
 
   function handleToggleMatchRailExpanded() {
     setMatchRailExpanded((current) => !current);
-  }
-
-  function getOperatorPrimaryAction(match: MatchSummary): {
-    label: string;
-    status: MatchSummary["status"];
-  } {
-    if (match.status === "live") {
-      return {
-        label: "Pause",
-        status: "paused",
-      };
-    }
-
-    if (match.status === "paused") {
-      return {
-        label: "Resume match",
-        status: "live",
-      };
-    }
-
-    if (match.status === "draft") {
-      return {
-        label: "Start match",
-        status: "live",
-      };
-    }
-
-    return {
-      label: "Route chat live",
-      status: "live",
-    };
   }
 
   function handleToggleLinkRailExpanded() {
@@ -833,25 +608,33 @@ export function DashboardPage() {
               <>
                 <Link
                   className="dashboard-link"
+                  to={`/control/${selectedHeaderMatch.id}`}
+                >
+                  Open control room
+                </Link>
+                <Link
+                  className="dashboard-link"
                   to={`/matches/${selectedHeaderMatch.slug}`}
                 >
                   Open public page
                 </Link>
                 <Link
                   className="dashboard-link"
-                  to={`/overlay/${selectedHeaderMatch.id}`}
+                  to={`/overlay/${selectedHeaderMatch.slug}`}
                 >
                   Open overlay
                 </Link>
               </>
             ) : null}
-            <button
-              className="dashboard-button dashboard-button--ghost"
-              type="button"
-              onClick={handleConnectSharedBot}
-            >
-              Connect shared bot
-            </button>
+            {!session.sharedBotConnected ? (
+              <button
+                className="dashboard-button dashboard-button--ghost"
+                type="button"
+                onClick={handleConnectSharedBot}
+              >
+                Connect shared bot
+              </button>
+            ) : null}
             <button
               className="dashboard-button dashboard-button--ghost"
               type="button"
@@ -949,118 +732,47 @@ export function DashboardPage() {
           </p>
         ) : null}
 
-        {selectedOperatorMatch ? (
-          <section className="dashboard-panel dashboard-panel--operator">
-            {(() => {
-              const primaryAction = getOperatorPrimaryAction(
-                selectedOperatorMatch
-              );
-
-              return (
-                <>
-                  <div className="dashboard-panel__header">
-                    <div>
-                      <p className="dashboard-panel__eyebrow">Operator board</p>
-                      <h2 className="dashboard-panel__title">
-                        Live match operator view
-                      </h2>
-                    </div>
-                    <span className="gg-chip gg-chip--soft">
-                      1m visible-tab refresh
-                    </span>
-                  </div>
-                  {operatorSnapshotError ? (
-                    <p
-                      className="dashboard-message dashboard-message--warning"
-                      role="status"
-                      aria-live="polite"
-                    >
-                      {operatorSnapshotError}
-                    </p>
-                  ) : null}
-                  {operatorSnapshot ? (
-                    <div className="dashboard-match-operator">
-                      <div className="dashboard-match-operator__header">
-                        <div>
-                          <p className="dashboard-panel__eyebrow">
-                            {selectedOperatorMatch.status}
-                          </p>
-                          <h3 className="dashboard-panel__title">
-                            {selectedOperatorMatch.title}
-                          </h3>
-                        </div>
-                        <span className="gg-chip gg-chip--soft">
-                          Chat {selectedOperatorMatch.chatState ?? "idle"}
-                        </span>
-                      </div>
-                      <div className="dashboard-match-operator__actions">
-                        <span className="gg-chip gg-chip--soft">
-                          {selectedOperatorMatch.targetWins
-                            ? `FT${selectedOperatorMatch.targetWins}`
-                            : "Open mode"}
-                        </span>
-                        <button
-                          className="dashboard-button dashboard-button--ghost"
-                          type="button"
-                          disabled={isMatchBusy}
-                          onClick={() =>
-                            void handleSetMatchStatus(
-                              selectedOperatorMatch.id,
-                              primaryAction.status
-                            )
-                          }
-                        >
-                          {primaryAction.label}
-                        </button>
-                        <button
-                          className="dashboard-button dashboard-button--ghost"
-                          type="button"
-                          disabled={isMatchBusy}
-                          onClick={() =>
-                            void handleSetMatchStatus(
-                              selectedOperatorMatch.id,
-                              "complete"
-                            )
-                          }
-                        >
-                          Complete
-                        </button>
-                        <button
-                          className="dashboard-button dashboard-button--ghost"
-                          type="button"
-                          onClick={() =>
-                            void handleToggleOperatorPanel(
-                              selectedOperatorMatch.id
-                            )
-                          }
-                        >
-                          Close operator board
-                        </button>
-                      </div>
-                      <div className="dashboard-match-operator__grid">
-                        <ScoreBug match={operatorSnapshot} />
-                        <div className="match-support-grid">
-                          <SuggestionBoard
-                            suggestions={operatorSnapshot.suggestions}
-                            title="Compact chat board"
-                          />
-                          <QueueList
-                            items={operatorSnapshot.queue}
-                            title="Upcoming flow"
-                            transparent
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  ) : operatorSnapshotLoading ? (
-                    <EmptyPanel
-                      title="Syncing operator board"
-                      body="Loading the live snapshot for the selected match."
-                    />
-                  ) : null}
-                </>
-              );
-            })()}
+        {selectedHeaderMatch ? (
+          <section className="dashboard-panel dashboard-panel--operator-summary">
+            <div className="dashboard-panel__header">
+              <div>
+                <p className="dashboard-panel__eyebrow">Active match</p>
+                <h2 className="dashboard-panel__title">
+                  Launch the control room
+                </h2>
+              </div>
+              <span className="gg-chip gg-chip--soft">
+                Chat {selectedHeaderMatch.chatState ?? "idle"}
+              </span>
+            </div>
+            <div className="dashboard-operator-summary">
+              <div className="dashboard-operator-summary__copy">
+                <strong>{selectedHeaderMatch.title}</strong>
+                <p>
+                  {selectedHeaderMatch.players
+                    .map((player) => player.displayName)
+                    .join(" vs ")}
+                </p>
+                <p>
+                  {selectedHeaderMatch.status} • board rev{" "}
+                  {selectedHeaderMatch.boardRevision ?? 0} • subs{" "}
+                  {selectedHeaderMatch.subscriptionHealth ?? "idle"}
+                </p>
+              </div>
+              <div className="dashboard-match-card__actions">
+                <span className="gg-chip gg-chip--soft">
+                  {selectedHeaderMatch.targetWins
+                    ? `FT${selectedHeaderMatch.targetWins}`
+                    : "Open mode"}
+                </span>
+                <Link
+                  className="dashboard-link"
+                  to={`/control/${selectedHeaderMatch.id}`}
+                >
+                  Open control room
+                </Link>
+              </div>
+            </div>
           </section>
         ) : null}
 
@@ -1518,14 +1230,18 @@ export function DashboardPage() {
                             <button
                               className="dashboard-button dashboard-button--ghost"
                               type="button"
-                              onClick={() =>
-                                void handleToggleOperatorPanel(match.id)
-                              }
+                              onClick={() => handleSelectMatch(match.id)}
                             >
-                              {expandedMatchId === match.id
-                                ? "Selected in operator board"
-                                : "Open operator board"}
+                              {selectedMatchId === match.id
+                                ? "Active in toolbar"
+                                : "Set as active"}
                             </button>
+                            <Link
+                              className="dashboard-link"
+                              to={`/control/${match.id}`}
+                            >
+                              Open control room
+                            </Link>
                           </div>
                         </>
                       );

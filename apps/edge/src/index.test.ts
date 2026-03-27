@@ -1,4 +1,8 @@
-import type { AuthSession, MatchSummary } from "@gaming-gauntlet/contracts";
+import {
+  createDemoMatchSnapshot,
+  type AuthSession,
+  type MatchSummary,
+} from "@gaming-gauntlet/contracts";
 import { createAuthState, createSessionCookieValue } from "./lib/auth";
 import { handleRequest } from "./index";
 import { hmacSha256Hex } from "./lib/crypto";
@@ -52,6 +56,7 @@ vi.mock("./lib/twitch", async () => {
 type RepoMock = {
   acceptInvite: ReturnType<typeof vi.fn>;
   addModerator: ReturnType<typeof vi.fn>;
+  autoCompleteInactiveMatch: ReturnType<typeof vi.fn>;
   createChannelLink: ReturnType<typeof vi.fn>;
   createMatch: ReturnType<typeof vi.fn>;
   createSession: ReturnType<typeof vi.fn>;
@@ -87,7 +92,7 @@ const env = {
   TWITCH_BOT_REFRESH_TOKEN: "bot-refresh-token",
   SESSION_SECRET: "super-secret-session",
   TOKEN_ENCRYPTION_KEY: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
-  TWITCH_EXTENSION_SECRET: "extension-secret",
+  TWITCH_EXTENSION_SECRET: "ZXh0ZW5zaW9uLXNlY3JldA==",
   DB: {} as D1Database,
   MATCH_COORDINATOR: {
     idFromName: vi.fn(),
@@ -100,6 +105,7 @@ function createRepoMock(): RepoMock {
   return {
     acceptInvite: vi.fn(),
     addModerator: vi.fn(),
+    autoCompleteInactiveMatch: vi.fn(),
     createChannelLink: vi.fn(),
     createMatch: vi.fn(),
     createSession: vi.fn(),
@@ -147,6 +153,7 @@ function buildMatchSummary(
 function signedInSession(): AuthSession {
   return {
     authenticated: true,
+    sharedBotConnected: false,
     user: {
       id: "user_1",
       twitchUserId: "1001",
@@ -186,6 +193,25 @@ describe("handleRequest", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
+
+  function createViewerSnapshot(matchId = "match_public") {
+    return {
+      ...createDemoMatchSnapshot({ matchId }),
+      suggestions: [
+        {
+          aliases: ["Spelunky 2"],
+          boardId: "01",
+          canonicalKey: "spelunky-2",
+          id: "sgg_01",
+          sourceChannelId: "1001",
+          status: "board" as const,
+          suggestedBy: "ViewerOne",
+          title: "Spelunky 2",
+          voteCount: 5,
+        },
+      ],
+    };
+  }
 
   it("redirects invalid callback state back to the dashboard", async () => {
     createRepositoryMock.mockReturnValue(createRepoMock());
@@ -656,10 +682,174 @@ describe("handleRequest", () => {
     });
   });
 
+  it("requires authentication for control-room actions", async () => {
+    const repo = createRepoMock();
+    createRepositoryMock.mockReturnValue(repo);
+
+    const response = await handleRequest(
+      new Request("http://localhost:8787/api/matches/match_1/control/actions", {
+        method: "POST",
+        headers: {
+          Origin: env.APP_ORIGIN,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          type: "start_next_round",
+        }),
+      }),
+      env
+    );
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({
+      error: "auth_required",
+      details: null,
+    });
+  });
+
+  it("requires authentication for control-room snapshots", async () => {
+    const repo = createRepoMock();
+    createRepositoryMock.mockReturnValue(repo);
+
+    const response = await handleRequest(
+      new Request("http://localhost:8787/api/control/matches/match_1/snapshot"),
+      env
+    );
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({
+      error: "auth_required",
+      details: null,
+    });
+  });
+
+  it("forwards validated control-room actions to the coordinator", async () => {
+    const repo = createRepoMock();
+    const cookie = await createSignedSessionCookie("session_1");
+    const snapshot = createDemoMatchSnapshot({ matchId: "match_1" });
+    const coordinatorFetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          snapshot,
+        }),
+        {
+          headers: {
+            "content-type": "application/json",
+          },
+        }
+      )
+    );
+
+    createRepositoryMock.mockReturnValue(repo);
+    repo.getSession.mockResolvedValue(signedInSession());
+    repo.getMatchSummaryForUser.mockResolvedValue(buildMatchSummary());
+    repo.getRoleForUser.mockResolvedValue("owner");
+    vi.mocked(env.MATCH_COORDINATOR.idFromName).mockReturnValue(
+      "durable-id" as unknown as DurableObjectId
+    );
+    vi.mocked(env.MATCH_COORDINATOR.get).mockReturnValue({
+      fetch: coordinatorFetch,
+    } as unknown as DurableObjectStub);
+
+    const response = await handleRequest(
+      new Request("http://localhost:8787/api/matches/match_1/control/actions", {
+        method: "POST",
+        headers: {
+          Cookie: cookie,
+          Origin: env.APP_ORIGIN,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          type: "reject_suggestion",
+          suggestionId: "sgg_01",
+        }),
+      }),
+      env
+    );
+
+    expect(response.status).toBe(200);
+    expect(coordinatorFetch).toHaveBeenCalledTimes(1);
+    expect(coordinatorFetch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: "POST",
+      })
+    );
+    await expect(coordinatorFetch.mock.calls[0]?.[0]?.json()).resolves.toEqual({
+      type: "reject_suggestion",
+      suggestionId: "sgg_01",
+    });
+    expect(await response.json()).toEqual({
+      ok: true,
+      snapshot,
+    });
+  });
+
+  it("forwards authorized control-room snapshots to the coordinator", async () => {
+    const repo = createRepoMock();
+    const cookie = await createSignedSessionCookie("session_1");
+    const coordinatorFetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ matchId: "match_1" }), {
+        headers: {
+          "content-type": "application/json",
+          ETag: 'W/"match_1:2026-03-24T04:00:00.000Z:1"',
+        },
+      })
+    );
+
+    createRepositoryMock.mockReturnValue(repo);
+    repo.getSession.mockResolvedValue(signedInSession());
+    repo.getMatchSummaryForUser.mockResolvedValue(buildMatchSummary());
+    repo.getRoleForUser.mockResolvedValue("owner");
+    vi.mocked(env.MATCH_COORDINATOR.idFromName).mockReturnValue(
+      "durable-id" as unknown as DurableObjectId
+    );
+    vi.mocked(env.MATCH_COORDINATOR.get).mockReturnValue({
+      fetch: coordinatorFetch,
+    } as unknown as DurableObjectStub);
+
+    const response = await handleRequest(
+      new Request(
+        "http://localhost:8787/api/control/matches/match_1/snapshot",
+        {
+          headers: {
+            Cookie: cookie,
+            Origin: env.APP_ORIGIN,
+          },
+        }
+      ),
+      env
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe(
+      "private, max-age=0, must-revalidate"
+    );
+    expect(coordinatorFetch).toHaveBeenCalledTimes(1);
+    expect(await response.json()).toEqual({
+      matchId: "match_1",
+    });
+  });
+
+  it("requires authentication for raw match snapshot routes", async () => {
+    const repo = createRepoMock();
+    createRepositoryMock.mockReturnValue(repo);
+
+    const response = await handleRequest(
+      new Request("http://localhost:8787/api/matches/match_1/snapshot"),
+      env
+    );
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({
+      error: "auth_required",
+      details: null,
+    });
+  });
+
   it("resolves public snapshots by slug without loading the full snapshot from the repository", async () => {
     const repo = createRepoMock();
     const coordinatorFetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ matchId: "match_public" }), {
+      new Response(JSON.stringify(createViewerSnapshot()), {
         headers: {
           "content-type": "application/json",
           ETag: 'W/"match_public:2026-03-24T04:00:00.000Z:1"',
@@ -687,13 +877,23 @@ describe("handleRequest", () => {
     expect(repo.getMatchIdBySlug).toHaveBeenCalledWith("gauntlet-finals");
     expect(repo.getMatchSnapshot).not.toHaveBeenCalled();
     expect(coordinatorFetch).toHaveBeenCalledTimes(1);
-    expect(await response.json()).toEqual({ matchId: "match_public" });
+    await expect(response.json()).resolves.toEqual(
+      expect.objectContaining({
+        matchId: "match_public",
+        suggestions: [
+          expect.objectContaining({
+            sourceChannelId: null,
+            suggestedBy: null,
+          }),
+        ],
+      })
+    );
   });
 
   it("decodes encoded public match slugs before resolving snapshots", async () => {
     const repo = createRepoMock();
     const coordinatorFetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ matchId: "match_public" }), {
+      new Response(JSON.stringify(createViewerSnapshot()), {
         headers: {
           "content-type": "application/json",
           ETag: 'W/"match_public:2026-03-24T04:00:00.000Z:1"',
@@ -719,7 +919,87 @@ describe("handleRequest", () => {
 
     expect(response.status).toBe(200);
     expect(repo.getMatchIdBySlug).toHaveBeenCalledWith("grand finals");
-    expect(await response.json()).toEqual({ matchId: "match_public" });
+    await expect(response.json()).resolves.toEqual(
+      expect.objectContaining({
+        matchId: "match_public",
+        suggestions: [
+          expect.objectContaining({
+            sourceChannelId: null,
+            suggestedBy: null,
+          }),
+        ],
+      })
+    );
+  });
+
+  it("allows extension origin reads on public snapshot routes without credentials", async () => {
+    const repo = createRepoMock();
+    const coordinatorFetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(createViewerSnapshot()), {
+        headers: {
+          "content-type": "application/json",
+          ETag: 'W/"match_public:2026-03-24T04:00:00.000Z:1"',
+        },
+      })
+    );
+
+    createRepositoryMock.mockReturnValue(repo);
+    repo.getMatchIdBySlug.mockResolvedValue("match_public");
+    vi.mocked(env.MATCH_COORDINATOR.idFromName).mockReturnValue(
+      "durable-id" as unknown as DurableObjectId
+    );
+    vi.mocked(env.MATCH_COORDINATOR.get).mockReturnValue({
+      fetch: coordinatorFetch,
+    } as unknown as DurableObjectStub);
+
+    const response = await handleRequest(
+      new Request(
+        "http://localhost:8787/api/public/matches/gauntlet-finals/snapshot",
+        {
+          headers: {
+            Origin: env.EXTENSION_ORIGIN,
+          },
+        }
+      ),
+      env
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Access-Control-Allow-Origin")).toBe(
+      env.EXTENSION_ORIGIN
+    );
+    expect(response.headers.get("Access-Control-Allow-Credentials")).toBeNull();
+  });
+
+  it("rejects non-external extension roles when minting EBS tokens", async () => {
+    const repo = createRepoMock();
+    const cookie = await createSignedSessionCookie("session_1");
+
+    createRepositoryMock.mockReturnValue(repo);
+    repo.getSession.mockResolvedValue(signedInSession());
+
+    const response = await handleRequest(
+      new Request("http://localhost:8787/api/extension/jwt", {
+        method: "POST",
+        headers: {
+          Cookie: cookie,
+          Origin: env.APP_ORIGIN,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          channelId: "1001",
+          role: "viewer",
+          opaqueUserId: "U-demo",
+        }),
+      }),
+      env
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "invalid_extension_role",
+      note: "Twitch EBS-signed JWTs must use the external role.",
+    });
   });
 
   it("returns audit log items for authenticated members", async () => {

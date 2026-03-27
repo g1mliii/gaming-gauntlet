@@ -7,14 +7,23 @@ import {
   useState,
 } from "react";
 
-import { buildEdgeUrl, EdgeError } from "./edge";
-
+const EDGE_BASE_URL =
+  import.meta.env.VITE_EDGE_BASE_URL ?? "http://localhost:8787";
 const MIN_VISIBILITY_REFRESH_GAP_MS = 5_000;
 
-type UseLiveSnapshotOptions = {
-  credentials?: RequestCredentials;
-  missingPathError: string;
-  path: string | null;
+function buildEdgeUrl(path: string): string {
+  return new URL(path, EDGE_BASE_URL).toString();
+}
+
+type ExtensionError = {
+  details?: unknown;
+  error?: string;
+};
+
+type UseExtensionSnapshotOptions = {
+  snapshotKey: string | null;
+  missingSnapshotError: string;
+  pathPrefix: string;
   pollIntervalMs: number | null;
   stopPollingOnComplete?: boolean;
   toFriendlyError: (error: unknown) => string;
@@ -28,14 +37,14 @@ function buildSnapshotEtag(snapshot: {
   return `W/"${snapshot.matchId}:${snapshot.updatedAt}:${snapshot.boardRevision}"`;
 }
 
-export function useLiveSnapshot({
-  credentials = "omit",
-  missingPathError,
-  path,
+export function useExtensionSnapshot({
+  snapshotKey,
+  missingSnapshotError,
+  pathPrefix,
   pollIntervalMs,
   stopPollingOnComplete = false,
   toFriendlyError,
-}: UseLiveSnapshotOptions) {
+}: UseExtensionSnapshotOptions) {
   const [snapshot, setSnapshot] = useState<MatchSnapshot | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -49,7 +58,7 @@ export function useLiveSnapshot({
   );
 
   const loadSnapshot = useEffectEvent(async (signal?: AbortSignal) => {
-    if (!path) {
+    if (!snapshotKey) {
       return;
     }
 
@@ -61,11 +70,13 @@ export function useLiveSnapshot({
     }
 
     try {
-      const response = await fetch(buildEdgeUrl(path), {
-        credentials,
-        headers,
-        signal,
-      });
+      const response = await fetch(
+        buildEdgeUrl(`${pathPrefix}/${snapshotKey}/snapshot`),
+        {
+          headers,
+          signal,
+        }
+      );
 
       if (response.status === 304) {
         lastLoadedAtRef.current = Date.now();
@@ -74,9 +85,7 @@ export function useLiveSnapshot({
 
       const text = await response.text();
       const payload = text
-        ? (JSON.parse(text) as
-            | MatchSnapshot
-            | { error: string; details?: unknown })
+        ? (JSON.parse(text) as MatchSnapshot | ExtensionError)
         : null;
 
       if (!response.ok) {
@@ -84,11 +93,7 @@ export function useLiveSnapshot({
           payload && typeof payload === "object" && "error" in payload
             ? payload
             : { error: "request_failed" };
-        throw new EdgeError(
-          response.status,
-          errorPayload.error,
-          errorPayload.details
-        );
+        throw new Error(String(errorPayload.error ?? "request_failed"));
       }
 
       const nextSnapshot = payload as MatchSnapshot;
@@ -115,9 +120,9 @@ export function useLiveSnapshot({
     fetchInFlightRef.current = false;
     lastLoadedAtRef.current = 0;
 
-    if (!path) {
+    if (!snapshotKey) {
       setSnapshot(null);
-      setPageError(missingPathError);
+      setPageError(missingSnapshotError);
       setIsLoading(false);
       return;
     }
@@ -143,11 +148,11 @@ export function useLiveSnapshot({
     return () => {
       abortController.abort();
     };
-  }, [loadSnapshot, missingPathError, path]);
+  }, [loadSnapshot, missingSnapshotError, snapshotKey]);
 
   useEffect(() => {
     if (
-      !path ||
+      !snapshotKey ||
       !pollIntervalMs ||
       pollIntervalMs <= 0 ||
       (stopPollingOnComplete && snapshot?.status === "complete")
@@ -201,7 +206,7 @@ export function useLiveSnapshot({
     };
   }, [
     loadSnapshot,
-    path,
+    snapshotKey,
     pollIntervalMs,
     snapshot?.status,
     stopPollingOnComplete,

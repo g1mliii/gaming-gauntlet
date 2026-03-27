@@ -22,16 +22,25 @@ export function buildEdgeUrl(path: string, params?: Record<string, string | numb
   return url.toString();
 }
 
+export function buildEdgeWebSocketUrl(path: string): string {
+  const url = new URL(path, EDGE_BASE_URL);
+
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  return url.toString();
+}
+
 export async function edgeFetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const url = buildEdgeUrl(path);
+  const headers = new Headers(init?.headers);
+
+  if (init?.body !== undefined && !headers.has("content-type")) {
+    headers.set("content-type", "application/json");
+  }
 
   const response = await fetch(url, {
     credentials: "include",
     ...init,
-    headers: {
-      "content-type": "application/json",
-      ...init?.headers
-    }
+    headers
   });
 
   const text = await response.text();

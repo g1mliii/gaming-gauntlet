@@ -31,7 +31,8 @@ export const authChannelSchema = z.object({
 export const authSessionSchema = z.object({
   authenticated: z.boolean(),
   user: authUserSchema.nullable(),
-  ownedChannel: authChannelSchema.nullable()
+  ownedChannel: authChannelSchema.nullable(),
+  sharedBotConnected: z.boolean().default(false)
 });
 
 export const channelLinkMembershipSchema = z.object({

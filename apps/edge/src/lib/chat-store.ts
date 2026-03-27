@@ -247,8 +247,10 @@ export function createChatStore(env: Env) {
       db,
       `SELECT source_twitch_channel_id
         FROM channel_chat_targets
-        WHERE channel_link_id = ?`,
-      channelLinkId
+        WHERE channel_link_id = ?
+          AND (enabled_until IS NULL OR enabled_until > ?)`,
+      channelLinkId,
+      nowIso()
     );
 
     return {
@@ -470,6 +472,9 @@ export function createChatStore(env: Env) {
       messageId: string;
       sourceTwitchChannelId: string;
     }>;
+    players?: MatchSnapshot["players"];
+    dirtyQueueEntries?: MatchSnapshot["queue"];
+    removedQueueIds?: string[];
   }): Promise<void> {
     const commands: D1PreparedStatement[] = [
       db
@@ -486,6 +491,71 @@ export function createChatStore(env: Env) {
         )
         .bind(input.matchId, nowIso()),
     ];
+
+    if (input.players) {
+      for (const player of input.players) {
+        commands.push(
+          db
+            .prepare(
+              `UPDATE match_participants
+                SET wins = ?
+                WHERE id = ?
+                  AND match_id = ?`
+            )
+            .bind(player.wins, player.id, input.matchId)
+        );
+      }
+    }
+
+    if (input.removedQueueIds && input.removedQueueIds.length > 0) {
+      const placeholders = input.removedQueueIds.map(() => "?").join(", ");
+      commands.push(
+        db
+          .prepare(
+            `DELETE FROM queue_entries
+              WHERE match_id = ?
+                AND id IN (${placeholders})`
+          )
+          .bind(input.matchId, ...input.removedQueueIds)
+      );
+    }
+
+    if (input.dirtyQueueEntries) {
+      for (const entry of input.dirtyQueueEntries) {
+        commands.push(
+          db
+            .prepare(
+              `INSERT INTO queue_entries (
+                  id,
+                  match_id,
+                  suggestion_id,
+                  title,
+                  order_index,
+                  status,
+                  winner_participant_id,
+                  created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                  suggestion_id = excluded.suggestion_id,
+                  title = excluded.title,
+                  order_index = excluded.order_index,
+                  status = excluded.status,
+                  winner_participant_id = excluded.winner_participant_id`
+            )
+            .bind(
+              entry.id,
+              input.matchId,
+              entry.sourceSuggestionId,
+              entry.title,
+              entry.order,
+              entry.status,
+              entry.winnerPlayerId,
+              input.updatedAt
+            )
+        );
+      }
+    }
 
     for (const suggestion of input.dirtySuggestions) {
       commands.push(

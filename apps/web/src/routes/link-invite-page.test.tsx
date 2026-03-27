@@ -31,7 +31,8 @@ describe("LinkInvitePage", () => {
       jsonResponse({
         authenticated: false,
         user: null,
-        ownedChannel: null
+        ownedChannel: null,
+        sharedBotConnected: false
       })
     );
     fetchMock.mockResolvedValueOnce(

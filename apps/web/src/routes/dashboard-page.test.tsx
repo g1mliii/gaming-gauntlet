@@ -31,7 +31,12 @@ describe("DashboardPage", () => {
 
   it("renders the signed-out Twitch auth gate", async () => {
     fetchMock.mockResolvedValue(
-      jsonResponse({ authenticated: false, user: null, ownedChannel: null })
+      jsonResponse({
+        authenticated: false,
+        user: null,
+        ownedChannel: null,
+        sharedBotConnected: false,
+      })
     );
 
     renderDashboard();
@@ -223,7 +228,7 @@ describe("DashboardPage", () => {
     expect(
       await screen.findByText(/match created and added to the draft rail/i)
     ).toBeInTheDocument();
-    expect(screen.getByText("Gauntlet Finals")).toBeInTheDocument();
+    expect(screen.getAllByText("Gauntlet Finals").length).toBeGreaterThan(0);
   });
 
   it("surfaces the signed-in moderator assignment error", async () => {
@@ -281,6 +286,75 @@ describe("DashboardPage", () => {
     expect(
       await screen.findByText(/has not signed in with twitch yet/i)
     ).toBeInTheDocument();
+  });
+
+  it("replaces the embedded operator board with direct control-room links", async () => {
+    mockAuthenticatedFetches(fetchMock, {
+      links: [],
+      matches: [
+        {
+          id: "match_1",
+          channelLinkId: "link_1",
+          slug: "gauntlet-finals",
+          title: "Gauntlet Finals",
+          status: "draft",
+          chatState: "idle",
+          chatEnabledUntil: null,
+          boardRevision: 3,
+          subscriptionHealth: "ready",
+          targetWins: 5,
+          players: [
+            {
+              id: "player_1",
+              displayName: "PixelRiot",
+              channelId: "channel_1",
+              channelLogin: "pixelriot",
+              role: "streamer",
+              wins: 0,
+            },
+            {
+              id: "player_2",
+              displayName: "NovaRune",
+              channelId: "channel_2",
+              channelLogin: "novarune",
+              role: "streamer",
+              wins: 0,
+            },
+          ],
+          createdAt: "2026-03-24T04:00:00.000Z",
+          updatedAt: "2026-03-24T04:00:00.000Z",
+        },
+      ],
+      audit: [],
+    });
+
+    renderDashboard();
+
+    expect(await screen.findByRole("link", { name: /open control room/i })).toHaveAttribute(
+      "href",
+      "/control/match_1"
+    );
+    expect(screen.queryByText(/operator board/i)).not.toBeInTheDocument();
+  });
+
+  it("hides the shared bot connect button after the bot is already connected", async () => {
+    mockAuthenticatedFetches(
+      fetchMock,
+      {
+        links: [],
+        matches: [],
+        audit: [],
+      },
+      1,
+      { sharedBotConnected: true }
+    );
+
+    renderDashboard();
+
+    await screen.findByText(/seed the next set/i);
+    expect(
+      screen.queryByRole("button", { name: /connect shared bot/i })
+    ).not.toBeInTheDocument();
   });
 
   it("renders the recent activity panel when audit items are present", async () => {
@@ -393,12 +467,16 @@ function mockAuthenticatedFetches(
     matches: unknown[];
     audit: unknown[];
   },
-  rounds = 1
+  rounds = 1,
+  options?: {
+    sharedBotConnected?: boolean;
+  }
 ) {
   for (let index = 0; index < rounds; index += 1) {
     fetchMock.mockResolvedValueOnce(
       jsonResponse({
         authenticated: true,
+        sharedBotConnected: options?.sharedBotConnected ?? false,
         user: {
           id: "user_1",
           twitchUserId: "1001",

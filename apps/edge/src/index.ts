@@ -1,4 +1,6 @@
 import {
+  type MatchSnapshot,
+  type MatchSummary,
   type ChatCommandQueueMessage,
   type EdgeQueueMessage,
   type AuthChannel,
@@ -12,6 +14,7 @@ import {
   canCreateMatches,
   canManageModerators,
   extensionBootstrapRequestSchema,
+  matchControlActionSchema,
   parseChatCommand,
   updateMatchStatusRequestSchema,
 } from "@gaming-gauntlet/contracts";
@@ -72,6 +75,8 @@ type QueueReplyPayload = {
   replyParentMessageId: string | null;
 };
 
+type AppExecutionContext = Pick<ExecutionContext, "waitUntil">;
+
 type ExpiringEntry = {
   key: string;
   expiresAt: number;
@@ -100,6 +105,30 @@ const queueReplyCooldowns = new Map<string, number>();
 const queueReplyCooldownExpirations: ExpiringEntry[] = [];
 let queueReplyCooldownExpirationHead = 0;
 
+function hasDesiredEventSubSubscriptions(
+  existing: Array<{
+    source_twitch_channel_id: string;
+    status: string;
+  }>,
+  activeSourceChannelIds: string[]
+): boolean {
+  if (existing.length !== activeSourceChannelIds.length) {
+    return false;
+  }
+
+  const desiredSources = new Set(activeSourceChannelIds);
+
+  if (desiredSources.size !== activeSourceChannelIds.length) {
+    return false;
+  }
+
+  return existing.every(
+    (subscription) =>
+      subscription.status === "enabled" &&
+      desiredSources.has(subscription.source_twitch_channel_id)
+  );
+}
+
 function normalizeLogin(value: string): string {
   return value.trim().toLowerCase();
 }
@@ -107,7 +136,9 @@ function normalizeLogin(value: string): string {
 function getMissingSharedBotScopes(scopes: string[]): string[] {
   const grantedScopes = new Set(scopes);
 
-  return REQUIRED_SHARED_BOT_SCOPES.filter((scope) => !grantedScopes.has(scope));
+  return REQUIRED_SHARED_BOT_SCOPES.filter(
+    (scope) => !grantedScopes.has(scope)
+  );
 }
 
 function assertSharedBotScopes(scopes: string[]): void {
@@ -133,10 +164,11 @@ function assertSharedBotLogin(env: Env, login: string): void {
 function cleanupQueueReplyCooldowns(now: number): void {
   while (
     queueReplyCooldownExpirationHead < queueReplyCooldownExpirations.length &&
-    queueReplyCooldownExpirations[queueReplyCooldownExpirationHead]?.expiresAt <=
-      now
+    queueReplyCooldownExpirations[queueReplyCooldownExpirationHead]
+      ?.expiresAt <= now
   ) {
-    const entry = queueReplyCooldownExpirations[queueReplyCooldownExpirationHead];
+    const entry =
+      queueReplyCooldownExpirations[queueReplyCooldownExpirationHead];
 
     if (entry && queueReplyCooldowns.get(entry.key) === entry.expiresAt) {
       queueReplyCooldowns.delete(entry.key);
@@ -147,8 +179,7 @@ function cleanupQueueReplyCooldowns(now: number): void {
 
   if (
     queueReplyCooldownExpirationHead >= 1024 &&
-    queueReplyCooldownExpirationHead * 2 >=
-      queueReplyCooldownExpirations.length
+    queueReplyCooldownExpirationHead * 2 >= queueReplyCooldownExpirations.length
   ) {
     queueReplyCooldownExpirations.splice(0, queueReplyCooldownExpirationHead);
     queueReplyCooldownExpirationHead = 0;
@@ -174,14 +205,41 @@ function buildBoardEtag(matchId: string, boardRevision: number): string {
   return `W/"${matchId}:${boardRevision}"`;
 }
 
+function redactViewerSnapshot(snapshot: MatchSnapshot): MatchSnapshot {
+  return {
+    ...snapshot,
+    suggestions: snapshot.suggestions.map((suggestion) => ({
+      ...suggestion,
+      sourceChannelId: null,
+      suggestedBy: null,
+    })),
+  };
+}
+
+function decodeExtensionSecret(secret: string): Uint8Array {
+  try {
+    return Uint8Array.from(atob(secret), (character) =>
+      character.charCodeAt(0)
+    );
+  } catch {
+    throw new AppError(500, "invalid_extension_secret");
+  }
+}
+
 async function fetchSnapshotFromCoordinator(
   request: Request,
   env: Env,
   matchId: string,
+  ctx?: AppExecutionContext,
   options?: {
+    redactForViewer?: boolean;
     viewerCacheTtlSeconds?: number;
   }
 ): Promise<Response> {
+  const allowedViewerOrigins = [env.APP_ORIGIN, env.EXTENSION_ORIGIN].filter(
+    (origin): origin is string => Boolean(origin)
+  );
+  const redactForViewer = options?.redactForViewer ?? false;
   const viewerCacheTtlSeconds = options?.viewerCacheTtlSeconds ?? 0;
 
   if (
@@ -213,11 +271,18 @@ async function fetchSnapshotFromCoordinator(
                 ETag: cachedEtag,
                 "Cache-Control": cacheControl,
               },
-            })
+            }),
+            {
+              allowCredentials: false,
+              allowedOrigins: allowedViewerOrigins,
+            }
           );
         }
 
-        return withCors(request, env, cachedResponse);
+        return withCors(request, env, cachedResponse, {
+          allowCredentials: false,
+          allowedOrigins: allowedViewerOrigins,
+        });
       }
 
       const coordinatorResponse = await fetchSnapshotResponseFromCoordinator(
@@ -225,31 +290,53 @@ async function fetchSnapshotFromCoordinator(
         env,
         matchId
       );
+      const snapshotResponse = redactForViewer
+        ? await redactSnapshotResponseForViewer(coordinatorResponse)
+        : coordinatorResponse;
 
-      if (coordinatorResponse.status !== 200 || !coordinatorResponse.ok) {
-        return withCors(request, env, coordinatorResponse);
+      if (snapshotResponse.status !== 200 || !snapshotResponse.ok) {
+        return withCors(request, env, snapshotResponse, {
+          allowCredentials: false,
+          allowedOrigins: allowedViewerOrigins,
+        });
       }
 
-      const headers = new Headers(coordinatorResponse.headers);
+      const headers = new Headers(snapshotResponse.headers);
       headers.set("Cache-Control", cacheControl);
-      const cacheableResponse = new Response(coordinatorResponse.body, {
-        status: coordinatorResponse.status,
-        statusText: coordinatorResponse.statusText,
+      const cacheableResponse = new Response(snapshotResponse.body, {
+        status: snapshotResponse.status,
+        statusText: snapshotResponse.statusText,
         headers,
       });
 
-      await cache.put(cacheKey, cacheableResponse.clone());
-      return withCors(request, env, cacheableResponse);
+      const cacheWrite = cache.put(cacheKey, cacheableResponse.clone());
+
+      if (ctx) {
+        ctx.waitUntil(cacheWrite);
+      } else {
+        await cacheWrite;
+      }
+
+      return withCors(request, env, cacheableResponse, {
+        allowCredentials: false,
+        allowedOrigins: allowedViewerOrigins,
+      });
     }
   }
 
-  const snapshotResponse = await fetchSnapshotResponseFromCoordinator(
+  const coordinatorResponse = await fetchSnapshotResponseFromCoordinator(
     request,
     env,
     matchId
   );
+  const snapshotResponse = redactForViewer
+    ? await redactSnapshotResponseForViewer(coordinatorResponse)
+    : coordinatorResponse;
 
-  return withCors(request, env, snapshotResponse);
+  return withCors(request, env, snapshotResponse, {
+    allowCredentials: false,
+    allowedOrigins: allowedViewerOrigins,
+  });
 }
 
 async function fetchSnapshotResponseFromCoordinator(
@@ -269,6 +356,46 @@ async function fetchSnapshotResponseFromCoordinator(
       method: "GET",
     })
   );
+}
+
+async function redactSnapshotResponseForViewer(
+  response: Response
+): Promise<Response> {
+  if (!response.ok || response.status !== 200) {
+    return response;
+  }
+
+  const snapshot = (await response.json()) as MatchSnapshot;
+  const headers = new Headers(response.headers);
+  headers.set("content-type", "application/json");
+
+  return new Response(JSON.stringify(redactViewerSnapshot(snapshot)), {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+async function requireControlRoomMatchAccess(
+  request: Request,
+  env: Env,
+  repo: ReturnType<typeof createRepository>,
+  matchId: string
+): Promise<MatchSummary> {
+  const session = await requireAuthenticatedSession(request, env, repo);
+  const match = await repo.getMatchSummaryForUser(session.user.id, matchId);
+
+  if (!match) {
+    throw new AppError(404, "match_not_found");
+  }
+
+  const role = await repo.getRoleForUser(session.user.id, match.channelLinkId);
+
+  if (!role || !canCreateMatches(role)) {
+    throw new AppError(403, "insufficient_permissions");
+  }
+
+  return match;
 }
 
 function appJson(
@@ -348,6 +475,7 @@ async function ensureSharedBotIdentity(
   const stored = await repo.findSharedBotIdentity();
 
   if (stored) {
+    assertSharedBotLogin(env, stored.login);
     const token = await repo.ensureFreshTwitchToken(stored.user_id);
     assertSharedBotScopes(token.scopes);
     return {
@@ -399,23 +527,24 @@ function createQueueReplySender(
   env: Env,
   repo: ReturnType<typeof createRepository>
 ): QueueReplySender {
-  let senderContextPromise:
-    | Promise<{ appAccessToken: string; senderId: string }>
-    | null = null;
+  let senderIdPromise: Promise<string> | null = null;
 
   return async (payload: QueueReplyPayload): Promise<void> => {
-    senderContextPromise ??= Promise.all([
-      ensureSharedBotIdentity(env, repo),
-      getAppAccessToken(env),
-    ]).then(([bot, appAccessToken]) => ({
-      appAccessToken,
-      senderId: bot.senderId,
-    }));
+    senderIdPromise ??= ensureSharedBotIdentity(env, repo)
+      .then((bot) => bot.senderId)
+      .catch((error) => {
+        senderIdPromise = null;
+        throw error;
+      });
 
-    const senderContext = await senderContextPromise;
-    await sendChatMessage(env, senderContext.appAccessToken, {
+    const [senderId, appAccessToken] = await Promise.all([
+      senderIdPromise,
+      getAppAccessToken(env),
+    ]);
+
+    await sendChatMessage(env, appAccessToken, {
       broadcasterId: payload.broadcasterId,
-      senderId: senderContext.senderId,
+      senderId,
       message: payload.message,
       replyParentMessageId: payload.replyParentMessageId,
       forSourceOnly: true,
@@ -449,6 +578,35 @@ async function reconcileEventSubSubscriptions(
 ): Promise<void> {
   const existing = await chatStore.listEventSubSubscriptions(channelLinkId);
   const plan = await chatStore.getSubscriptionPlan(channelLinkId);
+
+  if (
+    !plan ||
+    !plan.ownerAuthorized ||
+    !plan.linkedAuthorized ||
+    plan.activeSourceChannelIds.length === 0
+  ) {
+    if (existing.length === 0) {
+      return;
+    }
+
+    const appAccessToken = await getAppAccessToken(env);
+
+    for (const subscription of existing) {
+      await deleteEventSubSubscription(
+        env,
+        appAccessToken,
+        subscription.subscription_id
+      );
+    }
+
+    await chatStore.deleteEventSubSubscriptions(channelLinkId);
+    return;
+  }
+
+  if (hasDesiredEventSubSubscriptions(existing, plan.activeSourceChannelIds)) {
+    return;
+  }
+
   const appAccessToken = await getAppAccessToken(env);
 
   for (const subscription of existing) {
@@ -460,16 +618,6 @@ async function reconcileEventSubSubscriptions(
   }
 
   await chatStore.deleteEventSubSubscriptions(channelLinkId);
-
-  if (
-    !plan ||
-    !plan.ownerAuthorized ||
-    !plan.linkedAuthorized ||
-    plan.activeSourceChannelIds.length === 0
-  ) {
-    return;
-  }
-
   const bot = await ensureSharedBotIdentity(env, repo);
 
   for (const sourceChannelId of plan.activeSourceChannelIds) {
@@ -595,7 +743,9 @@ async function handleChatCommandQueueBatch(
   }
 
   const targetsBySourceChannelId = await chatStore.resolveChatCommandTargets(
-    actionableCommands.map((queuedCommand) => queuedCommand.payload.sourceChannelId)
+    actionableCommands.map(
+      (queuedCommand) => queuedCommand.payload.sourceChannelId
+    )
   );
   const routedCommandsByMatchId = new Map<string, RoutedChatCommand[]>();
 
@@ -715,7 +865,8 @@ async function handleChatCommandQueueBatch(
 
 export async function handleRequest(
   request: Request,
-  env: Env
+  env: Env,
+  ctx?: AppExecutionContext
 ): Promise<Response> {
   const repo = createRepository(env);
   const chatStore = createChatStore(env);
@@ -744,7 +895,6 @@ export async function handleRequest(
           "/api/audit-log",
           "/api/twitch/eventsub",
           "/api/extension/jwt",
-          "/ws/matches/:matchId",
         ],
       });
     }
@@ -769,10 +919,13 @@ export async function handleRequest(
           authenticated: false,
           user: null,
           ownedChannel: null,
+          sharedBotConnected: false,
         });
       }
 
-      const session = await repo.getSession(sessionId);
+      const session = await repo.getSession(sessionId, {
+        includeSharedBotConnected: true,
+      });
 
       if (!session) {
         return withCors(
@@ -783,6 +936,7 @@ export async function handleRequest(
               authenticated: false,
               user: null,
               ownedChannel: null,
+              sharedBotConnected: false,
             }),
             buildExpiredSessionCookie(request, env)
           )
@@ -914,14 +1068,19 @@ export async function handleRequest(
             repo
           );
 
-          if (state.actorUserId && existingSession.user.id !== state.actorUserId) {
+          if (
+            state.actorUserId &&
+            existingSession.user.id !== state.actorUserId
+          ) {
             throw new AppError(401, "auth_state_user_mismatch");
           }
 
           assertSharedBotLogin(env, identity.user.login);
           assertSharedBotScopes(normalizeScopeValue(tokenPayload.scope));
 
-          return redirect(buildDashboardRedirect(env, { botAuth: "connected" }));
+          return redirect(
+            buildDashboardRedirect(env, { botAuth: "connected" })
+          );
         }
 
         const session = await repo.createSession(identity.user.id);
@@ -1001,7 +1160,9 @@ export async function handleRequest(
       const sessionId = await readSessionIdFromRequest(request, env);
 
       if (sessionId) {
-        const session = await repo.getSession(sessionId);
+        const session = await repo.getSession(sessionId, {
+          touchLastSeen: false,
+        });
 
         if (session?.user) {
           await repo.writeAuditLog({
@@ -1259,6 +1420,98 @@ export async function handleRequest(
 
     if (
       url.pathname.startsWith("/api/matches/") &&
+      url.pathname.endsWith("/control/actions")
+    ) {
+      if (request.method !== "POST") {
+        return withCors(request, env, methodNotAllowed(["POST"]));
+      }
+
+      assertAppOrigin(request, env);
+      const matchId = url.pathname.split("/")[3];
+      await requireControlRoomMatchAccess(request, env, repo, matchId);
+
+      const body = await request.json();
+      const result = matchControlActionSchema.safeParse(body);
+
+      if (!result.success) {
+        return appJson(
+          request,
+          env,
+          {
+            error: "invalid_match_control_action",
+            details: result.error.flatten(),
+          },
+          { status: 400 }
+        );
+      }
+
+      const coordinatorId = env.MATCH_COORDINATOR.idFromName(matchId);
+      const coordinator = env.MATCH_COORDINATOR.get(coordinatorId);
+      const controlUrl = new URL(request.url);
+      controlUrl.pathname = "/control";
+      controlUrl.searchParams.set("matchId", matchId);
+      const coordinatorResponse = await coordinator.fetch(
+        new Request(controlUrl.toString(), {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify(result.data),
+        })
+      );
+      const text = await coordinatorResponse.text();
+      const payload = text ? (JSON.parse(text) as unknown) : null;
+
+      if (!coordinatorResponse.ok) {
+        const errorPayload =
+          payload && typeof payload === "object" && "error" in payload
+            ? (payload as { error: string; details?: unknown })
+            : { error: "request_failed" };
+        throw new AppError(
+          coordinatorResponse.status,
+          errorPayload.error,
+          errorPayload.details as Record<string, unknown> | undefined
+        );
+      }
+
+      return appJson(request, env, {
+        ok: true,
+        ...(payload && typeof payload === "object" ? payload : {}),
+      });
+    }
+
+    if (
+      url.pathname.startsWith("/api/control/matches/") &&
+      url.pathname.endsWith("/snapshot")
+    ) {
+      if (request.method !== "GET") {
+        return withCors(request, env, methodNotAllowed(["GET"]));
+      }
+
+      const matchId = url.pathname.split("/")[4];
+      await requireControlRoomMatchAccess(request, env, repo, matchId);
+
+      const snapshotResponse = await fetchSnapshotResponseFromCoordinator(
+        request,
+        env,
+        matchId
+      );
+      const headers = new Headers(snapshotResponse.headers);
+      headers.set("Cache-Control", "private, max-age=0, must-revalidate");
+
+      return withCors(
+        request,
+        env,
+        new Response(snapshotResponse.body, {
+          status: snapshotResponse.status,
+          statusText: snapshotResponse.statusText,
+          headers,
+        })
+      );
+    }
+
+    if (
+      url.pathname.startsWith("/api/matches/") &&
       url.pathname.endsWith("/board")
     ) {
       if (request.method !== "GET") {
@@ -1475,7 +1728,19 @@ export async function handleRequest(
         throw new AppError(403, "channel_access_denied");
       }
 
-      const secret = new TextEncoder().encode(env.TWITCH_EXTENSION_SECRET);
+      if (result.data.role !== "external") {
+        return appJson(
+          request,
+          env,
+          {
+            error: "invalid_extension_role",
+            note: "Twitch EBS-signed JWTs must use the external role.",
+          },
+          { status: 400 }
+        );
+      }
+
+      const secret = decodeExtensionSecret(env.TWITCH_EXTENSION_SECRET);
       const issuedAt = Math.floor(Date.now() / 1000);
       const token = await new CompactSign(
         new TextEncoder().encode(
@@ -1483,8 +1748,8 @@ export async function handleRequest(
             iat: issuedAt,
             exp: issuedAt + 60 * 5,
             channel_id: session.ownedChannel.twitchChannelId,
-            role: "broadcaster",
-            user_id: session.user.twitchUserId,
+            role: "external",
+            user_id: result.data.userId ?? session.user.twitchUserId,
           })
         )
       )
@@ -1494,7 +1759,8 @@ export async function handleRequest(
       return appJson(request, env, { ok: true, token });
     }
 
-    if (url.pathname.startsWith("/ws/matches/")) {
+    if (url.pathname.startsWith("/ws/control/matches/")) {
+      assertAppOrigin(request, env);
       const matchId = url.pathname.split("/").at(-1);
 
       if (!matchId) {
@@ -1505,6 +1771,8 @@ export async function handleRequest(
           { status: 400 }
         );
       }
+
+      await requireControlRoomMatchAccess(request, env, repo, matchId);
 
       const coordinatorId = env.MATCH_COORDINATOR.idFromName(matchId);
       const coordinator = env.MATCH_COORDINATOR.get(coordinatorId);
@@ -1519,10 +1787,30 @@ export async function handleRequest(
       url.pathname.startsWith("/api/matches/") &&
       url.pathname.endsWith("/snapshot")
     ) {
+      if (request.method !== "GET") {
+        return withCors(request, env, methodNotAllowed(["GET"]));
+      }
+
       const matchId = url.pathname.split("/")[3];
-      return fetchSnapshotFromCoordinator(request, env, matchId, {
-        viewerCacheTtlSeconds: VIEWER_SNAPSHOT_CACHE_TTL_SECONDS,
-      });
+      await requireControlRoomMatchAccess(request, env, repo, matchId);
+
+      const snapshotResponse = await fetchSnapshotResponseFromCoordinator(
+        request,
+        env,
+        matchId
+      );
+      const headers = new Headers(snapshotResponse.headers);
+      headers.set("Cache-Control", "private, max-age=0, must-revalidate");
+
+      return withCors(
+        request,
+        env,
+        new Response(snapshotResponse.body, {
+          status: snapshotResponse.status,
+          statusText: snapshotResponse.statusText,
+          headers,
+        })
+      );
     }
 
     if (
@@ -1557,9 +1845,16 @@ export async function handleRequest(
         );
       }
 
-      return fetchSnapshotFromCoordinator(request, env, matchId, {
-        viewerCacheTtlSeconds: VIEWER_SNAPSHOT_CACHE_TTL_SECONDS,
-      });
+      return fetchSnapshotFromCoordinator(
+        request,
+        env,
+        matchId,
+        ctx,
+        {
+          redactForViewer: true,
+          viewerCacheTtlSeconds: VIEWER_SNAPSHOT_CACHE_TTL_SECONDS,
+        }
+      );
     }
 
     return appJson(request, env, { error: "not_found" }, { status: 404 });
@@ -1576,7 +1871,10 @@ export default {
     const chatStore = createChatStore(env);
     const sendReply = createQueueReplySender(env, repo);
     const queuedCommands: QueuedChatCommand[] = [];
-    const reconcileMessagesByChannelLinkId = new Map<string, Message<unknown>[]>();
+    const reconcileMessagesByChannelLinkId = new Map<
+      string,
+      Message<unknown>[]
+    >();
     const revokedMessages: Array<{
       message: Message<unknown>;
       payload: Extract<EdgeQueueMessage, { type: "subscription_revoked" }>;
@@ -1640,7 +1938,12 @@ export default {
 
     for (const [channelLinkId, messages] of reconcileMessagesByChannelLinkId) {
       try {
-        await reconcileEventSubSubscriptions(env, repo, chatStore, channelLinkId);
+        await reconcileEventSubSubscriptions(
+          env,
+          repo,
+          chatStore,
+          channelLinkId
+        );
 
         for (const message of messages) {
           message.ack();
@@ -1689,7 +1992,9 @@ export default {
         );
 
         if (existingRepairMessage) {
-          existingRepairMessage.originatingMessages.push(revokedMessage.message);
+          existingRepairMessage.originatingMessages.push(
+            revokedMessage.message
+          );
         } else {
           manualRepairMessages.set(existing.channel_link_id, {
             body: {

@@ -3,8 +3,16 @@ main = "apps/edge/src/index.ts"
 compatibility_date = "2026-03-23"
 workers_dev = true
 
+[observability]
+enabled = true
+
 [observability.logs]
 enabled = true
+head_sampling_rate = 0.1
+
+[observability.traces]
+enabled = true
+head_sampling_rate = 0.01
 
 [vars]
 APP_ORIGIN = "http://localhost:5173"

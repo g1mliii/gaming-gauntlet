@@ -20,11 +20,12 @@ function toFriendlyError(error: unknown): string {
 }
 
 export function OverlayPage() {
-  const { matchId = "" } = useParams();
+  const { slug = "" } = useParams();
   const { pageError, snapshot } = useLiveSnapshot({
-    missingPathError: "No match id was provided.",
-    path: matchId ? `/api/matches/${matchId}/snapshot` : null,
+    missingPathError: "No match slug was provided.",
+    path: slug ? `/api/public/matches/${slug}/snapshot` : null,
     pollIntervalMs: OVERLAY_POLL_INTERVAL_MS,
+    stopPollingOnComplete: true,
     toFriendlyError,
   });
 

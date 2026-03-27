@@ -150,17 +150,26 @@ export function withSetCookie(response: Response, cookie: string): Response {
 export function withCors(
   request: Request,
   env: Env,
-  response: Response
+  response: Response,
+  options?: {
+    allowCredentials?: boolean;
+    allowedOrigins?: string[];
+  }
 ): Response {
   const origin = request.headers.get("Origin");
+  const allowedOrigins = options?.allowedOrigins ?? [env.APP_ORIGIN];
 
-  if (!origin || origin !== env.APP_ORIGIN) {
+  if (!origin || !allowedOrigins.includes(origin)) {
     return response;
   }
 
   const headers = appendSecurityHeaders(new Headers(response.headers));
   headers.set("Access-Control-Allow-Origin", origin);
-  headers.set("Access-Control-Allow-Credentials", "true");
+
+  if (options?.allowCredentials !== false) {
+    headers.set("Access-Control-Allow-Credentials", "true");
+  }
+
   setVary(headers, "Origin");
 
   return new Response(response.body, {

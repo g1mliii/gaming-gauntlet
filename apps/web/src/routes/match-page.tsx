@@ -24,6 +24,7 @@ export function MatchPage() {
     missingPathError: "No match slug was provided.",
     path: slug ? `/api/public/matches/${slug}/snapshot` : null,
     pollIntervalMs: PUBLIC_MATCH_POLL_INTERVAL_MS,
+    stopPollingOnComplete: true,
     toFriendlyError,
   });
 

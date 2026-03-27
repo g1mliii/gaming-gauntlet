@@ -1,7 +1,12 @@
 import {
+  applyMatchControlAction,
   createCanonicalGameKey,
   createWebsocketEnvelope,
+  getMatchAutoCompleteAt,
+  getMatchAutoCompleteReason,
+  matchControlActionSchema,
   type ChatCommand,
+  type MatchControlAction,
   type MatchSnapshot,
   type MatchSummary,
 } from "@gaming-gauntlet/contracts";
@@ -11,10 +16,13 @@ import {
   createChatStore,
   type PersistedSuggestionState,
 } from "../lib/chat-store";
+import { createRepository } from "../lib/repository";
 import { json } from "../lib/response";
 
 const IDLE_EVICTION_MS = 5 * 60 * 1000;
 const MESSAGE_DEDUPE_TTL_MS = 15 * 60 * 1000;
+const MANAGED_MATCH_ID_KEY = "matchId";
+const MATCH_SOCKET_TAG_PREFIX = "match:";
 
 type CommandInput = {
   command: ChatCommand;
@@ -48,6 +56,7 @@ type RuntimeState = {
   suggestionIdsByBoardId: Map<string, string>;
   viewerVotes: Map<string, string>;
   dirtySuggestionIds: Set<string>;
+  dirtyQueueIds: Set<string>;
   dirtyVotes: Map<string, { suggestionId: string; sourceChannelId: string }>;
   pendingProcessedMessages: Map<string, string>;
   recentMessageIds: Map<string, number>;
@@ -58,6 +67,9 @@ type RuntimeState = {
   replyCooldownExpirationHead: number;
   nextBoardNumber: number;
   dirty: boolean;
+  queueDirty: boolean;
+  removedQueueIds: Set<string>;
+  playersDirty: boolean;
   lastActivityAt: number;
   cachedTopBoardSummary: string | null;
   snapshotSuggestionsDirty: boolean;
@@ -145,6 +157,7 @@ function buildSnapshotEtag(snapshot: {
 
 export class MatchCoordinator {
   private readonly chatStore: ReturnType<typeof createChatStore>;
+  private readonly repo: ReturnType<typeof createRepository>;
   private runtime: RuntimeState | null = null;
   private loadingState: Promise<RuntimeState> | null = null;
   private activeMatchId: string | null = null;
@@ -154,6 +167,7 @@ export class MatchCoordinator {
     private readonly env: Env
   ) {
     this.chatStore = createChatStore(env);
+    this.repo = createRepository(env);
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -200,7 +214,10 @@ export class MatchCoordinator {
       }
 
       const payload = (await request.json()) as CommandBatchInput;
-      const replies = await this.processCommands(matchId, payload.commands ?? []);
+      const replies = await this.processCommands(
+        matchId,
+        payload.commands ?? []
+      );
       return json({ ok: true, replies });
     }
 
@@ -214,6 +231,28 @@ export class MatchCoordinator {
       return json(snapshot);
     }
 
+    if (url.pathname === "/control") {
+      if (request.method !== "POST") {
+        return json({ error: "method_not_allowed" }, { status: 405 });
+      }
+
+      const payload = await request.json();
+      const result = matchControlActionSchema.safeParse(payload);
+
+      if (!result.success) {
+        return json(
+          {
+            error: "invalid_match_control_action",
+            details: result.error.flatten(),
+          },
+          { status: 400 }
+        );
+      }
+
+      const snapshot = await this.applyControlAction(matchId, result.data);
+      return json({ snapshot });
+    }
+
     if (url.pathname === "/ws") {
       if (request.headers.get("Upgrade") !== "websocket") {
         return new Response("Expected Upgrade: websocket", { status: 426 });
@@ -223,7 +262,8 @@ export class MatchCoordinator {
       const client = pair[0];
       const server = pair[1];
 
-      this.state.acceptWebSocket(server);
+      server.serializeAttachment({ matchId });
+      this.state.acceptWebSocket(server, [buildMatchSocketTag(matchId)]);
       await this.sendSnapshot(server, matchId);
 
       return new Response(null, {
@@ -236,17 +276,56 @@ export class MatchCoordinator {
   }
 
   async alarm(): Promise<void> {
-    if (!this.runtime || !this.activeMatchId) {
+    const matchId = await this.getManagedMatchId();
+
+    if (!matchId) {
       return;
     }
 
-    await this.flush(this.activeMatchId);
+    const runtime = await this.ensureRuntime(matchId);
+    await this.flush(matchId);
 
-    if (Date.now() - this.runtime.lastActivityAt >= IDLE_EVICTION_MS) {
+    const autoCompleteReason = getMatchAutoCompleteReason(
+      runtime.snapshot,
+      Date.now()
+    );
+
+    if (autoCompleteReason) {
+      const summary = await this.repo.autoCompleteInactiveMatch(
+        matchId,
+        autoCompleteReason
+      );
+
+      if (summary) {
+        await this.syncSnapshotMeta(matchId, summary);
+        await this.env.EVENT_INGEST_QUEUE.send({
+          type: "subscription_reconcile",
+          channelLinkId: summary.channelLinkId,
+          reason: "match_status",
+        });
+      }
+    }
+
+    if (!this.runtime || this.activeMatchId !== matchId) {
+      return;
+    }
+
+    const nextRuntime = this.runtime;
+    const now = Date.now();
+    const autoCompleteAt = getMatchAutoCompleteAt(nextRuntime.snapshot);
+
+    if (now - nextRuntime.lastActivityAt >= IDLE_EVICTION_MS) {
+      if (autoCompleteAt !== null && autoCompleteAt > now) {
+        await this.state.storage.setAlarm(autoCompleteAt);
+      }
+
       this.runtime = null;
       this.loadingState = null;
       this.activeMatchId = null;
+      return;
     }
+
+    await this.scheduleNextAlarm(nextRuntime);
   }
 
   async webSocketMessage(
@@ -258,10 +337,13 @@ export class MatchCoordinator {
     const payload = safeParseJson(text);
 
     if (payload?.type === "request.snapshot") {
-      const matchId =
-        typeof payload.matchId === "string"
-          ? payload.matchId
-          : (this.activeMatchId ?? "match_demo_01");
+      const matchId = readSocketMatchId(this.state, webSocket);
+
+      if (!matchId) {
+        webSocket.close(1008, "match_scope_required");
+        return;
+      }
+
       await this.sendSnapshot(webSocket, matchId);
       return;
     }
@@ -301,7 +383,36 @@ export class MatchCoordinator {
     };
     runtime.lastActivityAt = Date.now();
     this.ensureSnapshotSuggestions(runtime);
+    await this.scheduleNextAlarm(runtime);
     await this.broadcastSnapshot(matchId);
+    return runtime.snapshot;
+  }
+
+  private async applyControlAction(
+    matchId: string,
+    action: MatchControlAction
+  ): Promise<MatchSnapshot> {
+    const runtime = await this.ensureRuntime(matchId);
+    const nextSnapshot = applyMatchControlAction(runtime.snapshot, action);
+
+    if (nextSnapshot === runtime.snapshot) {
+      return runtime.snapshot;
+    }
+
+    this.syncRuntimeFromSnapshot(
+      runtime,
+      {
+        ...nextSnapshot,
+        boardRevision: runtime.snapshot.boardRevision + 1,
+        updatedAt: nowIso(),
+      },
+      {
+        queueDirty: action.type !== "reject_suggestion",
+        playersDirty: action.type === "record_round_winner",
+      }
+    );
+
+    await this.finalizeCommands(matchId, runtime);
     return runtime.snapshot;
   }
 
@@ -349,6 +460,7 @@ export class MatchCoordinator {
         suggestionIdsByBoardId,
         viewerVotes: loaded.viewerVotes,
         dirtySuggestionIds: new Set(),
+        dirtyQueueIds: new Set(),
         dirtyVotes: new Map(),
         pendingProcessedMessages: new Map(),
         recentMessageIds: loaded.recentMessageIds,
@@ -361,10 +473,16 @@ export class MatchCoordinator {
         replyCooldownExpirationHead: 0,
         nextBoardNumber,
         dirty: false,
+        queueDirty: false,
+        removedQueueIds: new Set(),
+        playersDirty: false,
         lastActivityAt: Date.now(),
         cachedTopBoardSummary: null,
         snapshotSuggestionsDirty: false,
       };
+
+      await this.state.storage.put(MANAGED_MATCH_ID_KEY, matchId);
+      await this.scheduleNextAlarm(this.runtime);
 
       return this.runtime;
     });
@@ -461,7 +579,34 @@ export class MatchCoordinator {
       await this.flush(matchId);
     }
 
-    await this.state.storage.setAlarm(Date.now() + IDLE_EVICTION_MS);
+    await this.scheduleNextAlarm(runtime);
+  }
+
+  private async getManagedMatchId(): Promise<string | null> {
+    if (this.activeMatchId) {
+      return this.activeMatchId;
+    }
+
+    const storedMatchId =
+      await this.state.storage.get<string>(MANAGED_MATCH_ID_KEY);
+
+    if (typeof storedMatchId !== "string" || storedMatchId.length === 0) {
+      return null;
+    }
+
+    this.activeMatchId = storedMatchId;
+    return storedMatchId;
+  }
+
+  private async scheduleNextAlarm(runtime: RuntimeState): Promise<void> {
+    const idleEvictionAt = runtime.lastActivityAt + IDLE_EVICTION_MS;
+    const autoCompleteAt = getMatchAutoCompleteAt(runtime.snapshot);
+    const nextAlarmAt =
+      autoCompleteAt === null
+        ? idleEvictionAt
+        : Math.min(idleEvictionAt, autoCompleteAt);
+
+    await this.state.storage.setAlarm(nextAlarmAt);
   }
 
   private applySuggestion(runtime: RuntimeState, input: CommandInput): void {
@@ -682,6 +827,87 @@ export class MatchCoordinator {
     return runtime.dirty || runtime.pendingProcessedMessages.size > 0;
   }
 
+  private syncRuntimeFromSnapshot(
+    runtime: RuntimeState,
+    nextSnapshot: MatchSnapshot,
+    options: {
+      queueDirty: boolean;
+      playersDirty: boolean;
+    }
+  ): void {
+    const nextSuggestionsById = new Map<string, PersistedSuggestionState>();
+    const nextSuggestionIdsByCanonical = new Map<string, string>();
+    const nextSuggestionIdsByBoardId = new Map<string, string>();
+
+    for (const suggestion of nextSnapshot.suggestions) {
+      const existing = runtime.suggestionsById.get(suggestion.id);
+      const changed = hasSuggestionChanged(existing, suggestion);
+      const persistedSuggestion: PersistedSuggestionState = {
+        ...suggestion,
+        createdAt: existing?.createdAt ?? nextSnapshot.updatedAt,
+        updatedAt: changed
+          ? nextSnapshot.updatedAt
+          : (existing?.updatedAt ?? nextSnapshot.updatedAt),
+      };
+
+      nextSuggestionsById.set(persistedSuggestion.id, persistedSuggestion);
+      nextSuggestionIdsByCanonical.set(
+        persistedSuggestion.canonicalKey,
+        persistedSuggestion.id
+      );
+      nextSuggestionIdsByBoardId.set(
+        persistedSuggestion.boardId,
+        persistedSuggestion.id
+      );
+
+      if (changed) {
+        runtime.dirtySuggestionIds.add(persistedSuggestion.id);
+      }
+    }
+
+    if (options.queueDirty) {
+      const currentQueueById = new Map(
+        runtime.snapshot.queue.map((entry) => [entry.id, entry])
+      );
+      const nextQueueIds = new Set<string>();
+
+      for (const entry of nextSnapshot.queue) {
+        nextQueueIds.add(entry.id);
+        const existing = currentQueueById.get(entry.id);
+
+        if (!existing || hasQueueEntryChanged(existing, entry)) {
+          runtime.dirtyQueueIds.add(entry.id);
+        }
+
+        runtime.removedQueueIds.delete(entry.id);
+      }
+
+      for (const entry of runtime.snapshot.queue) {
+        if (!nextQueueIds.has(entry.id)) {
+          runtime.dirtyQueueIds.delete(entry.id);
+          runtime.removedQueueIds.add(entry.id);
+        }
+      }
+    }
+
+    runtime.snapshot = nextSnapshot;
+    runtime.suggestionsById = nextSuggestionsById;
+    runtime.suggestionIdsByCanonical = nextSuggestionIdsByCanonical;
+    runtime.suggestionIdsByBoardId = nextSuggestionIdsByBoardId;
+    runtime.nextBoardNumber =
+      nextSnapshot.suggestions.reduce(
+        (maxBoardNumber, suggestion) =>
+          Math.max(maxBoardNumber, Number(suggestion.boardId)),
+        0
+      ) + 1;
+    runtime.dirty = true;
+    runtime.queueDirty = runtime.queueDirty || options.queueDirty;
+    runtime.playersDirty = runtime.playersDirty || options.playersDirty;
+    runtime.lastActivityAt = Date.now();
+    runtime.cachedTopBoardSummary = null;
+    runtime.snapshotSuggestionsDirty = false;
+  }
+
   private async flush(matchId: string): Promise<void> {
     if (
       !this.runtime ||
@@ -712,6 +938,13 @@ export class MatchCoordinator {
       messageId,
       sourceTwitchChannelId,
     }));
+    const dirtyQueueEntries = [...runtime.dirtyQueueIds]
+      .map((queueId) =>
+        runtime.snapshot.queue.find((entry) => entry.id === queueId)
+      )
+      .filter((entry): entry is MatchSnapshot["queue"][number] =>
+        Boolean(entry)
+      );
 
     await this.chatStore.flushCommandState({
       matchId,
@@ -720,12 +953,23 @@ export class MatchCoordinator {
       dirtySuggestions,
       dirtyVotes,
       processedMessages,
+      players: runtime.playersDirty ? runtime.snapshot.players : undefined,
+      dirtyQueueEntries:
+        dirtyQueueEntries.length > 0 ? dirtyQueueEntries : undefined,
+      removedQueueIds:
+        runtime.removedQueueIds.size > 0
+          ? [...runtime.removedQueueIds]
+          : undefined,
     });
 
     runtime.dirtySuggestionIds.clear();
+    runtime.dirtyQueueIds.clear();
     runtime.dirtyVotes.clear();
     runtime.pendingProcessedMessages.clear();
     runtime.dirty = false;
+    runtime.queueDirty = false;
+    runtime.removedQueueIds.clear();
+    runtime.playersDirty = false;
     this.ensureSnapshotSuggestions(runtime);
 
     if (shouldBroadcastSnapshot) {
@@ -785,10 +1029,74 @@ function stripSuggestionMetadata(
   };
 }
 
+function hasSuggestionChanged(
+  existing: PersistedSuggestionState | undefined,
+  nextSuggestion: MatchSnapshot["suggestions"][number]
+): boolean {
+  if (!existing) {
+    return true;
+  }
+
+  return (
+    existing.boardId !== nextSuggestion.boardId ||
+    existing.title !== nextSuggestion.title ||
+    existing.canonicalKey !== nextSuggestion.canonicalKey ||
+    existing.sourceChannelId !== nextSuggestion.sourceChannelId ||
+    existing.suggestedBy !== nextSuggestion.suggestedBy ||
+    existing.voteCount !== nextSuggestion.voteCount ||
+    existing.status !== nextSuggestion.status ||
+    existing.aliases.length !== nextSuggestion.aliases.length ||
+    existing.aliases.some(
+      (alias, index) => alias !== nextSuggestion.aliases[index]
+    )
+  );
+}
+
+function hasQueueEntryChanged(
+  existing: MatchSnapshot["queue"][number],
+  nextEntry: MatchSnapshot["queue"][number]
+): boolean {
+  return (
+    existing.order !== nextEntry.order ||
+    existing.title !== nextEntry.title ||
+    existing.sourceSuggestionId !== nextEntry.sourceSuggestionId ||
+    existing.status !== nextEntry.status ||
+    existing.winnerPlayerId !== nextEntry.winnerPlayerId
+  );
+}
+
 function safeParseJson(value: string): Record<string, unknown> | null {
   try {
     return JSON.parse(value) as Record<string, unknown>;
   } catch {
     return null;
   }
+}
+
+function buildMatchSocketTag(matchId: string): string {
+  return `${MATCH_SOCKET_TAG_PREFIX}${matchId}`;
+}
+
+function readSocketMatchId(
+  state: DurableObjectState,
+  webSocket: WebSocket
+): string | null {
+  const attachment = webSocket.deserializeAttachment() as
+    | { matchId?: unknown }
+    | null;
+
+  if (typeof attachment?.matchId === "string" && attachment.matchId.length > 0) {
+    return attachment.matchId;
+  }
+
+  const taggedMatchId = state
+    .getTags(webSocket)
+    .find((tag) => tag.startsWith(MATCH_SOCKET_TAG_PREFIX));
+
+  if (!taggedMatchId) {
+    return null;
+  }
+
+  const matchId = taggedMatchId.slice(MATCH_SOCKET_TAG_PREFIX.length);
+  return matchId.length > 0 ? matchId : null;
 }

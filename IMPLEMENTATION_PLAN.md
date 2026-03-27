@@ -109,10 +109,9 @@ tasks/
 
 ### Phase 5 - Live Match Surfaces
 
-- Public match page
-- OBS/browser-source overlay
-- Realtime websocket sync via Durable Object snapshots and deltas
-- Tune the live surfaces for watchability first: score clarity, current game emphasis, and legible queue state
+- Public match pagei think this is alerayd done somewhat just cehck
+- OBS/browser-source overlay same with this
+- Realtime websocket sync via Durable Object snapshots and deltas not sure if we still use this as its extremly expensive i think we chose a diff solution already Tune the live surfaces for watchability first: score clarity, current game emphasis, and legible queue state
 
 ### Phase 6 - Twitch Extension
 

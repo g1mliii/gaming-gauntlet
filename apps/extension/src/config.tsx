@@ -1,42 +1,81 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 
-import { createDemoMatchSnapshot } from "@gaming-gauntlet/contracts";
 import { PageShell, ScoreBug, SuggestionBoard } from "@gaming-gauntlet/ui";
 import "@gaming-gauntlet/ui/styles.css";
 import "./extension.css";
+import { useExtensionSnapshot } from "./live-snapshot";
 
-const demoMatch = createDemoMatchSnapshot();
+const CONFIG_POLL_INTERVAL_MS = 30_000;
+const searchParams = new URLSearchParams(window.location.search);
+const matchSlug =
+  searchParams.get("slug")?.trim() ?? searchParams.get("matchId")?.trim() ?? null;
+
+function toFriendlyError(): string {
+  return "The extension config preview could not load the live match.";
+}
 
 function ConfigApp() {
+  const { isLoading, pageError, snapshot } = useExtensionSnapshot({
+    snapshotKey: matchSlug,
+    missingSnapshotError:
+      "Add ?slug=<match slug> to preview the broadcaster config against a live match.",
+    pathPrefix: "/api/public/matches",
+    pollIntervalMs: CONFIG_POLL_INTERVAL_MS,
+    stopPollingOnComplete: true,
+    toFriendlyError,
+  });
+
   return (
     <main className="extension-config">
       <PageShell
         eyebrow="Broadcaster config"
         title="Wire the overlay"
-        deck="This page becomes the broadcaster-facing extension configuration surface. It explains the OBS browser-source URL, realtime bootstrap, and testing flow."
+        deck="This page previews the broadcaster-facing extension surface against the same cheap HTTP snapshot path used by the public overlay."
         actions={<span className="gg-chip">Config view</span>}
       >
         <div className="extension-config__grid">
           <div className="extension-list">
             <article>
               <strong>1. Link the live match</strong>
-              <p>Match ID: {demoMatch.matchId}</p>
+              <p>
+                Match slug: {snapshot?.slug ?? matchSlug ?? "Add ?slug=..."}
+              </p>
             </article>
             <article>
               <strong>2. Share the OBS URL</strong>
-              <p>/overlay/{demoMatch.matchId}</p>
+              <p>
+                {snapshot
+                  ? `/overlay/${snapshot.slug}`
+                  : "Overlay URL appears once a match is selected."}
+              </p>
             </article>
             <article>
-              <strong>3. Validate extension auth</strong>
-              <p>The Worker EBS endpoint will mint short-lived tokens for the iframe session.</p>
+              <strong>3. Validate extension feed</strong>
+              <p>
+                This preview pulls the same cacheable match snapshot the
+                extension overlay should use in production.
+              </p>
             </article>
           </div>
-          <ScoreBug match={demoMatch} />
+          {snapshot ? <ScoreBug match={snapshot} /> : null}
         </div>
-        <div style={{ marginTop: "1rem" }}>
-          <SuggestionBoard suggestions={demoMatch.suggestions} title="Current ranked board" />
-        </div>
+        {!snapshot ? (
+          <p className="dashboard-message dashboard-message--warning">
+            {pageError ??
+              (isLoading
+                ? "Loading live config preview…"
+                : "Config preview unavailable.")}
+          </p>
+        ) : null}
+        {snapshot ? (
+          <div className="extension-config__board">
+            <SuggestionBoard
+              suggestions={snapshot.suggestions}
+              title="Current ranked board"
+            />
+          </div>
+        ) : null}
       </PageShell>
     </main>
   );
