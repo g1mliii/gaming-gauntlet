@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev --config ../../wrangler.toml --port 8787",
+    "dev": "wrangler dev --config ../../wrangler.local.toml --port 8787",
     "build": "wrangler deploy --dry-run --config ../../wrangler.toml",
     "deploy": "wrangler deploy --config ../../wrangler.toml"
   },

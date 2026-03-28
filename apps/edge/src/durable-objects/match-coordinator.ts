@@ -1,15 +1,22 @@
 import {
   applyMatchControlAction,
+  createPublicMatchOverlaySurface,
+  createPublicMatchPageSurface,
   createCanonicalGameKey,
   createWebsocketEnvelope,
   getMatchAutoCompleteAt,
   getMatchAutoCompleteReason,
   matchControlActionSchema,
+  publicSurfaceViewSchema,
   type ChatCommand,
   type MatchControlAction,
   type MatchSnapshot,
   type MatchSummary,
+  type PublicMatchOverlaySurface,
+  type PublicMatchPageSurface,
+  type PublicSurfaceView,
 } from "@gaming-gauntlet/contracts";
+import { DurableObject } from "cloudflare:workers";
 
 import type { Env } from "../env";
 import {
@@ -54,7 +61,7 @@ type RuntimeState = {
   suggestionsById: Map<string, PersistedSuggestionState>;
   suggestionIdsByCanonical: Map<string, string>;
   suggestionIdsByBoardId: Map<string, string>;
-  viewerVotes: Map<string, string>;
+  viewerVotes: Map<string, string | null>;
   dirtySuggestionIds: Set<string>;
   dirtyQueueIds: Set<string>;
   dirtyVotes: Map<string, { suggestionId: string; sourceChannelId: string }>;
@@ -72,7 +79,18 @@ type RuntimeState = {
   playersDirty: boolean;
   lastActivityAt: number;
   cachedTopBoardSummary: string | null;
+  scheduledAlarmAt: number | null;
   snapshotSuggestionsDirty: boolean;
+};
+
+export type SnapshotEnvelope = {
+  etag: string;
+  snapshot: MatchSnapshot;
+};
+
+export type SurfaceEnvelope = {
+  etag: string;
+  surface: PublicMatchOverlaySurface | PublicMatchPageSurface;
 };
 
 function nowIso(): string {
@@ -155,7 +173,7 @@ function buildSnapshotEtag(snapshot: {
   return `W/"${snapshot.matchId}:${snapshot.updatedAt}:${snapshot.boardRevision}"`;
 }
 
-export class MatchCoordinator {
+export class MatchCoordinator extends DurableObject<Env> {
   private readonly chatStore: ReturnType<typeof createChatStore>;
   private readonly repo: ReturnType<typeof createRepository>;
   private runtime: RuntimeState | null = null;
@@ -164,8 +182,9 @@ export class MatchCoordinator {
 
   constructor(
     private readonly state: DurableObjectState,
-    private readonly env: Env
+    env: Env
   ) {
+    super(state, env);
     this.chatStore = createChatStore(env);
     this.repo = createRepository(env);
   }
@@ -176,8 +195,7 @@ export class MatchCoordinator {
       url.searchParams.get("matchId") ?? this.activeMatchId ?? "match_demo_01";
 
     if (url.pathname === "/snapshot") {
-      const runtime = await this.ensureRuntime(matchId);
-      const etag = buildSnapshotEtag(runtime.snapshot);
+      const { etag, snapshot } = await this.getSnapshotEnvelope(matchId);
 
       if (request.headers.get("If-None-Match") === etag) {
         return new Response(null, {
@@ -189,8 +207,43 @@ export class MatchCoordinator {
         });
       }
 
-      this.ensureSnapshotSuggestions(runtime);
-      return json(runtime.snapshot, {
+      return json(snapshot, {
+        headers: {
+          ETag: etag,
+          "Cache-Control": "private, max-age=0, must-revalidate",
+        },
+      });
+    }
+
+    if (url.pathname === "/surface") {
+      if (request.method !== "GET") {
+        return json({ error: "method_not_allowed" }, { status: 405 });
+      }
+
+      const parsedView = publicSurfaceViewSchema.safeParse(
+        url.searchParams.get("view")
+      );
+
+      if (!parsedView.success) {
+        return json({ error: "invalid_surface_view" }, { status: 400 });
+      }
+
+      const { etag, surface } = await this.getSurfaceEnvelope(
+        matchId,
+        parsedView.data
+      );
+
+      if (request.headers.get("If-None-Match") === etag) {
+        return new Response(null, {
+          status: 304,
+          headers: {
+            ETag: etag,
+            "Cache-Control": "private, max-age=0, must-revalidate",
+          },
+        });
+      }
+
+      return json(surface, {
         headers: {
           ETag: etag,
           "Cache-Control": "private, max-age=0, must-revalidate",
@@ -357,6 +410,50 @@ export class MatchCoordinator {
     webSocket.close(1000, "closed");
   }
 
+  async getSnapshotEnvelope(matchId: string): Promise<SnapshotEnvelope> {
+    const snapshot = await this.getSnapshot(matchId);
+    return {
+      etag: buildSnapshotEtag(snapshot),
+      snapshot,
+    };
+  }
+
+  async getSurfaceEnvelope(
+    matchId: string,
+    view: PublicSurfaceView
+  ): Promise<SurfaceEnvelope> {
+    const snapshot = await this.getSnapshot(matchId);
+
+    return {
+      etag: buildSnapshotEtag(snapshot),
+      surface:
+        view === "page"
+          ? createPublicMatchPageSurface(snapshot)
+          : createPublicMatchOverlaySurface(snapshot),
+    };
+  }
+
+  async processCommandsRpc(
+    matchId: string,
+    commands: CommandInput[]
+  ): Promise<Array<ReplyPayload | null>> {
+    return this.processCommands(matchId, commands);
+  }
+
+  async syncSnapshotMetaRpc(
+    matchId: string,
+    match: MatchSummary
+  ): Promise<MatchSnapshot> {
+    return this.syncSnapshotMeta(matchId, match);
+  }
+
+  async applyControlActionRpc(
+    matchId: string,
+    action: MatchControlAction
+  ): Promise<MatchSnapshot> {
+    return this.applyControlAction(matchId, action);
+  }
+
   private async getSnapshot(matchId: string): Promise<MatchSnapshot> {
     const runtime = await this.ensureRuntime(matchId);
     this.ensureSnapshotSuggestions(runtime);
@@ -478,6 +575,7 @@ export class MatchCoordinator {
         playersDirty: false,
         lastActivityAt: Date.now(),
         cachedTopBoardSummary: null,
+        scheduledAlarmAt: null,
         snapshotSuggestionsDirty: false,
       };
 
@@ -499,7 +597,7 @@ export class MatchCoordinator {
     input: CommandInput
   ): Promise<ReplyPayload | null> {
     const runtime = await this.ensureRuntime(matchId);
-    const reply = this.applyCommand(runtime, input, Date.now());
+    const reply = await this.applyCommand(matchId, runtime, input, Date.now());
     await this.finalizeCommands(matchId, runtime);
     return reply;
   }
@@ -513,19 +611,22 @@ export class MatchCoordinator {
     }
 
     const runtime = await this.ensureRuntime(matchId);
-    const replies = inputs.map((input) =>
-      this.applyCommand(runtime, input, Date.now())
-    );
+    const replies: Array<ReplyPayload | null> = [];
+
+    for (const input of inputs) {
+      replies.push(await this.applyCommand(matchId, runtime, input, Date.now()));
+    }
 
     await this.finalizeCommands(matchId, runtime);
     return replies;
   }
 
-  private applyCommand(
+  private async applyCommand(
+    matchId: string,
     runtime: RuntimeState,
     input: CommandInput,
     now: number
-  ): ReplyPayload | null {
+  ): Promise<ReplyPayload | null> {
     runtime.recentMessageExpirationHead = cleanupExpiringEntries(
       runtime.recentMessageIds,
       runtime.recentMessageExpirations,
@@ -606,7 +707,12 @@ export class MatchCoordinator {
         ? idleEvictionAt
         : Math.min(idleEvictionAt, autoCompleteAt);
 
+    if (runtime.scheduledAlarmAt === nextAlarmAt) {
+      return;
+    }
+
     await this.state.storage.setAlarm(nextAlarmAt);
+    runtime.scheduledAlarmAt = nextAlarmAt;
   }
 
   private applySuggestion(runtime: RuntimeState, input: CommandInput): void {
@@ -700,7 +806,10 @@ export class MatchCoordinator {
       return null;
     }
 
-    const previousSuggestionId = runtime.viewerVotes.get(input.viewerId);
+    const previousSuggestionId = this.getViewerVoteSuggestionId(
+      runtime,
+      input.viewerId
+    );
 
     if (previousSuggestionId === suggestionId) {
       return null;
@@ -734,6 +843,13 @@ export class MatchCoordinator {
     runtime.snapshotSuggestionsDirty = true;
 
     return null;
+  }
+
+  private getViewerVoteSuggestionId(
+    runtime: RuntimeState,
+    viewerId: string
+  ): string | null {
+    return runtime.viewerVotes.get(viewerId) ?? null;
   }
 
   private buildBoardReply(

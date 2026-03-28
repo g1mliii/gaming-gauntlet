@@ -1,13 +1,29 @@
-import type { MatchSnapshot } from "@gaming-gauntlet/contracts";
+import type {
+  MatchSnapshot,
+  PublicMatchOverlaySurface,
+  PublicMatchPageSurface,
+} from "@gaming-gauntlet/contracts";
 
 type ScoreBugProps = {
-  match: MatchSnapshot;
+  match: MatchSnapshot | PublicMatchOverlaySurface | PublicMatchPageSurface;
   transparent?: boolean;
 };
 
+function getCurrentGameTitle(
+  match: MatchSnapshot | PublicMatchOverlaySurface | PublicMatchPageSurface
+): string {
+  if ("currentGame" in match) {
+    return match.currentGame?.title ?? "Waiting for next pick";
+  }
+
+  const currentGame =
+    match.queue.find((item) => item.id === match.currentGameId) ?? null;
+  return currentGame?.title ?? "Waiting for next pick";
+}
+
 export function ScoreBug({ match, transparent = false }: ScoreBugProps) {
   const [left, right] = match.players;
-  const currentGame = match.queue.find((item) => item.id === match.currentGameId) ?? null;
+  const currentGameTitle = getCurrentGameTitle(match);
 
   if (!left || !right) {
     return (
@@ -37,7 +53,7 @@ export function ScoreBug({ match, transparent = false }: ScoreBugProps) {
       </div>
       <div className="gg-scorebug__footer">
         <span className="gg-scorebug__meta-label">Current game</span>
-        <strong className="gg-scorebug__current-game">{currentGame?.title ?? "Waiting for next pick"}</strong>
+        <strong className="gg-scorebug__current-game">{currentGameTitle}</strong>
         <span className="gg-scorebug__meta-label gg-scorebug__meta-label--right">
           {match.targetWins ? `First to ${match.targetWins}` : "Open mode"}
         </span>

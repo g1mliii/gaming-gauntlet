@@ -1,4 +1,3 @@
-import type { MatchSnapshot } from "@gaming-gauntlet/contracts";
 import {
   startTransition,
   useEffect,
@@ -10,6 +9,11 @@ import {
 const EDGE_BASE_URL =
   import.meta.env.VITE_EDGE_BASE_URL ?? "http://localhost:8787";
 const MIN_VISIBILITY_REFRESH_GAP_MS = 5_000;
+const MAX_ERROR_BACKOFF_MS = 60_000;
+
+type LiveSurfaceSnapshot = {
+  status: string;
+};
 
 function buildEdgeUrl(path: string): string {
   return new URL(path, EDGE_BASE_URL).toString();
@@ -21,31 +25,21 @@ type ExtensionError = {
 };
 
 type UseExtensionSnapshotOptions = {
-  snapshotKey: string | null;
-  missingSnapshotError: string;
-  pathPrefix: string;
+  missingPathError: string;
+  path: string | null;
   pollIntervalMs: number | null;
   stopPollingOnComplete?: boolean;
   toFriendlyError: (error: unknown) => string;
 };
 
-function buildSnapshotEtag(snapshot: {
-  boardRevision: number;
-  matchId: string;
-  updatedAt: string;
-}): string {
-  return `W/"${snapshot.matchId}:${snapshot.updatedAt}:${snapshot.boardRevision}"`;
-}
-
-export function useExtensionSnapshot({
-  snapshotKey,
-  missingSnapshotError,
-  pathPrefix,
+export function useExtensionSnapshot<T extends LiveSurfaceSnapshot>({
+  missingPathError,
+  path,
   pollIntervalMs,
   stopPollingOnComplete = false,
   toFriendlyError,
 }: UseExtensionSnapshotOptions) {
-  const [snapshot, setSnapshot] = useState<MatchSnapshot | null>(null);
+  const [snapshot, setSnapshot] = useState<T | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const etagRef = useRef<string | null>(null);
@@ -53,12 +47,14 @@ export function useExtensionSnapshot({
   const pollTimerRef = useRef<number | null>(null);
   const fetchInFlightRef = useRef(false);
   const lastLoadedAtRef = useRef(0);
+  const nextRetryAtRef = useRef(0);
+  const retryAttemptRef = useRef(0);
   const getFriendlyError = useEffectEvent((error: unknown) =>
     toFriendlyError(error)
   );
 
   const loadSnapshot = useEffectEvent(async (signal?: AbortSignal) => {
-    if (!snapshotKey) {
+    if (!path) {
       return;
     }
 
@@ -70,22 +66,21 @@ export function useExtensionSnapshot({
     }
 
     try {
-      const response = await fetch(
-        buildEdgeUrl(`${pathPrefix}/${snapshotKey}/snapshot`),
-        {
-          headers,
-          signal,
-        }
-      );
+      const response = await fetch(buildEdgeUrl(path), {
+        headers,
+        signal,
+      });
 
       if (response.status === 304) {
+        retryAttemptRef.current = 0;
+        nextRetryAtRef.current = 0;
         lastLoadedAtRef.current = Date.now();
         return;
       }
 
       const text = await response.text();
       const payload = text
-        ? (JSON.parse(text) as MatchSnapshot | ExtensionError)
+        ? (JSON.parse(text) as T | ExtensionError)
         : null;
 
       if (!response.ok) {
@@ -96,14 +91,32 @@ export function useExtensionSnapshot({
         throw new Error(String(errorPayload.error ?? "request_failed"));
       }
 
-      const nextSnapshot = payload as MatchSnapshot;
-      etagRef.current =
-        response.headers.get("ETag") ?? buildSnapshotEtag(nextSnapshot);
+      const nextSnapshot = payload as T;
+      etagRef.current = response.headers.get("ETag");
+      retryAttemptRef.current = 0;
+      nextRetryAtRef.current = 0;
       lastLoadedAtRef.current = Date.now();
       startTransition(() => {
         setSnapshot(nextSnapshot);
       });
       setPageError(null);
+    } catch (error) {
+      if (!signal?.aborted) {
+        const baseDelay = Math.max(
+          pollIntervalMs ?? MIN_VISIBILITY_REFRESH_GAP_MS,
+          MIN_VISIBILITY_REFRESH_GAP_MS
+        );
+        const delay = Math.min(
+          baseDelay * 2 ** retryAttemptRef.current,
+          MAX_ERROR_BACKOFF_MS
+        );
+
+        retryAttemptRef.current += 1;
+        nextRetryAtRef.current = Date.now() + delay;
+        lastLoadedAtRef.current = Date.now();
+      }
+
+      throw error;
     } finally {
       fetchInFlightRef.current = false;
     }
@@ -119,10 +132,12 @@ export function useExtensionSnapshot({
     etagRef.current = null;
     fetchInFlightRef.current = false;
     lastLoadedAtRef.current = 0;
+    nextRetryAtRef.current = 0;
+    retryAttemptRef.current = 0;
 
-    if (!snapshotKey) {
+    if (!path) {
       setSnapshot(null);
-      setPageError(missingSnapshotError);
+      setPageError(missingPathError);
       setIsLoading(false);
       return;
     }
@@ -148,11 +163,11 @@ export function useExtensionSnapshot({
     return () => {
       abortController.abort();
     };
-  }, [loadSnapshot, missingSnapshotError, snapshotKey]);
+  }, [loadSnapshot, missingPathError, path]);
 
   useEffect(() => {
     if (
-      !snapshotKey ||
+      !path ||
       !pollIntervalMs ||
       pollIntervalMs <= 0 ||
       (stopPollingOnComplete && snapshot?.status === "complete")
@@ -173,6 +188,10 @@ export function useExtensionSnapshot({
         Date.now() - lastLoadedAtRef.current <
         MIN_VISIBILITY_REFRESH_GAP_MS
       ) {
+        return;
+      }
+
+      if (Date.now() < nextRetryAtRef.current) {
         return;
       }
 
@@ -206,7 +225,7 @@ export function useExtensionSnapshot({
     };
   }, [
     loadSnapshot,
-    snapshotKey,
+    path,
     pollIntervalMs,
     snapshot?.status,
     stopPollingOnComplete,

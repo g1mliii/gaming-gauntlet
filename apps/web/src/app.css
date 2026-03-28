@@ -251,6 +251,18 @@
   background: transparent;
 }
 
+.match-page {
+  display: grid;
+  gap: 1rem;
+}
+
+.match-page__chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.65rem;
+}
+
 .overlay-frame {
   grid-template-columns: 1fr;
   width: min(100%, 640px);

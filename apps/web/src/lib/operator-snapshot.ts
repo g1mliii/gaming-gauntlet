@@ -10,6 +10,7 @@ import {
 import { buildEdgeUrl, buildEdgeWebSocketUrl, EdgeError } from "./edge";
 
 const MAX_RECONNECT_DELAY_MS = 10_000;
+const MAX_FETCH_RETRY_DELAY_MS = 60_000;
 
 type UseOperatorSnapshotOptions = {
   matchId: string | null;
@@ -43,6 +44,7 @@ export function useOperatorSnapshot({
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
   const reconnectAttemptRef = useRef(0);
+  const fetchRetryAttemptRef = useRef(0);
   const reconnectSuspendedRef = useRef(false);
   const snapshotStatusRef = useRef<MatchSnapshot["status"] | null>(null);
   const getFriendlyError = useEffectEvent((error: unknown) =>
@@ -107,6 +109,7 @@ export function useOperatorSnapshot({
       );
 
       if (response.status === 304) {
+        fetchRetryAttemptRef.current = 0;
         return;
       }
 
@@ -136,11 +139,33 @@ export function useOperatorSnapshot({
         etagRef.current =
           response.headers.get("ETag") ?? buildSnapshotEtag(nextSnapshot);
         snapshotStatusRef.current = nextSnapshot.status;
+        fetchRetryAttemptRef.current = 0;
         startTransition(() => {
           setSnapshot(nextSnapshot);
         });
         setPageError(null);
       }
+    }
+
+    function scheduleSnapshotRetry() {
+      if (
+        disposed ||
+        reconnectSuspendedRef.current ||
+        document.visibilityState !== "visible"
+      ) {
+        return;
+      }
+
+      const delay = Math.min(
+        1_000 * 2 ** fetchRetryAttemptRef.current,
+        MAX_FETCH_RETRY_DELAY_MS
+      );
+
+      fetchRetryAttemptRef.current += 1;
+      clearReconnectTimer();
+      reconnectTimerRef.current = window.setTimeout(() => {
+        void refetchAndConnect(false);
+      }, delay);
     }
 
     function connectSocket() {
@@ -234,6 +259,7 @@ export function useOperatorSnapshot({
             setSnapshot(null);
           }
           setPageError(getFriendlyError(error));
+          scheduleSnapshotRetry();
         }
         return;
       }
@@ -247,6 +273,7 @@ export function useOperatorSnapshot({
     fetchAbortRef.current = null;
     etagRef.current = null;
     reconnectAttemptRef.current = 0;
+    fetchRetryAttemptRef.current = 0;
     reconnectSuspendedRef.current = false;
     clearReconnectTimer();
     closeSocket(true);
@@ -277,6 +304,7 @@ export function useOperatorSnapshot({
       }
 
       reconnectAttemptRef.current = 0;
+      fetchRetryAttemptRef.current = 0;
       reconnectSuspendedRef.current = false;
       fetchAbortRef.current?.abort();
       void refetchAndConnect(false);

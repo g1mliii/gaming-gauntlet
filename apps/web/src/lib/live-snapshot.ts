@@ -1,4 +1,3 @@
-import type { MatchSnapshot } from "@gaming-gauntlet/contracts";
 import {
   startTransition,
   useEffect,
@@ -10,6 +9,11 @@ import {
 import { buildEdgeUrl, EdgeError } from "./edge";
 
 const MIN_VISIBILITY_REFRESH_GAP_MS = 5_000;
+const MAX_ERROR_BACKOFF_MS = 60_000;
+
+type LiveSurfaceSnapshot = {
+  status: string;
+};
 
 type UseLiveSnapshotOptions = {
   credentials?: RequestCredentials;
@@ -20,15 +24,7 @@ type UseLiveSnapshotOptions = {
   toFriendlyError: (error: unknown) => string;
 };
 
-function buildSnapshotEtag(snapshot: {
-  boardRevision: number;
-  matchId: string;
-  updatedAt: string;
-}): string {
-  return `W/"${snapshot.matchId}:${snapshot.updatedAt}:${snapshot.boardRevision}"`;
-}
-
-export function useLiveSnapshot({
+export function useLiveSnapshot<T extends LiveSurfaceSnapshot>({
   credentials = "omit",
   missingPathError,
   path,
@@ -36,7 +32,7 @@ export function useLiveSnapshot({
   stopPollingOnComplete = false,
   toFriendlyError,
 }: UseLiveSnapshotOptions) {
-  const [snapshot, setSnapshot] = useState<MatchSnapshot | null>(null);
+  const [snapshot, setSnapshot] = useState<T | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const etagRef = useRef<string | null>(null);
@@ -44,6 +40,8 @@ export function useLiveSnapshot({
   const pollTimerRef = useRef<number | null>(null);
   const fetchInFlightRef = useRef(false);
   const lastLoadedAtRef = useRef(0);
+  const nextRetryAtRef = useRef(0);
+  const retryAttemptRef = useRef(0);
   const getFriendlyError = useEffectEvent((error: unknown) =>
     toFriendlyError(error)
   );
@@ -68,6 +66,8 @@ export function useLiveSnapshot({
       });
 
       if (response.status === 304) {
+        retryAttemptRef.current = 0;
+        nextRetryAtRef.current = 0;
         lastLoadedAtRef.current = Date.now();
         return;
       }
@@ -75,7 +75,7 @@ export function useLiveSnapshot({
       const text = await response.text();
       const payload = text
         ? (JSON.parse(text) as
-            | MatchSnapshot
+            | T
             | { error: string; details?: unknown })
         : null;
 
@@ -91,14 +91,32 @@ export function useLiveSnapshot({
         );
       }
 
-      const nextSnapshot = payload as MatchSnapshot;
-      etagRef.current =
-        response.headers.get("ETag") ?? buildSnapshotEtag(nextSnapshot);
+      const nextSnapshot = payload as T;
+      etagRef.current = response.headers.get("ETag");
+      retryAttemptRef.current = 0;
+      nextRetryAtRef.current = 0;
       lastLoadedAtRef.current = Date.now();
       startTransition(() => {
         setSnapshot(nextSnapshot);
       });
       setPageError(null);
+    } catch (error) {
+      if (!signal?.aborted) {
+        const baseDelay = Math.max(
+          pollIntervalMs ?? MIN_VISIBILITY_REFRESH_GAP_MS,
+          MIN_VISIBILITY_REFRESH_GAP_MS
+        );
+        const delay = Math.min(
+          baseDelay * 2 ** retryAttemptRef.current,
+          MAX_ERROR_BACKOFF_MS
+        );
+
+        retryAttemptRef.current += 1;
+        nextRetryAtRef.current = Date.now() + delay;
+        lastLoadedAtRef.current = Date.now();
+      }
+
+      throw error;
     } finally {
       fetchInFlightRef.current = false;
     }
@@ -114,6 +132,8 @@ export function useLiveSnapshot({
     etagRef.current = null;
     fetchInFlightRef.current = false;
     lastLoadedAtRef.current = 0;
+    nextRetryAtRef.current = 0;
+    retryAttemptRef.current = 0;
 
     if (!path) {
       setSnapshot(null);
@@ -168,6 +188,10 @@ export function useLiveSnapshot({
         Date.now() - lastLoadedAtRef.current <
         MIN_VISIBILITY_REFRESH_GAP_MS
       ) {
+        return;
+      }
+
+      if (Date.now() < nextRetryAtRef.current) {
         return;
       }
 

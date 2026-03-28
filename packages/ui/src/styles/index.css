@@ -143,6 +143,13 @@ select {
   line-height: 1.34;
 }
 
+.gg-panel__summary {
+  margin: 0.55rem 0 0;
+  max-width: 42ch;
+  color: var(--gg-text-dim);
+  line-height: 1.3;
+}
+
 .gg-shell__body {
   margin-top: 1.6rem;
 }

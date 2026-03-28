@@ -115,7 +115,7 @@ tasks/
 
 ### Phase 6 - Twitch Extension
 
-- Video overlay entry
+- Video overlay entry for both fullscreen and component
 - Broadcaster config view
 - Extension JWT issuance
 - Local rig support and extension packaging guidance

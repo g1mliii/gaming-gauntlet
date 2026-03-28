@@ -16,6 +16,9 @@ import {
   extensionBootstrapRequestSchema,
   matchControlActionSchema,
   parseChatCommand,
+  publicSurfaceViewSchema,
+  type ChatCommand,
+  type PublicSurfaceView,
   updateMatchStatusRequestSchema,
 } from "@gaming-gauntlet/contracts";
 import { CompactSign } from "jose";
@@ -30,11 +33,17 @@ import {
   readAuthState,
   readSessionIdFromRequest,
 } from "./lib/auth";
-import { MatchCoordinator } from "./durable-objects/match-coordinator";
+import {
+  MatchCoordinator,
+  type SnapshotEnvelope,
+  type SurfaceEnvelope,
+} from "./durable-objects/match-coordinator";
 import { AppError, createRepository } from "./lib/repository";
 import { createChatStore, type ResolvedChatTarget } from "./lib/chat-store";
 import {
   corsPreflight,
+  getTrustedLocalDevOrigins,
+  isAllowedOrigin,
   json,
   methodNotAllowed,
   noContent,
@@ -77,11 +86,6 @@ type QueueReplyPayload = {
 
 type AppExecutionContext = Pick<ExecutionContext, "waitUntil">;
 
-type ExpiringEntry = {
-  key: string;
-  expiresAt: number;
-};
-
 type QueueReplySender = (payload: QueueReplyPayload) => Promise<void>;
 
 type QueuedChatCommand = {
@@ -94,16 +98,23 @@ type RoutedChatCommand = QueuedChatCommand & {
   target: ResolvedChatTarget;
 };
 
-const VIEWER_SNAPSHOT_CACHE_TTL_SECONDS = 2;
-const VIEWER_SNAPSHOT_STALE_SECONDS = 8;
+const VIEWER_SNAPSHOT_CACHE_TTL_SECONDS = 10;
+const VIEWER_SNAPSHOT_STALE_SECONDS = 30;
+const PUBLIC_MATCH_PAGE_CACHE_TTL_SECONDS = 30;
+const PUBLIC_MATCH_PAGE_STALE_SECONDS = 90;
+const PUBLIC_MATCH_OVERLAY_CACHE_TTL_SECONDS = 15;
+const PUBLIC_MATCH_OVERLAY_STALE_SECONDS = 45;
+const VIEWER_CACHE_MATCH_ID_HEADER = "x-gg-cache-match-id";
+const VIEWER_CACHE_STORED_AT_HEADER = "x-gg-cache-stored-at";
+const VIEWER_CACHE_TTL_HEADER = "x-gg-cache-ttl";
+const VIEWER_CACHE_STALE_HEADER = "x-gg-cache-stale";
+const QUEUE_REPLY_COOLDOWN_PRUNE_INTERVAL_MS = 60_000;
 const REQUIRED_SHARED_BOT_SCOPES = [
   "user:bot",
   "user:read:chat",
   "user:write:chat",
 ] as const;
-const queueReplyCooldowns = new Map<string, number>();
-const queueReplyCooldownExpirations: ExpiringEntry[] = [];
-let queueReplyCooldownExpirationHead = 0;
+let lastQueueReplyCooldownPruneAt = 0;
 
 function hasDesiredEventSubSubscriptions(
   existing: Array<{
@@ -161,46 +172,6 @@ function assertSharedBotLogin(env: Env, login: string): void {
   }
 }
 
-function cleanupQueueReplyCooldowns(now: number): void {
-  while (
-    queueReplyCooldownExpirationHead < queueReplyCooldownExpirations.length &&
-    queueReplyCooldownExpirations[queueReplyCooldownExpirationHead]
-      ?.expiresAt <= now
-  ) {
-    const entry =
-      queueReplyCooldownExpirations[queueReplyCooldownExpirationHead];
-
-    if (entry && queueReplyCooldowns.get(entry.key) === entry.expiresAt) {
-      queueReplyCooldowns.delete(entry.key);
-    }
-
-    queueReplyCooldownExpirationHead += 1;
-  }
-
-  if (
-    queueReplyCooldownExpirationHead >= 1024 &&
-    queueReplyCooldownExpirationHead * 2 >= queueReplyCooldownExpirations.length
-  ) {
-    queueReplyCooldownExpirations.splice(0, queueReplyCooldownExpirationHead);
-    queueReplyCooldownExpirationHead = 0;
-  }
-}
-
-function takeQueueReplyCooldown(key: string, durationMs: number): boolean {
-  const now = Date.now();
-  cleanupQueueReplyCooldowns(now);
-  const current = queueReplyCooldowns.get(key) ?? 0;
-
-  if (current > now) {
-    return false;
-  }
-
-  const expiresAt = now + durationMs;
-  queueReplyCooldowns.set(key, expiresAt);
-  queueReplyCooldownExpirations.push({ key, expiresAt });
-  return true;
-}
-
 function buildBoardEtag(matchId: string, boardRevision: number): string {
   return `W/"${matchId}:${boardRevision}"`;
 }
@@ -226,153 +197,372 @@ function decodeExtensionSecret(secret: string): Uint8Array {
   }
 }
 
-async function fetchSnapshotFromCoordinator(
+function buildViewerCacheControl(
+  cacheTtlSeconds: number,
+  staleSeconds: number
+): string {
+  return `public, max-age=${cacheTtlSeconds}, s-maxage=${cacheTtlSeconds}, stale-while-revalidate=${staleSeconds}`;
+}
+
+type ViewerProjectionCacheContext = {
+  allowedViewerOrigins: string[];
+  cache: Cache;
+  cacheKey: Request;
+  cacheTtlSeconds: number;
+  staleSeconds: number;
+};
+
+type ViewerProjectionPayload<T> = {
+  etag: string;
+  matchId: string;
+  payload: T;
+};
+
+type MatchCoordinatorStub = DurableObjectStub & {
+  getSnapshotEnvelope: MatchCoordinator["getSnapshotEnvelope"];
+  getSurfaceEnvelope: MatchCoordinator["getSurfaceEnvelope"];
+  processCommandsRpc: MatchCoordinator["processCommandsRpc"];
+  syncSnapshotMetaRpc: MatchCoordinator["syncSnapshotMetaRpc"];
+  applyControlActionRpc: MatchCoordinator["applyControlActionRpc"];
+};
+
+function getViewerProjectionCacheContext(
   request: Request,
   env: Env,
-  matchId: string,
-  ctx?: AppExecutionContext,
-  options?: {
-    redactForViewer?: boolean;
-    viewerCacheTtlSeconds?: number;
-  }
-): Promise<Response> {
-  const allowedViewerOrigins = [env.APP_ORIGIN, env.EXTENSION_ORIGIN].filter(
-    (origin): origin is string => Boolean(origin)
-  );
-  const redactForViewer = options?.redactForViewer ?? false;
-  const viewerCacheTtlSeconds = options?.viewerCacheTtlSeconds ?? 0;
-
+  cacheTtlSeconds: number,
+  staleSeconds: number
+): ViewerProjectionCacheContext | null {
   if (
-    request.method === "GET" &&
-    viewerCacheTtlSeconds > 0 &&
-    !request.headers.get("Cookie")
+    request.method !== "GET" ||
+    cacheTtlSeconds <= 0 ||
+    request.headers.get("Cookie")
   ) {
-    const cache = (
-      globalThis.caches as (CacheStorage & { default?: Cache }) | undefined
-    )?.default;
-
-    if (cache) {
-      const cacheKey = new Request(request.url, {
-        method: "GET",
-      });
-      const cachedResponse = await cache.match(cacheKey);
-      const cacheControl = `public, max-age=0, s-maxage=${viewerCacheTtlSeconds}, stale-while-revalidate=${VIEWER_SNAPSHOT_STALE_SECONDS}`;
-
-      if (cachedResponse) {
-        const cachedEtag = cachedResponse.headers.get("ETag");
-
-        if (cachedEtag && request.headers.get("If-None-Match") === cachedEtag) {
-          return withCors(
-            request,
-            env,
-            new Response(null, {
-              status: 304,
-              headers: {
-                ETag: cachedEtag,
-                "Cache-Control": cacheControl,
-              },
-            }),
-            {
-              allowCredentials: false,
-              allowedOrigins: allowedViewerOrigins,
-            }
-          );
-        }
-
-        return withCors(request, env, cachedResponse, {
-          allowCredentials: false,
-          allowedOrigins: allowedViewerOrigins,
-        });
-      }
-
-      const coordinatorResponse = await fetchSnapshotResponseFromCoordinator(
-        request,
-        env,
-        matchId
-      );
-      const snapshotResponse = redactForViewer
-        ? await redactSnapshotResponseForViewer(coordinatorResponse)
-        : coordinatorResponse;
-
-      if (snapshotResponse.status !== 200 || !snapshotResponse.ok) {
-        return withCors(request, env, snapshotResponse, {
-          allowCredentials: false,
-          allowedOrigins: allowedViewerOrigins,
-        });
-      }
-
-      const headers = new Headers(snapshotResponse.headers);
-      headers.set("Cache-Control", cacheControl);
-      const cacheableResponse = new Response(snapshotResponse.body, {
-        status: snapshotResponse.status,
-        statusText: snapshotResponse.statusText,
-        headers,
-      });
-
-      const cacheWrite = cache.put(cacheKey, cacheableResponse.clone());
-
-      if (ctx) {
-        ctx.waitUntil(cacheWrite);
-      } else {
-        await cacheWrite;
-      }
-
-      return withCors(request, env, cacheableResponse, {
-        allowCredentials: false,
-        allowedOrigins: allowedViewerOrigins,
-      });
-    }
+    return null;
   }
 
-  const coordinatorResponse = await fetchSnapshotResponseFromCoordinator(
-    request,
-    env,
-    matchId
-  );
-  const snapshotResponse = redactForViewer
-    ? await redactSnapshotResponseForViewer(coordinatorResponse)
-    : coordinatorResponse;
+  const cache = (
+    globalThis.caches as (CacheStorage & { default?: Cache }) | undefined
+  )?.default;
 
-  return withCors(request, env, snapshotResponse, {
-    allowCredentials: false,
-    allowedOrigins: allowedViewerOrigins,
-  });
-}
+  if (!cache) {
+    return null;
+  }
 
-async function fetchSnapshotResponseFromCoordinator(
-  request: Request,
-  env: Env,
-  matchId: string
-): Promise<Response> {
-  const coordinatorId = env.MATCH_COORDINATOR.idFromName(matchId);
-  const coordinator = env.MATCH_COORDINATOR.get(coordinatorId);
-  const targetUrl = new URL(request.url);
-  targetUrl.pathname = "/snapshot";
-  targetUrl.searchParams.set("matchId", matchId);
-
-  return coordinator.fetch(
-    new Request(targetUrl.toString(), {
-      headers: request.headers,
+  return {
+    allowedViewerOrigins: [env.APP_ORIGIN, env.EXTENSION_ORIGIN].filter(
+      (origin): origin is string => Boolean(origin)
+    ),
+    cache,
+    cacheKey: new Request(request.url, {
       method: "GET",
-    })
-  );
+    }),
+    cacheTtlSeconds,
+    staleSeconds,
+  };
 }
 
-async function redactSnapshotResponseForViewer(
-  response: Response
-): Promise<Response> {
-  if (!response.ok || response.status !== 200) {
-    return response;
-  }
-
-  const snapshot = (await response.json()) as MatchSnapshot;
+function withViewerCacheHeaders(
+  response: Response,
+  matchId: string,
+  cacheTtlSeconds: number,
+  staleSeconds: number,
+  storedAt = Date.now()
+): Response {
   const headers = new Headers(response.headers);
-  headers.set("content-type", "application/json");
+  headers.set(
+    "Cache-Control",
+    buildViewerCacheControl(cacheTtlSeconds, staleSeconds)
+  );
+  headers.set(VIEWER_CACHE_MATCH_ID_HEADER, matchId);
+  headers.set(VIEWER_CACHE_STORED_AT_HEADER, String(storedAt));
+  headers.set(VIEWER_CACHE_TTL_HEADER, String(cacheTtlSeconds));
+  headers.set(VIEWER_CACHE_STALE_HEADER, String(staleSeconds));
 
-  return new Response(JSON.stringify(redactViewerSnapshot(snapshot)), {
+  return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
     headers,
+  });
+}
+
+function buildViewerProjectionResponse<T>(
+  projection: ViewerProjectionPayload<T>,
+  cacheTtlSeconds: number,
+  staleSeconds: number
+): Response {
+  return withViewerCacheHeaders(
+    json(projection.payload, {
+      headers: {
+        ETag: projection.etag,
+      },
+    }),
+    projection.matchId,
+    cacheTtlSeconds,
+    staleSeconds
+  );
+}
+
+function readViewerCacheLifetime(response: Response): {
+  matchId: string;
+  ttlMs: number;
+  staleMs: number;
+  storedAtMs: number;
+} | null {
+  const matchId = response.headers.get(VIEWER_CACHE_MATCH_ID_HEADER);
+  const storedAtMs = Number(
+    response.headers.get(VIEWER_CACHE_STORED_AT_HEADER)
+  );
+  const ttlMs = Number(response.headers.get(VIEWER_CACHE_TTL_HEADER)) * 1000;
+  const staleMs =
+    Number(response.headers.get(VIEWER_CACHE_STALE_HEADER)) * 1000;
+
+  if (
+    !matchId ||
+    !Number.isFinite(storedAtMs) ||
+    !Number.isFinite(ttlMs) ||
+    !Number.isFinite(staleMs)
+  ) {
+    return null;
+  }
+
+  return {
+    matchId,
+    storedAtMs,
+    staleMs,
+    ttlMs,
+  };
+}
+
+async function tryRespondFromViewerProjectionCache(
+  request: Request,
+  env: Env,
+  cacheContext: ViewerProjectionCacheContext | null,
+  refreshCachedProjection?: (matchId: string) => Promise<void>,
+  ctx?: AppExecutionContext
+): Promise<Response | null> {
+  if (!cacheContext) {
+    return null;
+  }
+
+  const cachedResponse = await cacheContext.cache.match(cacheContext.cacheKey);
+
+  if (!cachedResponse) {
+    return null;
+  }
+
+  const cacheLifetime = readViewerCacheLifetime(cachedResponse);
+
+  if (!cacheLifetime) {
+    return null;
+  }
+
+  const ageMs = Date.now() - cacheLifetime.storedAtMs;
+
+  if (ageMs > cacheLifetime.ttlMs + cacheLifetime.staleMs) {
+    return null;
+  }
+
+  if (ageMs > cacheLifetime.ttlMs && refreshCachedProjection && ctx) {
+    ctx.waitUntil(
+      refreshCachedProjection(cacheLifetime.matchId).catch((error) => {
+        console.error("viewer cache revalidation failed", error);
+      })
+    );
+  }
+
+  const cachedEtag = cachedResponse.headers.get("ETag");
+
+  if (cachedEtag && request.headers.get("If-None-Match") === cachedEtag) {
+    return withCors(
+      request,
+      env,
+      new Response(null, {
+        status: 304,
+        headers: {
+          ETag: cachedEtag,
+          "Cache-Control": buildViewerCacheControl(
+            cacheLifetime.ttlMs / 1000,
+            cacheLifetime.staleMs / 1000
+          ),
+        },
+      }),
+      {
+        allowCredentials: false,
+        allowedOrigins: cacheContext.allowedViewerOrigins,
+      }
+    );
+  }
+
+  return withCors(request, env, cachedResponse, {
+    allowCredentials: false,
+    allowedOrigins: cacheContext.allowedViewerOrigins,
+  });
+}
+
+async function writeViewerProjectionCache(
+  cacheContext: ViewerProjectionCacheContext | null,
+  response: Response,
+  ctx?: AppExecutionContext
+): Promise<void> {
+  if (!cacheContext) {
+    return;
+  }
+
+  const cacheWrite = cacheContext.cache.put(
+    cacheContext.cacheKey,
+    response.clone()
+  );
+
+  if (ctx) {
+    ctx.waitUntil(cacheWrite);
+  } else {
+    await cacheWrite;
+  }
+}
+
+function getMatchCoordinator(env: Env, matchId: string) {
+  const coordinatorId = env.MATCH_COORDINATOR.idFromName(matchId);
+  return env.MATCH_COORDINATOR.get(coordinatorId) as MatchCoordinatorStub;
+}
+
+async function getSnapshotEnvelopeFromCoordinator(
+  env: Env,
+  matchId: string
+): Promise<SnapshotEnvelope> {
+  return getMatchCoordinator(env, matchId).getSnapshotEnvelope(matchId);
+}
+
+async function getSurfaceEnvelopeFromCoordinator(
+  env: Env,
+  matchId: string,
+  view: PublicSurfaceView
+): Promise<SurfaceEnvelope> {
+  return getMatchCoordinator(env, matchId).getSurfaceEnvelope(matchId, view);
+}
+
+async function processCommandBatchWithCoordinator(
+  env: Env,
+  matchId: string,
+  commands: Array<{
+    command: ReturnType<typeof parseChatCommand>;
+    messageId: string;
+    sentAt: string;
+    sourceChannelId: string;
+    sourceTwitchChannelId: string;
+    viewerId: string;
+    replyParentId: string | null;
+  }>
+): Promise<Array<QueueReplyPayload | null>> {
+  return getMatchCoordinator(env, matchId).processCommandsRpc(
+    matchId,
+    commands
+  );
+}
+
+async function syncMatchMetaWithCoordinator(
+  env: Env,
+  matchId: string,
+  match: MatchSummary
+): Promise<MatchSnapshot> {
+  return getMatchCoordinator(env, matchId).syncSnapshotMetaRpc(matchId, match);
+}
+
+async function applyControlActionWithCoordinator(
+  env: Env,
+  matchId: string,
+  action: Parameters<MatchCoordinator["applyControlActionRpc"]>[1]
+): Promise<MatchSnapshot> {
+  return getMatchCoordinator(env, matchId).applyControlActionRpc(
+    matchId,
+    action
+  );
+}
+
+async function fetchViewerProjectionResponse<T>(
+  request: Request,
+  env: Env,
+  matchId: string,
+  options: {
+    cacheContext?: ViewerProjectionCacheContext | null;
+    cacheTtlSeconds?: number;
+    loadProjection: (matchId: string) => Promise<ViewerProjectionPayload<T>>;
+    skipCacheLookup?: boolean;
+    staleSeconds?: number;
+  },
+  ctx?: AppExecutionContext
+): Promise<Response> {
+  const cacheTtlSeconds = options.cacheTtlSeconds ?? 0;
+  const staleSeconds = options.staleSeconds ?? VIEWER_SNAPSHOT_STALE_SECONDS;
+  const cacheContext =
+    options.cacheContext ??
+    getViewerProjectionCacheContext(
+      request,
+      env,
+      cacheTtlSeconds,
+      staleSeconds
+    );
+  const allowedViewerOrigins =
+    cacheContext?.allowedViewerOrigins ??
+    [env.APP_ORIGIN, env.EXTENSION_ORIGIN].filter((origin): origin is string =>
+      Boolean(origin)
+    );
+
+  if (!options.skipCacheLookup) {
+    const cachedResponse = await tryRespondFromViewerProjectionCache(
+      request,
+      env,
+      cacheContext,
+      async (cachedMatchId) => {
+        const refreshedResponse = buildViewerProjectionResponse(
+          await options.loadProjection(cachedMatchId),
+          cacheTtlSeconds,
+          staleSeconds
+        );
+        await writeViewerProjectionCache(cacheContext, refreshedResponse);
+      },
+      ctx
+    );
+
+    if (cachedResponse) {
+      return cachedResponse;
+    }
+  }
+
+  const projection = await options.loadProjection(matchId);
+  const viewerResponse = buildViewerProjectionResponse(
+    projection,
+    cacheTtlSeconds,
+    staleSeconds
+  );
+
+  if (viewerResponse.status === 200 && viewerResponse.ok) {
+    await writeViewerProjectionCache(cacheContext, viewerResponse, ctx);
+  }
+
+  if (request.headers.get("If-None-Match") === projection.etag) {
+    return withCors(
+      request,
+      env,
+      new Response(null, {
+        status: 304,
+        headers: {
+          ETag: projection.etag,
+          "Cache-Control": buildViewerCacheControl(
+            cacheTtlSeconds,
+            staleSeconds
+          ),
+        },
+      }),
+      {
+        allowCredentials: false,
+        allowedOrigins: allowedViewerOrigins,
+      }
+    );
+  }
+
+  return withCors(request, env, viewerResponse, {
+    allowCredentials: false,
+    allowedOrigins: allowedViewerOrigins,
   });
 }
 
@@ -408,7 +598,12 @@ function appJson(
 }
 
 function assertAppOrigin(request: Request, env: Env): void {
-  if (request.headers.get("Origin") !== env.APP_ORIGIN) {
+  if (
+    !isAllowedOrigin(request.headers.get("Origin"), [
+      env.APP_ORIGIN,
+      ...getTrustedLocalDevOrigins(env),
+    ])
+  ) {
     throw new AppError(403, "invalid_origin");
   }
 }
@@ -694,19 +889,58 @@ async function safelySendQueueReply(
   }
 }
 
+async function maybePruneQueueReplyCooldowns(
+  chatStore: ReturnType<typeof createChatStore>
+): Promise<void> {
+  const now = Date.now();
+
+  if (
+    now - lastQueueReplyCooldownPruneAt <
+    QUEUE_REPLY_COOLDOWN_PRUNE_INTERVAL_MS
+  ) {
+    return;
+  }
+
+  lastQueueReplyCooldownPruneAt = now;
+  await chatStore.pruneExpiredQueueReplyCooldowns();
+}
+
+async function takeQueueReplyCooldownOncePerBatch(
+  chatStore: ReturnType<typeof createChatStore>,
+  handledKeys: Set<string>,
+  key: string,
+  durationMs: number
+): Promise<boolean> {
+  if (handledKeys.has(key)) {
+    return false;
+  }
+
+  handledKeys.add(key);
+  return chatStore.takeQueueReplyCooldown(key, durationMs);
+}
+
 async function handleChatCommandQueueBatch(
   env: Env,
   chatStore: ReturnType<typeof createChatStore>,
   queuedCommands: QueuedChatCommand[],
   sendReply: QueueReplySender
 ): Promise<void> {
+  await maybePruneQueueReplyCooldowns(chatStore);
   const actionableCommands: QueuedChatCommand[] = [];
+  const handledReplyCooldownKeys = new Set<string>();
 
   for (const queuedCommand of queuedCommands) {
     const { command, message, payload } = queuedCommand;
 
     if (command.kind === "help") {
-      if (takeQueueReplyCooldown(`help:${payload.sourceChannelId}`, 60_000)) {
+      if (
+        await takeQueueReplyCooldownOncePerBatch(
+          chatStore,
+          handledReplyCooldownKeys,
+          `help:${payload.sourceChannelId}`,
+          60_000
+        )
+      ) {
         await safelySendQueueReply(
           sendReply,
           message,
@@ -721,7 +955,12 @@ async function handleChatCommandQueueBatch(
 
     if (command.kind === "unknown") {
       if (
-        takeQueueReplyCooldown(`unknown:${payload.sourceChannelId}`, 15_000)
+        await takeQueueReplyCooldownOncePerBatch(
+          chatStore,
+          handledReplyCooldownKeys,
+          `unknown:${payload.sourceChannelId}`,
+          15_000
+        )
       ) {
         await safelySendQueueReply(sendReply, message, {
           broadcasterId: payload.sourceChannelId,
@@ -775,7 +1014,9 @@ async function handleChatCommandQueueBatch(
     }
 
     if (
-      takeQueueReplyCooldown(
+      await takeQueueReplyCooldownOncePerBatch(
+        chatStore,
+        handledReplyCooldownKeys,
         `missing-target:${queuedCommand.payload.sourceChannelId}`,
         15_000
       )
@@ -795,42 +1036,19 @@ async function handleChatCommandQueueBatch(
     [...routedCommandsByMatchId.entries()].map(
       async ([matchId, routedCommands]): Promise<void> => {
         try {
-          const coordinatorId = env.MATCH_COORDINATOR.idFromName(matchId);
-          const coordinator = env.MATCH_COORDINATOR.get(coordinatorId);
-          const targetUrl = new URL("http://internal/match");
-          targetUrl.pathname = "/commands";
-          targetUrl.searchParams.set("matchId", matchId);
-
-          const response = await coordinator.fetch(
-            new Request(targetUrl, {
-              method: "POST",
-              headers: {
-                "content-type": "application/json",
-              },
-              body: JSON.stringify({
-                commands: routedCommands.map((routedCommand) => ({
-                  command: routedCommand.command,
-                  messageId: routedCommand.payload.messageId,
-                  sentAt: routedCommand.payload.sentAt,
-                  sourceChannelId: routedCommand.target.internalSourceChannelId,
-                  sourceTwitchChannelId: routedCommand.payload.sourceChannelId,
-                  viewerId: routedCommand.payload.viewerId,
-                  replyParentId: routedCommand.payload.replyParentId,
-                })),
-              }),
-            })
+          const replies = await processCommandBatchWithCoordinator(
+            env,
+            matchId,
+            routedCommands.map((routedCommand) => ({
+              command: routedCommand.command as ChatCommand,
+              messageId: routedCommand.payload.messageId,
+              sentAt: routedCommand.payload.sentAt,
+              sourceChannelId: routedCommand.target.internalSourceChannelId,
+              sourceTwitchChannelId: routedCommand.payload.sourceChannelId,
+              viewerId: routedCommand.payload.viewerId,
+              replyParentId: routedCommand.payload.replyParentId,
+            }))
           );
-
-          if (!response.ok) {
-            throw new Error(
-              `match command batch failed for ${matchId}: ${response.status}`
-            );
-          }
-
-          const body = (await response.json()) as {
-            replies?: Array<QueueReplyPayload | null>;
-          };
-          const replies = body.replies ?? [];
 
           if (replies.length !== routedCommands.length) {
             throw new Error(
@@ -1389,20 +1607,7 @@ export async function handleRequest(
         result.data.status
       );
 
-      const coordinatorId = env.MATCH_COORDINATOR.idFromName(matchId);
-      const coordinator = env.MATCH_COORDINATOR.get(coordinatorId);
-      const syncUrl = new URL(request.url);
-      syncUrl.pathname = "/sync-meta";
-      syncUrl.searchParams.set("matchId", matchId);
-      await coordinator.fetch(
-        new Request(syncUrl.toString(), {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-          },
-          body: JSON.stringify({ match }),
-        })
-      );
+      await syncMatchMetaWithCoordinator(env, matchId, match);
 
       await enqueueEdgeQueueMessages(env, [
         {
@@ -1445,38 +1650,14 @@ export async function handleRequest(
         );
       }
 
-      const coordinatorId = env.MATCH_COORDINATOR.idFromName(matchId);
-      const coordinator = env.MATCH_COORDINATOR.get(coordinatorId);
-      const controlUrl = new URL(request.url);
-      controlUrl.pathname = "/control";
-      controlUrl.searchParams.set("matchId", matchId);
-      const coordinatorResponse = await coordinator.fetch(
-        new Request(controlUrl.toString(), {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-          },
-          body: JSON.stringify(result.data),
-        })
+      const snapshot = await applyControlActionWithCoordinator(
+        env,
+        matchId,
+        result.data
       );
-      const text = await coordinatorResponse.text();
-      const payload = text ? (JSON.parse(text) as unknown) : null;
-
-      if (!coordinatorResponse.ok) {
-        const errorPayload =
-          payload && typeof payload === "object" && "error" in payload
-            ? (payload as { error: string; details?: unknown })
-            : { error: "request_failed" };
-        throw new AppError(
-          coordinatorResponse.status,
-          errorPayload.error,
-          errorPayload.details as Record<string, unknown> | undefined
-        );
-      }
-
       return appJson(request, env, {
         ok: true,
-        ...(payload && typeof payload === "object" ? payload : {}),
+        snapshot,
       });
     }
 
@@ -1491,20 +1672,36 @@ export async function handleRequest(
       const matchId = url.pathname.split("/")[4];
       await requireControlRoomMatchAccess(request, env, repo, matchId);
 
-      const snapshotResponse = await fetchSnapshotResponseFromCoordinator(
-        request,
+      const snapshotResponse = await getSnapshotEnvelopeFromCoordinator(
         env,
         matchId
       );
-      const headers = new Headers(snapshotResponse.headers);
+
+      if (request.headers.get("If-None-Match") === snapshotResponse.etag) {
+        return withCors(
+          request,
+          env,
+          new Response(null, {
+            status: 304,
+            headers: {
+              ETag: snapshotResponse.etag,
+              "Cache-Control": "private, max-age=0, must-revalidate",
+            },
+          })
+        );
+      }
+
+      const headers = new Headers({
+        ETag: snapshotResponse.etag,
+        "content-type": "application/json; charset=utf-8",
+      });
       headers.set("Cache-Control", "private, max-age=0, must-revalidate");
 
       return withCors(
         request,
         env,
-        new Response(snapshotResponse.body, {
-          status: snapshotResponse.status,
-          statusText: snapshotResponse.statusText,
+        new Response(JSON.stringify(snapshotResponse.snapshot), {
+          status: 200,
           headers,
         })
       );
@@ -1742,7 +1939,7 @@ export async function handleRequest(
 
       const secret = decodeExtensionSecret(env.TWITCH_EXTENSION_SECRET);
       const issuedAt = Math.floor(Date.now() / 1000);
-      const token = await new CompactSign(
+      const payload = new Uint8Array(
         new TextEncoder().encode(
           JSON.stringify({
             iat: issuedAt,
@@ -1752,11 +1949,21 @@ export async function handleRequest(
             user_id: result.data.userId ?? session.user.twitchUserId,
           })
         )
-      )
+      );
+      const token = await new CompactSign(payload)
         .setProtectedHeader({ alg: "HS256", typ: "JWT" })
         .sign(secret);
 
-      return appJson(request, env, { ok: true, token });
+      return appJson(
+        request,
+        env,
+        { ok: true, token },
+        {
+          headers: {
+            "Cache-Control": "private, no-store",
+          },
+        }
+      );
     }
 
     if (url.pathname.startsWith("/ws/control/matches/")) {
@@ -1794,22 +2001,154 @@ export async function handleRequest(
       const matchId = url.pathname.split("/")[3];
       await requireControlRoomMatchAccess(request, env, repo, matchId);
 
-      const snapshotResponse = await fetchSnapshotResponseFromCoordinator(
-        request,
+      const snapshotResponse = await getSnapshotEnvelopeFromCoordinator(
         env,
         matchId
       );
-      const headers = new Headers(snapshotResponse.headers);
+
+      if (request.headers.get("If-None-Match") === snapshotResponse.etag) {
+        return withCors(
+          request,
+          env,
+          new Response(null, {
+            status: 304,
+            headers: {
+              ETag: snapshotResponse.etag,
+              "Cache-Control": "private, max-age=0, must-revalidate",
+            },
+          })
+        );
+      }
+
+      const headers = new Headers({
+        ETag: snapshotResponse.etag,
+        "content-type": "application/json; charset=utf-8",
+      });
       headers.set("Cache-Control", "private, max-age=0, must-revalidate");
 
       return withCors(
         request,
         env,
-        new Response(snapshotResponse.body, {
-          status: snapshotResponse.status,
-          statusText: snapshotResponse.statusText,
+        new Response(JSON.stringify(snapshotResponse.snapshot), {
+          status: 200,
           headers,
         })
+      );
+    }
+
+    if (
+      url.pathname.startsWith("/api/public/matches/") &&
+      url.pathname.endsWith("/surface")
+    ) {
+      if (request.method !== "GET") {
+        return withCors(request, env, methodNotAllowed(["GET"]));
+      }
+
+      let slug: string;
+
+      try {
+        slug = decodeURIComponent(url.pathname.split("/")[4] ?? "");
+      } catch {
+        return appJson(
+          request,
+          env,
+          { error: "match_not_found" },
+          { status: 404 }
+        );
+      }
+
+      const parsedView = publicSurfaceViewSchema.safeParse(
+        url.searchParams.get("view")
+      );
+
+      if (!parsedView.success) {
+        return appJson(
+          request,
+          env,
+          { error: "invalid_surface_view" },
+          { status: 400 }
+        );
+      }
+
+      const viewerOptions =
+        parsedView.data === "page"
+          ? {
+              cacheTtlSeconds: PUBLIC_MATCH_PAGE_CACHE_TTL_SECONDS,
+              staleSeconds: PUBLIC_MATCH_PAGE_STALE_SECONDS,
+            }
+          : {
+              cacheTtlSeconds: PUBLIC_MATCH_OVERLAY_CACHE_TTL_SECONDS,
+              staleSeconds: PUBLIC_MATCH_OVERLAY_STALE_SECONDS,
+            };
+      const cacheContext = getViewerProjectionCacheContext(
+        request,
+        env,
+        viewerOptions.cacheTtlSeconds,
+        viewerOptions.staleSeconds
+      );
+      const cachedResponse = await tryRespondFromViewerProjectionCache(
+        request,
+        env,
+        cacheContext,
+        async (cachedMatchId) => {
+          const surfaceEnvelope = await getSurfaceEnvelopeFromCoordinator(
+            env,
+            cachedMatchId,
+            parsedView.data
+          );
+          const refreshedResponse = buildViewerProjectionResponse(
+            {
+              etag: surfaceEnvelope.etag,
+              matchId: cachedMatchId,
+              payload: surfaceEnvelope.surface,
+            },
+            viewerOptions.cacheTtlSeconds,
+            viewerOptions.staleSeconds
+          );
+          await writeViewerProjectionCache(cacheContext, refreshedResponse);
+        },
+        ctx
+      );
+
+      if (cachedResponse) {
+        return cachedResponse;
+      }
+
+      const matchId = await repo.getMatchIdBySlug(slug);
+
+      if (!matchId) {
+        return appJson(
+          request,
+          env,
+          { error: "match_not_found" },
+          { status: 404 }
+        );
+      }
+
+      return fetchViewerProjectionResponse(
+        request,
+        env,
+        matchId,
+        {
+          cacheContext,
+          cacheTtlSeconds: viewerOptions.cacheTtlSeconds,
+          loadProjection: async (freshMatchId) => {
+            const surfaceEnvelope = await getSurfaceEnvelopeFromCoordinator(
+              env,
+              freshMatchId,
+              parsedView.data
+            );
+
+            return {
+              etag: surfaceEnvelope.etag,
+              matchId: freshMatchId,
+              payload: surfaceEnvelope.surface,
+            };
+          },
+          skipCacheLookup: true,
+          staleSeconds: viewerOptions.staleSeconds,
+        },
+        ctx
       );
     }
 
@@ -1834,6 +2173,39 @@ export async function handleRequest(
         );
       }
 
+      const cacheContext = getViewerProjectionCacheContext(
+        request,
+        env,
+        VIEWER_SNAPSHOT_CACHE_TTL_SECONDS,
+        VIEWER_SNAPSHOT_STALE_SECONDS
+      );
+      const cachedResponse = await tryRespondFromViewerProjectionCache(
+        request,
+        env,
+        cacheContext,
+        async (cachedMatchId) => {
+          const snapshotEnvelope = await getSnapshotEnvelopeFromCoordinator(
+            env,
+            cachedMatchId
+          );
+          const refreshedResponse = buildViewerProjectionResponse(
+            {
+              etag: snapshotEnvelope.etag,
+              matchId: cachedMatchId,
+              payload: redactViewerSnapshot(snapshotEnvelope.snapshot),
+            },
+            VIEWER_SNAPSHOT_CACHE_TTL_SECONDS,
+            VIEWER_SNAPSHOT_STALE_SECONDS
+          );
+          await writeViewerProjectionCache(cacheContext, refreshedResponse);
+        },
+        ctx
+      );
+
+      if (cachedResponse) {
+        return cachedResponse;
+      }
+
       const matchId = await repo.getMatchIdBySlug(slug);
 
       if (!matchId) {
@@ -1845,15 +2217,29 @@ export async function handleRequest(
         );
       }
 
-      return fetchSnapshotFromCoordinator(
+      return fetchViewerProjectionResponse(
         request,
         env,
         matchId,
-        ctx,
         {
-          redactForViewer: true,
-          viewerCacheTtlSeconds: VIEWER_SNAPSHOT_CACHE_TTL_SECONDS,
-        }
+          cacheContext,
+          cacheTtlSeconds: VIEWER_SNAPSHOT_CACHE_TTL_SECONDS,
+          loadProjection: async (freshMatchId) => {
+            const snapshotEnvelope = await getSnapshotEnvelopeFromCoordinator(
+              env,
+              freshMatchId
+            );
+
+            return {
+              etag: snapshotEnvelope.etag,
+              matchId: freshMatchId,
+              payload: redactViewerSnapshot(snapshotEnvelope.snapshot),
+            };
+          },
+          skipCacheLookup: true,
+          staleSeconds: VIEWER_SNAPSHOT_STALE_SECONDS,
+        },
+        ctx
       );
     }
 

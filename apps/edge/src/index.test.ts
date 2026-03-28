@@ -1,4 +1,6 @@
 import {
+  createPublicMatchOverlaySurface,
+  createPublicMatchPageSurface,
   createDemoMatchSnapshot,
   type AuthSession,
   type MatchSummary,
@@ -189,9 +191,24 @@ async function createEventSubHeaders(
   };
 }
 
+function createCoordinatorStub(
+  overrides: Record<string, unknown> = {}
+): DurableObjectStub {
+  return {
+    fetch: vi.fn(),
+    getSnapshotEnvelope: vi.fn(),
+    getSurfaceEnvelope: vi.fn(),
+    processCommandsRpc: vi.fn(),
+    syncSnapshotMetaRpc: vi.fn(),
+    applyControlActionRpc: vi.fn(),
+    ...overrides,
+  } as unknown as DurableObjectStub;
+}
+
 describe("handleRequest", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllGlobals();
   });
 
   function createViewerSnapshot(matchId = "match_public") {
@@ -658,6 +675,42 @@ describe("handleRequest", () => {
     });
   });
 
+  it("accepts localhost dashboard origins for match creation", async () => {
+    const repo = createRepoMock();
+    createRepositoryMock.mockReturnValue(repo);
+    const cookie = await createSignedSessionCookie("session_1");
+
+    const match: MatchSummary = buildMatchSummary();
+
+    repo.getSession.mockResolvedValue(signedInSession());
+    repo.getRoleForUser.mockResolvedValue("owner");
+    repo.createMatch.mockResolvedValue(match);
+
+    const response = await handleRequest(
+      new Request("http://localhost:8787/api/matches", {
+        method: "POST",
+        headers: {
+          Cookie: cookie,
+          Origin: "http://localhost:5173",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          channelLinkId: "link_1",
+          title: "Gauntlet Finals",
+          slug: "gauntlet-finals",
+          targetWins: 3,
+        }),
+      }),
+      env
+    );
+
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual({
+      ok: true,
+      match,
+    });
+  });
+
   it("lists matches for authenticated members", async () => {
     const repo = createRepoMock();
     createRepositoryMock.mockReturnValue(repo);
@@ -727,18 +780,7 @@ describe("handleRequest", () => {
     const repo = createRepoMock();
     const cookie = await createSignedSessionCookie("session_1");
     const snapshot = createDemoMatchSnapshot({ matchId: "match_1" });
-    const coordinatorFetch = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          snapshot,
-        }),
-        {
-          headers: {
-            "content-type": "application/json",
-          },
-        }
-      )
-    );
+    const applyControlActionRpc = vi.fn().mockResolvedValue(snapshot);
 
     createRepositoryMock.mockReturnValue(repo);
     repo.getSession.mockResolvedValue(signedInSession());
@@ -747,9 +789,11 @@ describe("handleRequest", () => {
     vi.mocked(env.MATCH_COORDINATOR.idFromName).mockReturnValue(
       "durable-id" as unknown as DurableObjectId
     );
-    vi.mocked(env.MATCH_COORDINATOR.get).mockReturnValue({
-      fetch: coordinatorFetch,
-    } as unknown as DurableObjectStub);
+    vi.mocked(env.MATCH_COORDINATOR.get).mockReturnValue(
+      createCoordinatorStub({
+        applyControlActionRpc,
+      })
+    );
 
     const response = await handleRequest(
       new Request("http://localhost:8787/api/matches/match_1/control/actions", {
@@ -768,13 +812,8 @@ describe("handleRequest", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(coordinatorFetch).toHaveBeenCalledTimes(1);
-    expect(coordinatorFetch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        method: "POST",
-      })
-    );
-    await expect(coordinatorFetch.mock.calls[0]?.[0]?.json()).resolves.toEqual({
+    expect(applyControlActionRpc).toHaveBeenCalledTimes(1);
+    expect(applyControlActionRpc).toHaveBeenCalledWith("match_1", {
       type: "reject_suggestion",
       suggestionId: "sgg_01",
     });
@@ -787,14 +826,10 @@ describe("handleRequest", () => {
   it("forwards authorized control-room snapshots to the coordinator", async () => {
     const repo = createRepoMock();
     const cookie = await createSignedSessionCookie("session_1");
-    const coordinatorFetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ matchId: "match_1" }), {
-        headers: {
-          "content-type": "application/json",
-          ETag: 'W/"match_1:2026-03-24T04:00:00.000Z:1"',
-        },
-      })
-    );
+    const getSnapshotEnvelope = vi.fn().mockResolvedValue({
+      etag: 'W/"match_1:2026-03-24T04:00:00.000Z:1"',
+      snapshot: { matchId: "match_1" },
+    });
 
     createRepositoryMock.mockReturnValue(repo);
     repo.getSession.mockResolvedValue(signedInSession());
@@ -803,9 +838,11 @@ describe("handleRequest", () => {
     vi.mocked(env.MATCH_COORDINATOR.idFromName).mockReturnValue(
       "durable-id" as unknown as DurableObjectId
     );
-    vi.mocked(env.MATCH_COORDINATOR.get).mockReturnValue({
-      fetch: coordinatorFetch,
-    } as unknown as DurableObjectStub);
+    vi.mocked(env.MATCH_COORDINATOR.get).mockReturnValue(
+      createCoordinatorStub({
+        getSnapshotEnvelope,
+      })
+    );
 
     const response = await handleRequest(
       new Request(
@@ -824,7 +861,7 @@ describe("handleRequest", () => {
     expect(response.headers.get("Cache-Control")).toBe(
       "private, max-age=0, must-revalidate"
     );
-    expect(coordinatorFetch).toHaveBeenCalledTimes(1);
+    expect(getSnapshotEnvelope).toHaveBeenCalledTimes(1);
     expect(await response.json()).toEqual({
       matchId: "match_1",
     });
@@ -848,23 +885,21 @@ describe("handleRequest", () => {
 
   it("resolves public snapshots by slug without loading the full snapshot from the repository", async () => {
     const repo = createRepoMock();
-    const coordinatorFetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify(createViewerSnapshot()), {
-        headers: {
-          "content-type": "application/json",
-          ETag: 'W/"match_public:2026-03-24T04:00:00.000Z:1"',
-        },
-      })
-    );
+    const getSnapshotEnvelope = vi.fn().mockResolvedValue({
+      etag: 'W/"match_public:2026-03-24T04:00:00.000Z:1"',
+      snapshot: createViewerSnapshot(),
+    });
 
     createRepositoryMock.mockReturnValue(repo);
     repo.getMatchIdBySlug.mockResolvedValue("match_public");
     vi.mocked(env.MATCH_COORDINATOR.idFromName).mockReturnValue(
       "durable-id" as unknown as DurableObjectId
     );
-    vi.mocked(env.MATCH_COORDINATOR.get).mockReturnValue({
-      fetch: coordinatorFetch,
-    } as unknown as DurableObjectStub);
+    vi.mocked(env.MATCH_COORDINATOR.get).mockReturnValue(
+      createCoordinatorStub({
+        getSnapshotEnvelope,
+      })
+    );
 
     const response = await handleRequest(
       new Request(
@@ -876,7 +911,8 @@ describe("handleRequest", () => {
     expect(response.status).toBe(200);
     expect(repo.getMatchIdBySlug).toHaveBeenCalledWith("gauntlet-finals");
     expect(repo.getMatchSnapshot).not.toHaveBeenCalled();
-    expect(coordinatorFetch).toHaveBeenCalledTimes(1);
+    expect(getSnapshotEnvelope).toHaveBeenCalledTimes(1);
+    expect(getSnapshotEnvelope).toHaveBeenCalledWith("match_public");
     await expect(response.json()).resolves.toEqual(
       expect.objectContaining({
         matchId: "match_public",
@@ -892,23 +928,21 @@ describe("handleRequest", () => {
 
   it("decodes encoded public match slugs before resolving snapshots", async () => {
     const repo = createRepoMock();
-    const coordinatorFetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify(createViewerSnapshot()), {
-        headers: {
-          "content-type": "application/json",
-          ETag: 'W/"match_public:2026-03-24T04:00:00.000Z:1"',
-        },
-      })
-    );
+    const getSnapshotEnvelope = vi.fn().mockResolvedValue({
+      etag: 'W/"match_public:2026-03-24T04:00:00.000Z:1"',
+      snapshot: createViewerSnapshot(),
+    });
 
     createRepositoryMock.mockReturnValue(repo);
     repo.getMatchIdBySlug.mockResolvedValue("match_public");
     vi.mocked(env.MATCH_COORDINATOR.idFromName).mockReturnValue(
       "durable-id" as unknown as DurableObjectId
     );
-    vi.mocked(env.MATCH_COORDINATOR.get).mockReturnValue({
-      fetch: coordinatorFetch,
-    } as unknown as DurableObjectStub);
+    vi.mocked(env.MATCH_COORDINATOR.get).mockReturnValue(
+      createCoordinatorStub({
+        getSnapshotEnvelope,
+      })
+    );
 
     const response = await handleRequest(
       new Request(
@@ -934,23 +968,21 @@ describe("handleRequest", () => {
 
   it("allows extension origin reads on public snapshot routes without credentials", async () => {
     const repo = createRepoMock();
-    const coordinatorFetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify(createViewerSnapshot()), {
-        headers: {
-          "content-type": "application/json",
-          ETag: 'W/"match_public:2026-03-24T04:00:00.000Z:1"',
-        },
-      })
-    );
+    const getSnapshotEnvelope = vi.fn().mockResolvedValue({
+      etag: 'W/"match_public:2026-03-24T04:00:00.000Z:1"',
+      snapshot: createViewerSnapshot(),
+    });
 
     createRepositoryMock.mockReturnValue(repo);
     repo.getMatchIdBySlug.mockResolvedValue("match_public");
     vi.mocked(env.MATCH_COORDINATOR.idFromName).mockReturnValue(
       "durable-id" as unknown as DurableObjectId
     );
-    vi.mocked(env.MATCH_COORDINATOR.get).mockReturnValue({
-      fetch: coordinatorFetch,
-    } as unknown as DurableObjectStub);
+    vi.mocked(env.MATCH_COORDINATOR.get).mockReturnValue(
+      createCoordinatorStub({
+        getSnapshotEnvelope,
+      })
+    );
 
     const response = await handleRequest(
       new Request(
@@ -969,6 +1001,254 @@ describe("handleRequest", () => {
       env.EXTENSION_ORIGIN
     );
     expect(response.headers.get("Access-Control-Allow-Credentials")).toBeNull();
+  });
+
+  it("returns the broadcast-first public page surface by slug", async () => {
+    const repo = createRepoMock();
+    const snapshot = createViewerSnapshot();
+    const pageSurface = createPublicMatchPageSurface(snapshot);
+    const getSurfaceEnvelope = vi.fn().mockResolvedValue({
+      etag: 'W/"match_public:2026-03-24T04:00:00.000Z:1"',
+      surface: pageSurface,
+    });
+
+    createRepositoryMock.mockReturnValue(repo);
+    repo.getMatchIdBySlug.mockResolvedValue("match_public");
+    vi.mocked(env.MATCH_COORDINATOR.idFromName).mockReturnValue(
+      "durable-id" as unknown as DurableObjectId
+    );
+    vi.mocked(env.MATCH_COORDINATOR.get).mockReturnValue(
+      createCoordinatorStub({
+        getSurfaceEnvelope,
+      })
+    );
+
+    const response = await handleRequest(
+      new Request(
+        "http://localhost:8787/api/public/matches/gauntlet-finals/surface?view=page"
+      ),
+      env
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe(
+      "public, max-age=30, s-maxage=30, stale-while-revalidate=90"
+    );
+    expect(repo.getMatchIdBySlug).toHaveBeenCalledWith("gauntlet-finals");
+    expect(repo.getMatchSnapshot).not.toHaveBeenCalled();
+    expect(getSurfaceEnvelope).toHaveBeenCalledWith("match_public", "page");
+    await expect(response.json()).resolves.toEqual(pageSurface);
+  });
+
+  it("returns the overlay surface with extension-safe cors headers", async () => {
+    const repo = createRepoMock();
+    const snapshot = createViewerSnapshot();
+    const overlaySurface = createPublicMatchOverlaySurface(snapshot);
+    const getSurfaceEnvelope = vi.fn().mockResolvedValue({
+      etag: 'W/"match_public:2026-03-24T04:00:00.000Z:1"',
+      surface: overlaySurface,
+    });
+
+    createRepositoryMock.mockReturnValue(repo);
+    repo.getMatchIdBySlug.mockResolvedValue("match_public");
+    vi.mocked(env.MATCH_COORDINATOR.idFromName).mockReturnValue(
+      "durable-id" as unknown as DurableObjectId
+    );
+    vi.mocked(env.MATCH_COORDINATOR.get).mockReturnValue(
+      createCoordinatorStub({
+        getSurfaceEnvelope,
+      })
+    );
+
+    const response = await handleRequest(
+      new Request(
+        "http://localhost:8787/api/public/matches/gauntlet-finals/surface?view=overlay",
+        {
+          headers: {
+            Origin: env.EXTENSION_ORIGIN,
+          },
+        }
+      ),
+      env
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe(
+      "public, max-age=15, s-maxage=15, stale-while-revalidate=45"
+    );
+    expect(response.headers.get("Access-Control-Allow-Origin")).toBe(
+      env.EXTENSION_ORIGIN
+    );
+    expect(response.headers.get("Access-Control-Allow-Credentials")).toBeNull();
+    expect(getSurfaceEnvelope).toHaveBeenCalledWith("match_public", "overlay");
+    await expect(response.json()).resolves.toEqual(overlaySurface);
+  });
+
+  it("decodes encoded public match slugs on the viewer surface route", async () => {
+    const repo = createRepoMock();
+    const overlaySurface = createPublicMatchOverlaySurface(
+      createViewerSnapshot()
+    );
+    const getSurfaceEnvelope = vi.fn().mockResolvedValue({
+      etag: 'W/"match_public:2026-03-24T04:00:00.000Z:1"',
+      surface: overlaySurface,
+    });
+
+    createRepositoryMock.mockReturnValue(repo);
+    repo.getMatchIdBySlug.mockResolvedValue("match_public");
+    vi.mocked(env.MATCH_COORDINATOR.idFromName).mockReturnValue(
+      "durable-id" as unknown as DurableObjectId
+    );
+    vi.mocked(env.MATCH_COORDINATOR.get).mockReturnValue(
+      createCoordinatorStub({
+        getSurfaceEnvelope,
+      })
+    );
+
+    const response = await handleRequest(
+      new Request(
+        "http://localhost:8787/api/public/matches/grand%20finals/surface?view=overlay"
+      ),
+      env
+    );
+
+    expect(response.status).toBe(200);
+    expect(repo.getMatchIdBySlug).toHaveBeenCalledWith("grand finals");
+  });
+
+  it("returns a 304 for unchanged page surfaces while preserving cache headers", async () => {
+    const repo = createRepoMock();
+    const pageSurface = createPublicMatchPageSurface(createViewerSnapshot());
+    const getSurfaceEnvelope = vi.fn().mockResolvedValue({
+      etag: 'W/"match_public:2026-03-24T04:00:00.000Z:1"',
+      surface: pageSurface,
+    });
+
+    createRepositoryMock.mockReturnValue(repo);
+    repo.getMatchIdBySlug.mockResolvedValue("match_public");
+    vi.mocked(env.MATCH_COORDINATOR.idFromName).mockReturnValue(
+      "durable-id" as unknown as DurableObjectId
+    );
+    vi.mocked(env.MATCH_COORDINATOR.get).mockReturnValue(
+      createCoordinatorStub({
+        getSurfaceEnvelope,
+      })
+    );
+
+    const response = await handleRequest(
+      new Request(
+        "http://localhost:8787/api/public/matches/gauntlet-finals/surface?view=page",
+        {
+          headers: {
+            "If-None-Match": 'W/"match_public:2026-03-24T04:00:00.000Z:1"',
+          },
+        }
+      ),
+      env
+    );
+
+    expect(response.status).toBe(304);
+    expect(response.headers.get("ETag")).toBe(
+      'W/"match_public:2026-03-24T04:00:00.000Z:1"'
+    );
+    expect(response.headers.get("Cache-Control")).toBe(
+      "public, max-age=30, s-maxage=30, stale-while-revalidate=90"
+    );
+  });
+
+  it("serves cached page surfaces without resolving the slug again", async () => {
+    const repo = createRepoMock();
+    const cachedSurface = createPublicMatchPageSurface(createViewerSnapshot());
+    const now = Date.now();
+    const cacheMatch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(cachedSurface), {
+        headers: {
+          "Cache-Control":
+            "public, max-age=30, s-maxage=30, stale-while-revalidate=90",
+          "content-type": "application/json",
+          ETag: 'W/"match_public:2026-03-24T04:00:00.000Z:1"',
+          "x-gg-cache-match-id": "match_public",
+          "x-gg-cache-stored-at": String(now),
+          "x-gg-cache-ttl": "30",
+          "x-gg-cache-stale": "90",
+        },
+      })
+    );
+    const cachePut = vi.fn();
+
+    createRepositoryMock.mockReturnValue(repo);
+    vi.stubGlobal("caches", {
+      default: {
+        match: cacheMatch,
+        put: cachePut,
+      },
+    });
+
+    const response = await handleRequest(
+      new Request(
+        "http://localhost:8787/api/public/matches/gauntlet-finals/surface?view=page"
+      ),
+      env
+    );
+
+    expect(response.status).toBe(200);
+    expect(repo.getMatchIdBySlug).not.toHaveBeenCalled();
+    expect(env.MATCH_COORDINATOR.idFromName).not.toHaveBeenCalled();
+    expect(cachePut).not.toHaveBeenCalled();
+    expect(response.headers.get("Cache-Control")).toBe(
+      "public, max-age=30, s-maxage=30, stale-while-revalidate=90"
+    );
+    await expect(response.json()).resolves.toEqual(cachedSurface);
+  });
+
+  it("returns private no-store headers when minting extension jwt tokens", async () => {
+    const repo = createRepoMock();
+    const cookie = await createSignedSessionCookie("session_1");
+
+    createRepositoryMock.mockReturnValue(repo);
+    repo.getSession.mockResolvedValue(signedInSession());
+
+    const response = await handleRequest(
+      new Request("http://localhost:8787/api/extension/jwt", {
+        method: "POST",
+        headers: {
+          Cookie: cookie,
+          Origin: env.APP_ORIGIN,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          channelId: "1001",
+          role: "external",
+          userId: "2002",
+        }),
+      }),
+      env
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      token: expect.any(String),
+    });
+  });
+
+  it("rejects invalid viewer surface modes", async () => {
+    const repo = createRepoMock();
+
+    createRepositoryMock.mockReturnValue(repo);
+
+    const response = await handleRequest(
+      new Request(
+        "http://localhost:8787/api/public/matches/gauntlet-finals/surface?view=studio"
+      ),
+      env
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "invalid_surface_view",
+    });
   });
 
   it("rejects non-external extension roles when minting EBS tokens", async () => {

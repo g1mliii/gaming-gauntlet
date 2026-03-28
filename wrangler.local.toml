@@ -14,13 +14,12 @@ head_sampling_rate = 0.001
 enabled = false
 
 [vars]
-APP_ORIGIN = "https://app.gaming-gauntlet.com"
+APP_ORIGIN = "http://localhost:5173"
 EXTENSION_ORIGIN = "http://localhost:5174"
 TWITCH_API_BASE = "https://api.twitch.tv/helix"
 TWITCH_CLIENT_ID = "fc5utkuzthjxl2xo28992adi7ymivw"
-TWITCH_REDIRECT_URI = "https://api.gaming-gauntlet.com/api/auth/twitch/callback"
+TWITCH_REDIRECT_URI = "http://localhost:8787/api/auth/twitch/callback"
 TWITCH_SHARED_BOT_LOGIN = "gauntlet_b0t"
-
 
 [[d1_databases]]
 binding = "DB"

@@ -1,26 +1,31 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 
+import type { PublicMatchPageSurface } from "@gaming-gauntlet/contracts";
 import { PageShell, ScoreBug, SuggestionBoard } from "@gaming-gauntlet/ui";
 import "@gaming-gauntlet/ui/styles.css";
 import "./extension.css";
 import { useExtensionSnapshot } from "./live-snapshot";
+import { resolveRequestedMatchKey } from "./video-overlay";
 
-const CONFIG_POLL_INTERVAL_MS = 30_000;
-const searchParams = new URLSearchParams(window.location.search);
-const matchSlug =
-  searchParams.get("slug")?.trim() ?? searchParams.get("matchId")?.trim() ?? null;
+const CONFIG_POLL_INTERVAL_MS = 60_000;
 
 function toFriendlyError(): string {
   return "The extension config preview could not load the live match.";
 }
 
-function ConfigApp() {
-  const { isLoading, pageError, snapshot } = useExtensionSnapshot({
-    snapshotKey: matchSlug,
-    missingSnapshotError:
+export function ConfigApp({
+  matchSlug = resolveRequestedMatchKey(),
+}: {
+  matchSlug?: string | null;
+}) {
+  const { isLoading, pageError, snapshot } =
+    useExtensionSnapshot<PublicMatchPageSurface>({
+    missingPathError:
       "Add ?slug=<match slug> to preview the broadcaster config against a live match.",
-    pathPrefix: "/api/public/matches",
+    path: matchSlug
+      ? `/api/public/matches/${matchSlug}/surface?view=page`
+      : null,
     pollIntervalMs: CONFIG_POLL_INTERVAL_MS,
     stopPollingOnComplete: true,
     toFriendlyError,
@@ -31,7 +36,7 @@ function ConfigApp() {
       <PageShell
         eyebrow="Broadcaster config"
         title="Wire the overlay"
-        deck="This page previews the broadcaster-facing extension surface against the same cheap HTTP snapshot path used by the public overlay."
+        deck="This page previews the broadcaster-facing extension surface against the same cheap HTTP viewer surface used by the public page."
         actions={<span className="gg-chip">Config view</span>}
       >
         <div className="extension-config__grid">
@@ -53,7 +58,7 @@ function ConfigApp() {
             <article>
               <strong>3. Validate extension feed</strong>
               <p>
-                This preview pulls the same cacheable match snapshot the
+                This preview pulls the same cacheable match surface the
                 extension overlay should use in production.
               </p>
             </article>
@@ -71,8 +76,10 @@ function ConfigApp() {
         {snapshot ? (
           <div className="extension-config__board">
             <SuggestionBoard
-              suggestions={snapshot.suggestions}
+              suggestions={snapshot.topBoard}
               title="Current ranked board"
+              trackedCount={snapshot.topBoard.length}
+              emptyLabel="No chat picks are active right now."
             />
           </div>
         ) : null}
@@ -81,8 +88,18 @@ function ConfigApp() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById("config-root")!).render(
-  <React.StrictMode>
-    <ConfigApp />
-  </React.StrictMode>
-);
+export function bootstrapConfig(): void {
+  const root = document.getElementById("config-root");
+
+  if (!root) {
+    return;
+  }
+
+  ReactDOM.createRoot(root).render(
+    <React.StrictMode>
+      <ConfigApp />
+    </React.StrictMode>
+  );
+}
+
+bootstrapConfig();

@@ -1,3 +1,4 @@
+import type { PublicMatchOverlaySurface } from "@gaming-gauntlet/contracts";
 import { QueueList, ScoreBug } from "@gaming-gauntlet/ui";
 import { useEffect } from "react";
 import { useParams } from "react-router-dom";
@@ -21,9 +22,10 @@ function toFriendlyError(error: unknown): string {
 
 export function OverlayPage() {
   const { slug = "" } = useParams();
-  const { pageError, snapshot } = useLiveSnapshot({
+  const { pageError, snapshot } =
+    useLiveSnapshot<PublicMatchOverlaySurface>({
     missingPathError: "No match slug was provided.",
-    path: slug ? `/api/public/matches/${slug}/snapshot` : null,
+    path: slug ? `/api/public/matches/${slug}/surface?view=overlay` : null,
     pollIntervalMs: OVERLAY_POLL_INTERVAL_MS,
     stopPollingOnComplete: true,
     toFriendlyError,
@@ -43,7 +45,14 @@ export function OverlayPage() {
     <div className="overlay-page">
       <div className="overlay-frame">
         {snapshot ? <ScoreBug match={snapshot} transparent /> : null}
-        {snapshot ? <QueueList items={snapshot.queue} title="Next in queue" transparent /> : null}
+        {snapshot ? (
+          <QueueList
+            items={snapshot.upcomingQueue}
+            title="Next in queue"
+            transparent
+            emptyLabel="No games are queued after this round."
+          />
+        ) : null}
         {pageError ? <p className="dashboard-message dashboard-message--warning">{pageError}</p> : null}
       </div>
     </div>

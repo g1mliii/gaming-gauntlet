@@ -3,6 +3,11 @@ import tsconfigPaths from "vite-tsconfig-paths";
 
 export default defineConfig({
   plugins: [tsconfigPaths()],
+  resolve: {
+    alias: {
+      "cloudflare:workers": "/test-support/cloudflare-workers.ts"
+    }
+  },
   test: {
     environment: "jsdom",
     globals: true,

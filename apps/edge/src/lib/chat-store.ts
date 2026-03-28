@@ -73,7 +73,7 @@ export type PersistedSuggestionState = Suggestion & {
 export type LoadedCommandState = {
   snapshot: MatchSnapshot;
   suggestions: PersistedSuggestionState[];
-  viewerVotes: Map<string, string>;
+  viewerVotes: Map<string, string | null>;
   recentMessageIds: Map<string, number>;
 };
 
@@ -135,6 +135,43 @@ async function run(
 export function createChatStore(env: Env) {
   const db = env.DB;
   const repo = createRepository(env);
+
+  async function pruneExpiredQueueReplyCooldowns(): Promise<void> {
+    await run(
+      db,
+      `DELETE FROM queue_reply_cooldowns
+        WHERE expires_at <= ?`,
+      nowIso()
+    );
+  }
+
+  async function takeQueueReplyCooldown(
+    key: string,
+    durationMs: number
+  ): Promise<boolean> {
+    const now = nowIso();
+    const expiresAt = new Date(Date.now() + durationMs).toISOString();
+    const acquired = await first<{ key: string }>(
+      db,
+      `INSERT INTO queue_reply_cooldowns (
+          key,
+          expires_at,
+          updated_at
+        )
+        VALUES (?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET
+          expires_at = excluded.expires_at,
+          updated_at = excluded.updated_at
+        WHERE queue_reply_cooldowns.expires_at <= ?
+        RETURNING key`,
+      key,
+      expiresAt,
+      now,
+      now
+    );
+
+    return acquired !== null;
+  }
 
   async function resolveChatCommandTarget(
     sourceTwitchChannelId: string
@@ -458,6 +495,50 @@ export function createChatStore(env: Env) {
     };
   }
 
+  async function getViewerVoteSuggestionId(
+    matchId: string,
+    viewerId: string
+  ): Promise<string | null> {
+    const row = await first<VoteSelectionRow>(
+      db,
+      `SELECT voter_twitch_id, suggestion_id
+        FROM votes
+        WHERE match_id = ?
+          AND voter_twitch_id = ?
+        LIMIT 1`,
+      matchId,
+      viewerId
+    );
+
+    return row?.suggestion_id ?? null;
+  }
+
+  async function getProcessedCommandMessageExpiry(
+    matchId: string,
+    messageId: string,
+    nowTimestamp = nowIso()
+  ): Promise<number | null> {
+    const row = await first<ProcessedMessageRow>(
+      db,
+      `SELECT message_id, expires_at
+        FROM processed_command_messages
+        WHERE match_id = ?
+          AND message_id = ?
+          AND expires_at > ?
+        LIMIT 1`,
+      matchId,
+      messageId,
+      nowTimestamp
+    );
+
+    if (!row) {
+      return null;
+    }
+
+    const expiresAt = Date.parse(row.expires_at);
+    return Number.isFinite(expiresAt) ? expiresAt : null;
+  }
+
   async function flushCommandState(input: {
     matchId: string;
     boardRevision: number;
@@ -661,13 +742,17 @@ export function createChatStore(env: Env) {
   return {
     deleteEventSubSubscriptions,
     flushCommandState,
+    getProcessedCommandMessageExpiry,
     getEventSubSubscription,
     getSubscriptionPlan,
+    getViewerVoteSuggestionId,
     listEventSubSubscriptions,
     loadCommandState,
     markEventSubSubscriptionStatus,
+    pruneExpiredQueueReplyCooldowns,
     resolveChatCommandTarget,
     resolveChatCommandTargets,
+    takeQueueReplyCooldown,
     upsertEventSubSubscription,
   };
 }

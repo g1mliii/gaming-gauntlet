@@ -1,16 +1,23 @@
-import type { Suggestion } from "@gaming-gauntlet/contracts";
+import type {
+  PublicBoardEntry,
+  Suggestion,
+} from "@gaming-gauntlet/contracts";
 
 type SuggestionBoardProps = {
-  suggestions: Suggestion[];
+  suggestions: Array<Suggestion | PublicBoardEntry>;
   title?: string;
+  trackedCount?: number;
+  emptyLabel?: string;
 };
 
 export function SuggestionBoard({
   suggestions,
   title = "Chat Board",
+  trackedCount,
+  emptyLabel = "No chat suggestions yet.",
 }: SuggestionBoardProps) {
   const boardSuggestions = suggestions.filter(
-    (suggestion) => suggestion.status === "board"
+    (suggestion) => !("status" in suggestion) || suggestion.status === "board"
   );
 
   return (
@@ -20,19 +27,24 @@ export function SuggestionBoard({
           <p className="gg-panel__eyebrow">Live voting</p>
           <h2 className="gg-panel__title">{title}</h2>
         </div>
-        <span className="gg-chip">{boardSuggestions.length} tracked</span>
+        <span className="gg-chip">
+          {(trackedCount ?? boardSuggestions.length).toString()} tracked
+        </span>
       </div>
       {boardSuggestions.length > 0 ? (
         <ol className="gg-board">
           {boardSuggestions.map((suggestion) => (
-            <li key={suggestion.id} className="gg-board__row">
+            <li
+              key={"id" in suggestion ? suggestion.id : suggestion.boardId}
+              className="gg-board__row"
+            >
               <div>
                 <p className="gg-board__title">{suggestion.title}</p>
                 <p className="gg-board__meta">
-                  #{suggestion.boardId}{" "}
-                  {suggestion.sourceChannelId
-                    ? `from channel ${suggestion.sourceChannelId}`
-                    : "viewer submitted"}
+                  #{suggestion.boardId}
+                  {"sourceChannelId" in suggestion && suggestion.sourceChannelId
+                    ? ` from channel ${suggestion.sourceChannelId}`
+                    : ""}
                 </p>
               </div>
               <strong className="gg-board__votes">
@@ -42,7 +54,7 @@ export function SuggestionBoard({
           ))}
         </ol>
       ) : (
-        <p className="gg-empty">No chat suggestions yet.</p>
+        <p className="gg-empty">{emptyLabel}</p>
       )}
     </section>
   );

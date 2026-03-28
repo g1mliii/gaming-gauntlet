@@ -85,6 +85,13 @@ npm run test:e2e
 5. Deploy the worker and Durable Object bindings.
 6. Point the web and extension assets to the deployed edge origins.
 
+## Wrangler Config Split
+
+- `wrangler.toml` is the production/deploy config and should match the live hosted domains.
+- `wrangler.local.toml` is the localhost dev config used by `npm run dev:edge`.
+- Local OAuth callback: `http://localhost:8787/api/auth/twitch/callback`
+- Production OAuth callback: `https://api.gaming-gauntlet.com/api/auth/twitch/callback`
+
 ## Docs
 
 - [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) - phased roadmap and architecture decisions
