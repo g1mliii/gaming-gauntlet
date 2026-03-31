@@ -43,11 +43,17 @@ npm run dev:edge
 Quality gates:
 
 ```bash
+npm run security:deps
 npm run lint
 npm run typecheck
 npm run test
 npm run verify
 ```
+
+Dependency safety:
+
+- `npm run security:deps` fails the build if known-blocked package versions appear in any manifest or in `package-lock.json`.
+- Root `overrides` pin known bad publishes away from compromised versions during install.
 
 Build outputs:
 

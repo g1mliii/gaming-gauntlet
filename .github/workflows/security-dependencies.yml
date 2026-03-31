@@ -1,0 +1,30 @@
+name: Security Dependencies
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  dependency-checks:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check blocked packages
+        run: npm run security:deps
+
+      - name: Audit production and development dependencies
+        run: npm audit --audit-level=high

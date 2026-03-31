@@ -15,12 +15,18 @@
     "dev:edge": "npm run dev --workspace @gaming-gauntlet/edge",
     "build": "npm run build --workspace @gaming-gauntlet/web && npm run build --workspace @gaming-gauntlet/extension && npm run build --workspace @gaming-gauntlet/edge",
     "lint": "eslint . --max-warnings=0",
+    "security:deps": "node ./tasks/check-blocked-packages.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.typecheck.json --pretty false",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "format": "prettier --write .",
-    "verify": "npm run lint && npm run typecheck && npm run test"
+    "verify": "npm run security:deps && npm run lint && npm run typecheck && npm run test"
+  },
+  "overrides": {
+    "axios@1.14.1": "1.14.0",
+    "axios@0.30.4": "0.30.3",
+    "plain-crypto-js@4.2.1": "0.0.1-security.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260317.1",
