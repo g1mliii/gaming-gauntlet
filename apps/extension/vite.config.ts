@@ -29,6 +29,7 @@ function manualChunks(id: string): string | undefined {
 }
 
 export default defineConfig({
+  base: "./",
   plugins: [react(), tsconfigPaths()],
   server: {
     port: 5174,
@@ -42,7 +43,13 @@ export default defineConfig({
         video_overlay: fileURLToPath(
           new URL("./video_overlay.html", import.meta.url)
         ),
+        video_component: fileURLToPath(
+          new URL("./video_component.html", import.meta.url)
+        ),
         config: fileURLToPath(new URL("./config.html", import.meta.url)),
+        live_config: fileURLToPath(
+          new URL("./live_config.html", import.meta.url)
+        ),
       },
     },
   },

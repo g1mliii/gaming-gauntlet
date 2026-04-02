@@ -1,6 +1,8 @@
 import {
+  createPublicMatchComponentSurface,
   createPublicMatchOverlaySurface,
   createPublicMatchPageSurface,
+  publicMatchComponentSurfaceSchema,
   publicMatchOverlaySurfaceSchema,
   publicMatchPageSurfaceSchema,
   publicSurfaceViewSchema,
@@ -9,8 +11,50 @@ import { createDemoMatchSnapshot } from "../lib/demo";
 
 describe("publicSurfaceViewSchema", () => {
   it("accepts the supported viewer surface modes", () => {
+    expect(publicSurfaceViewSchema.parse("component")).toBe("component");
     expect(publicSurfaceViewSchema.parse("page")).toBe("page");
     expect(publicSurfaceViewSchema.parse("overlay")).toBe("overlay");
+  });
+});
+
+describe("createPublicMatchComponentSurface", () => {
+  it("returns a minimal component-safe surface payload", () => {
+    const snapshot = createDemoMatchSnapshot({
+      queue: [
+        {
+          id: "queue_live",
+          order: 0,
+          title: "Mario Kart 8 Deluxe",
+          sourceSuggestionId: "sgg_02",
+          status: "live",
+          winnerPlayerId: null,
+        },
+        {
+          id: "queue_1",
+          order: 1,
+          title: "Rocket League",
+          sourceSuggestionId: null,
+          status: "queued",
+          winnerPlayerId: null,
+        },
+        {
+          id: "queue_2",
+          order: 2,
+          title: "Balatro",
+          sourceSuggestionId: "sgg_01",
+          status: "queued",
+          winnerPlayerId: null,
+        },
+      ],
+      currentGameId: "queue_live",
+    });
+
+    const surface = createPublicMatchComponentSurface(snapshot);
+    const parsed = publicMatchComponentSurfaceSchema.parse(surface);
+
+    expect(parsed.currentGame?.title).toBe("Mario Kart 8 Deluxe");
+    expect(parsed.upcomingQueueCount).toBe(2);
+    expect(parsed).not.toHaveProperty("upcomingQueue");
   });
 });
 

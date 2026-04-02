@@ -8,10 +8,12 @@ export default [
     ignores: [
       "**/dist/**",
       "**/coverage/**",
+      "**/output/**",
       "**/playwright-report/**",
       "**/test-results/**",
       "**/.wrangler/**",
-      "**/node_modules/**"
+      "**/node_modules/**",
+      "**/worker-configuration.d.ts"
     ]
   },
   js.configs.recommended,

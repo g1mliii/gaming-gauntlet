@@ -6,18 +6,13 @@ import {
   useState,
 } from "react";
 
-const EDGE_BASE_URL =
-  import.meta.env.VITE_EDGE_BASE_URL ?? "http://localhost:8787";
+import { buildEdgeUrl } from "./edge";
 const MIN_VISIBILITY_REFRESH_GAP_MS = 5_000;
 const MAX_ERROR_BACKOFF_MS = 60_000;
 
 type LiveSurfaceSnapshot = {
   status: string;
 };
-
-function buildEdgeUrl(path: string): string {
-  return new URL(path, EDGE_BASE_URL).toString();
-}
 
 type ExtensionError = {
   details?: unknown;

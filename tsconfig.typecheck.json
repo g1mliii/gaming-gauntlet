@@ -2,11 +2,14 @@
   "extends": "./tsconfig.base.json",
   "include": [
     "apps/**/*.ts",
+    "apps/**/*.d.ts",
     "apps/**/*.tsx",
     "packages/**/*.ts",
+    "packages/**/*.d.ts",
     "packages/**/*.tsx",
     "tests/**/*.ts",
     "tests/**/*.tsx",
+    "test-support/**/*.ts",
     "vitest.config.ts",
     "playwright.config.ts"
   ],

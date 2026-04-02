@@ -1,4 +1,5 @@
 import {
+  createPublicMatchComponentSurface,
   createPublicMatchOverlaySurface,
   createPublicMatchPageSurface,
   createDemoMatchSnapshot,
@@ -70,11 +71,13 @@ type RepoMock = {
   getMatchIdBySlug: ReturnType<typeof vi.fn>;
   getMatchSnapshot: ReturnType<typeof vi.fn>;
   getMatchSummaryForUser: ReturnType<typeof vi.fn>;
+  getMatchSummaryForTwitchChannelSlug: ReturnType<typeof vi.fn>;
   getRoleForUser: ReturnType<typeof vi.fn>;
   getSession: ReturnType<typeof vi.fn>;
   listAuditLogForUser: ReturnType<typeof vi.fn>;
   listChannelLinksForUser: ReturnType<typeof vi.fn>;
   listMatchesForUser: ReturnType<typeof vi.fn>;
+  listMatchesForTwitchChannelId: ReturnType<typeof vi.fn>;
   removeModerator: ReturnType<typeof vi.fn>;
   updateMatchStatusForUser: ReturnType<typeof vi.fn>;
   upsertIdentity: ReturnType<typeof vi.fn>;
@@ -119,11 +122,13 @@ function createRepoMock(): RepoMock {
     getMatchIdBySlug: vi.fn(),
     getMatchSnapshot: vi.fn(),
     getMatchSummaryForUser: vi.fn(),
+    getMatchSummaryForTwitchChannelSlug: vi.fn(),
     getRoleForUser: vi.fn(),
     getSession: vi.fn(),
     listAuditLogForUser: vi.fn(),
     listChannelLinksForUser: vi.fn(),
     listMatchesForUser: vi.fn(),
+    listMatchesForTwitchChannelId: vi.fn(),
     removeModerator: vi.fn(),
     updateMatchStatusForUser: vi.fn(),
     upsertIdentity: vi.fn(),
@@ -189,6 +194,57 @@ async function createEventSubHeaders(
     "Twitch-Eventsub-Message-Timestamp": timestamp,
     "Twitch-Eventsub-Message-Signature": signature,
   };
+}
+
+async function createExtensionJwt(
+  overrides: Partial<{
+    channel_id: string;
+    opaque_user_id: string;
+    role: "broadcaster" | "moderator" | "viewer" | "external";
+    user_id: string;
+  }> = {}
+): Promise<string> {
+  const secret = Uint8Array.from(atob(env.TWITCH_EXTENSION_SECRET), (char) =>
+    char.charCodeAt(0)
+  );
+  const encode = (value: string): string =>
+    btoa(value).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+  const header = encode(JSON.stringify({ alg: "HS256", typ: "JWT" }));
+  const payload = encode(
+    JSON.stringify({
+      channel_id: overrides.channel_id ?? "1001",
+      exp: Math.floor(Date.now() / 1000) + 300,
+      opaque_user_id: overrides.opaque_user_id ?? "U1001",
+      role: overrides.role ?? "broadcaster",
+      user_id: overrides.user_id ?? "1001",
+    })
+  );
+  const signingInput = `${header}.${payload}`;
+  const key = await crypto.subtle.importKey(
+    "raw",
+    secret,
+    {
+      name: "HMAC",
+      hash: "SHA-256",
+    },
+    false,
+    ["sign"]
+  );
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    new TextEncoder().encode(signingInput)
+  );
+  const encodedSignature = btoa(
+    Array.from(new Uint8Array(signature), (value) =>
+      String.fromCharCode(value)
+    ).join("")
+  )
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+
+  return `${signingInput}.${encodedSignature}`;
 }
 
 function createCoordinatorStub(
@@ -639,6 +695,136 @@ describe("handleRequest", () => {
     });
   });
 
+  it("lists extension matches for the broadcaster channel from the twitch jwt", async () => {
+    const repo = createRepoMock();
+    createRepositoryMock.mockReturnValue(repo);
+    repo.listMatchesForTwitchChannelId.mockResolvedValue([
+      buildMatchSummary({
+        boardRevision: 2,
+        players: [
+          {
+            id: "player_1",
+            displayName: "PixelRiot",
+            channelId: "channel_1",
+            channelLogin: "pixelriot",
+            role: "streamer",
+            wins: 1,
+          },
+          {
+            id: "player_2",
+            displayName: "NovaRune",
+            channelId: "channel_2",
+            channelLogin: "novarune",
+            role: "streamer",
+            wins: 0,
+          },
+        ],
+      }),
+    ]);
+    const token = await createExtensionJwt();
+
+    const response = await handleRequest(
+      new Request("http://localhost:8787/api/extension/matches", {
+        headers: {
+          Origin: env.EXTENSION_ORIGIN,
+          "x-extension-jwt": token,
+        },
+      }),
+      env
+    );
+
+    expect(response.status).toBe(200);
+    expect(repo.listMatchesForTwitchChannelId).toHaveBeenCalledWith("1001");
+    expect(response.headers.get("Access-Control-Allow-Origin")).toBe(
+      env.EXTENSION_ORIGIN
+    );
+    await expect(response.json()).resolves.toEqual({
+      items: [
+        expect.objectContaining({
+          slug: "gauntlet-finals",
+          boardRevision: 2,
+        }),
+      ],
+    });
+  });
+
+  it("returns a channel-scoped extension match by slug", async () => {
+    const repo = createRepoMock();
+    createRepositoryMock.mockReturnValue(repo);
+    repo.getMatchSummaryForTwitchChannelSlug.mockResolvedValue(
+      buildMatchSummary({
+        players: [
+          {
+            id: "player_1",
+            displayName: "PixelRiot",
+            channelId: "channel_1",
+            channelLogin: "pixelriot",
+            role: "streamer",
+            wins: 1,
+          },
+          {
+            id: "player_2",
+            displayName: "NovaRune",
+            channelId: "channel_2",
+            channelLogin: "novarune",
+            role: "streamer",
+            wins: 1,
+          },
+        ],
+      })
+    );
+    const token = await createExtensionJwt();
+
+    const response = await handleRequest(
+      new Request(
+        "http://localhost:8787/api/extension/matches/gauntlet-finals",
+        {
+          headers: {
+            Origin: env.EXTENSION_ORIGIN,
+            "x-extension-jwt": token,
+          },
+        }
+      ),
+      env
+    );
+
+    expect(response.status).toBe(200);
+    expect(repo.getMatchSummaryForTwitchChannelSlug).toHaveBeenCalledWith(
+      "1001",
+      "gauntlet-finals"
+    );
+    await expect(response.json()).resolves.toEqual({
+      item: expect.objectContaining({
+        slug: "gauntlet-finals",
+      }),
+    });
+  });
+
+  it("rejects extension config routes for viewer roles", async () => {
+    const repo = createRepoMock();
+    createRepositoryMock.mockReturnValue(repo);
+    const token = await createExtensionJwt({ role: "viewer" });
+
+    const response = await handleRequest(
+      new Request("http://localhost:8787/api/extension/matches", {
+        headers: {
+          Origin: env.EXTENSION_ORIGIN,
+          "x-extension-jwt": token,
+        },
+      }),
+      env
+    );
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      error: "extension_role_not_allowed",
+      details: {
+        allowedRoles: ["broadcaster"],
+        role: "viewer",
+      },
+    });
+  });
+
   it("creates matches for authorized roles", async () => {
     const repo = createRepoMock();
     createRepositoryMock.mockReturnValue(repo);
@@ -1082,6 +1268,49 @@ describe("handleRequest", () => {
     expect(response.headers.get("Access-Control-Allow-Credentials")).toBeNull();
     expect(getSurfaceEnvelope).toHaveBeenCalledWith("match_public", "overlay");
     await expect(response.json()).resolves.toEqual(overlaySurface);
+  });
+
+  it("returns the smaller component surface with overlay cache headers", async () => {
+    const repo = createRepoMock();
+    const snapshot = createViewerSnapshot();
+    const componentSurface = createPublicMatchComponentSurface(snapshot);
+    const getSurfaceEnvelope = vi.fn().mockResolvedValue({
+      etag: 'W/"match_public:2026-03-24T04:00:00.000Z:1"',
+      surface: componentSurface,
+    });
+
+    createRepositoryMock.mockReturnValue(repo);
+    repo.getMatchIdBySlug.mockResolvedValue("match_public");
+    vi.mocked(env.MATCH_COORDINATOR.idFromName).mockReturnValue(
+      "durable-id" as unknown as DurableObjectId
+    );
+    vi.mocked(env.MATCH_COORDINATOR.get).mockReturnValue(
+      createCoordinatorStub({
+        getSurfaceEnvelope,
+      })
+    );
+
+    const response = await handleRequest(
+      new Request(
+        "http://localhost:8787/api/public/matches/gauntlet-finals/surface?view=component",
+        {
+          headers: {
+            Origin: env.EXTENSION_ORIGIN,
+          },
+        }
+      ),
+      env
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe(
+      "public, max-age=15, s-maxage=15, stale-while-revalidate=45"
+    );
+    expect(response.headers.get("Access-Control-Allow-Origin")).toBe(
+      env.EXTENSION_ORIGIN
+    );
+    expect(getSurfaceEnvelope).toHaveBeenCalledWith("match_public", "component");
+    await expect(response.json()).resolves.toEqual(componentSurface);
   });
 
   it("decodes encoded public match slugs on the viewer surface route", async () => {

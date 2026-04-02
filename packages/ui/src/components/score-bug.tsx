@@ -1,16 +1,25 @@
 import type {
   MatchSnapshot,
+  PublicMatchComponentSurface,
   PublicMatchOverlaySurface,
   PublicMatchPageSurface,
 } from "@gaming-gauntlet/contracts";
 
 type ScoreBugProps = {
-  match: MatchSnapshot | PublicMatchOverlaySurface | PublicMatchPageSurface;
+  match:
+    | MatchSnapshot
+    | PublicMatchComponentSurface
+    | PublicMatchOverlaySurface
+    | PublicMatchPageSurface;
   transparent?: boolean;
 };
 
 function getCurrentGameTitle(
-  match: MatchSnapshot | PublicMatchOverlaySurface | PublicMatchPageSurface
+  match:
+    | MatchSnapshot
+    | PublicMatchComponentSurface
+    | PublicMatchOverlaySurface
+    | PublicMatchPageSurface
 ): string {
   if ("currentGame" in match) {
     return match.currentGame?.title ?? "Waiting for next pick";

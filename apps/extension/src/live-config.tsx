@@ -5,12 +5,12 @@ import "@gaming-gauntlet/ui/styles.css";
 import "./extension.css";
 import { ExtensionConfigPage } from "./config-page";
 
-export function ConfigApp() {
-  return <ExtensionConfigPage surface="config" />;
+export function LiveConfigApp() {
+  return <ExtensionConfigPage surface="live_config" />;
 }
 
-export function bootstrapConfig(): void {
-  const root = document.getElementById("config-root");
+export function bootstrapLiveConfig(): void {
+  const root = document.getElementById("live-config-root");
 
   if (!root) {
     return;
@@ -18,9 +18,9 @@ export function bootstrapConfig(): void {
 
   ReactDOM.createRoot(root).render(
     <React.StrictMode>
-      <ConfigApp />
+      <LiveConfigApp />
     </React.StrictMode>
   );
 }
 
-bootstrapConfig();
+bootstrapLiveConfig();

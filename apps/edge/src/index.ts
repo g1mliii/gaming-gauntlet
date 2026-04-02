@@ -1,6 +1,8 @@
 import {
   type MatchSnapshot,
   type MatchSummary,
+  type ExtensionMatchSummary,
+  type TwitchExtensionAuthContext,
   type ChatCommandQueueMessage,
   type EdgeQueueMessage,
   type AuthChannel,
@@ -17,11 +19,12 @@ import {
   matchControlActionSchema,
   parseChatCommand,
   publicSurfaceViewSchema,
+  twitchExtensionRoleSchema,
   type ChatCommand,
   type PublicSurfaceView,
   updateMatchStatusRequestSchema,
 } from "@gaming-gauntlet/contracts";
-import { CompactSign } from "jose";
+import { CompactSign, jwtVerify } from "jose";
 
 import type { Env } from "./env";
 import {
@@ -100,6 +103,8 @@ type RoutedChatCommand = QueuedChatCommand & {
 
 const VIEWER_SNAPSHOT_CACHE_TTL_SECONDS = 10;
 const VIEWER_SNAPSHOT_STALE_SECONDS = 30;
+const PUBLIC_MATCH_COMPONENT_CACHE_TTL_SECONDS = 15;
+const PUBLIC_MATCH_COMPONENT_STALE_SECONDS = 45;
 const PUBLIC_MATCH_PAGE_CACHE_TTL_SECONDS = 30;
 const PUBLIC_MATCH_PAGE_STALE_SECONDS = 90;
 const PUBLIC_MATCH_OVERLAY_CACHE_TTL_SECONDS = 15;
@@ -202,6 +207,99 @@ function buildViewerCacheControl(
   staleSeconds: number
 ): string {
   return `public, max-age=${cacheTtlSeconds}, s-maxage=${cacheTtlSeconds}, stale-while-revalidate=${staleSeconds}`;
+}
+
+function toExtensionMatchSummary(match: MatchSummary): ExtensionMatchSummary {
+  return {
+    id: match.id,
+    slug: match.slug,
+    title: match.title,
+    status: match.status,
+    boardRevision: match.boardRevision,
+    subscriptionHealth: match.subscriptionHealth,
+    targetWins: match.targetWins,
+    players: match.players.map((player) => ({
+      id: player.id,
+      displayName: player.displayName,
+      wins: player.wins,
+    })),
+    updatedAt: match.updatedAt,
+  };
+}
+
+async function requireTwitchExtensionAuth(
+  request: Request,
+  env: Env
+): Promise<TwitchExtensionAuthContext> {
+  if (!env.TWITCH_EXTENSION_SECRET) {
+    throw new AppError(503, "extension_secret_not_configured");
+  }
+
+  const token = request.headers.get("x-extension-jwt");
+
+  if (!token) {
+    throw new AppError(401, "extension_auth_required");
+  }
+
+  const secret = decodeExtensionSecret(env.TWITCH_EXTENSION_SECRET);
+  let verified;
+
+  try {
+    verified = await jwtVerify(token, secret, {
+      algorithms: ["HS256"],
+    });
+  } catch {
+    throw new AppError(401, "invalid_extension_jwt");
+  }
+  const role = twitchExtensionRoleSchema.safeParse(verified.payload.role);
+
+  if (!role.success) {
+    throw new AppError(401, "invalid_extension_jwt");
+  }
+
+  const channelId =
+    typeof verified.payload.channel_id === "string"
+      ? verified.payload.channel_id
+      : null;
+  const clientId =
+    typeof verified.payload.client_id === "string"
+      ? verified.payload.client_id
+      : env.TWITCH_CLIENT_ID;
+
+  if (!channelId || !clientId) {
+    throw new AppError(401, "invalid_extension_jwt");
+  }
+
+  const opaqueUserId =
+    typeof verified.payload.opaque_user_id === "string"
+      ? verified.payload.opaque_user_id
+      : null;
+  const userId =
+    typeof verified.payload.user_id === "string"
+      ? verified.payload.user_id
+      : null;
+
+  return {
+    channelId,
+    clientId,
+    token,
+    helixToken: null,
+    opaqueUserId,
+    role: role.data,
+    userId,
+  };
+}
+
+function assertTwitchExtensionRole(
+  auth: TwitchExtensionAuthContext,
+  allowedRoles: TwitchExtensionAuthContext["role"][]
+): void {
+  if (!allowedRoles.includes(auth.role)) {
+    throw new AppError(403, "extension_role_not_allowed", {
+      allowedRoles,
+      role: auth.role,
+    });
+  }
 }
 
 type ViewerProjectionCacheContext = {
@@ -388,6 +486,7 @@ async function tryRespondFromViewerProjectionCache(
       }),
       {
         allowCredentials: false,
+        allowHostedTwitchExtensions: true,
         allowedOrigins: cacheContext.allowedViewerOrigins,
       }
     );
@@ -395,6 +494,7 @@ async function tryRespondFromViewerProjectionCache(
 
   return withCors(request, env, cachedResponse, {
     allowCredentials: false,
+    allowHostedTwitchExtensions: true,
     allowedOrigins: cacheContext.allowedViewerOrigins,
   });
 }
@@ -555,6 +655,7 @@ async function fetchViewerProjectionResponse<T>(
       }),
       {
         allowCredentials: false,
+        allowHostedTwitchExtensions: true,
         allowedOrigins: allowedViewerOrigins,
       }
     );
@@ -562,6 +663,7 @@ async function fetchViewerProjectionResponse<T>(
 
   return withCors(request, env, viewerResponse, {
     allowCredentials: false,
+    allowHostedTwitchExtensions: true,
     allowedOrigins: allowedViewerOrigins,
   });
 }
@@ -1966,6 +2068,93 @@ export async function handleRequest(
       );
     }
 
+    if (url.pathname === "/api/extension/matches") {
+      if (request.method !== "GET") {
+        return withCors(request, env, methodNotAllowed(["GET"]), {
+          allowCredentials: false,
+          allowHostedTwitchExtensions: true,
+          allowedOrigins: [env.EXTENSION_ORIGIN],
+        });
+      }
+
+      const auth = await requireTwitchExtensionAuth(request, env);
+      assertTwitchExtensionRole(auth, ["broadcaster"]);
+      const matches = await repo.listMatchesForTwitchChannelId(auth.channelId);
+
+      return withCors(
+        request,
+        env,
+        json({
+          items: matches.map(toExtensionMatchSummary),
+        }),
+        {
+          allowCredentials: false,
+          allowHostedTwitchExtensions: true,
+          allowedOrigins: [env.EXTENSION_ORIGIN],
+        }
+      );
+    }
+
+    if (url.pathname.startsWith("/api/extension/matches/")) {
+      if (request.method !== "GET") {
+        return withCors(request, env, methodNotAllowed(["GET"]), {
+          allowCredentials: false,
+          allowHostedTwitchExtensions: true,
+          allowedOrigins: [env.EXTENSION_ORIGIN],
+        });
+      }
+
+      let slug: string;
+
+      try {
+        slug = decodeURIComponent(url.pathname.split("/")[4] ?? "");
+      } catch {
+        return withCors(
+          request,
+          env,
+          json({ error: "match_not_found" }, { status: 404 }),
+          {
+            allowCredentials: false,
+            allowHostedTwitchExtensions: true,
+            allowedOrigins: [env.EXTENSION_ORIGIN],
+          }
+        );
+      }
+
+      const auth = await requireTwitchExtensionAuth(request, env);
+      assertTwitchExtensionRole(auth, ["broadcaster"]);
+      const match = await repo.getMatchSummaryForTwitchChannelSlug(
+        auth.channelId,
+        slug
+      );
+
+      if (!match) {
+        return withCors(
+          request,
+          env,
+          json({ error: "match_not_found" }, { status: 404 }),
+          {
+            allowCredentials: false,
+            allowHostedTwitchExtensions: true,
+            allowedOrigins: [env.EXTENSION_ORIGIN],
+          }
+        );
+      }
+
+      return withCors(
+        request,
+        env,
+        json({
+          item: toExtensionMatchSummary(match),
+        }),
+        {
+          allowCredentials: false,
+          allowHostedTwitchExtensions: true,
+          allowedOrigins: [env.EXTENSION_ORIGIN],
+        }
+      );
+    }
+
     if (url.pathname.startsWith("/ws/control/matches/")) {
       assertAppOrigin(request, env);
       const matchId = url.pathname.split("/").at(-1);
@@ -2076,6 +2265,11 @@ export async function handleRequest(
               cacheTtlSeconds: PUBLIC_MATCH_PAGE_CACHE_TTL_SECONDS,
               staleSeconds: PUBLIC_MATCH_PAGE_STALE_SECONDS,
             }
+          : parsedView.data === "component"
+            ? {
+                cacheTtlSeconds: PUBLIC_MATCH_COMPONENT_CACHE_TTL_SECONDS,
+                staleSeconds: PUBLIC_MATCH_COMPONENT_STALE_SECONDS,
+              }
           : {
               cacheTtlSeconds: PUBLIC_MATCH_OVERLAY_CACHE_TTL_SECONDS,
               staleSeconds: PUBLIC_MATCH_OVERLAY_STALE_SECONDS,

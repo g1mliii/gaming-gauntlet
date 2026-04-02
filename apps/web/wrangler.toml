@@ -1,6 +1,6 @@
 name = "gaming-gauntlet-frontend"
 compatibility_date = "2026-03-27"
-workers_dev = true
+workers_dev = false
 
 [assets]
 directory = "./dist"

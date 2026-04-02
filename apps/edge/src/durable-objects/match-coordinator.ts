@@ -1,5 +1,6 @@
 import {
   applyMatchControlAction,
+  createPublicMatchComponentSurface,
   createPublicMatchOverlaySurface,
   createPublicMatchPageSurface,
   createCanonicalGameKey,
@@ -12,6 +13,7 @@ import {
   type MatchControlAction,
   type MatchSnapshot,
   type MatchSummary,
+  type PublicMatchComponentSurface,
   type PublicMatchOverlaySurface,
   type PublicMatchPageSurface,
   type PublicSurfaceView,
@@ -90,7 +92,10 @@ export type SnapshotEnvelope = {
 
 export type SurfaceEnvelope = {
   etag: string;
-  surface: PublicMatchOverlaySurface | PublicMatchPageSurface;
+  surface:
+    | PublicMatchComponentSurface
+    | PublicMatchOverlaySurface
+    | PublicMatchPageSurface;
 };
 
 function nowIso(): string {
@@ -429,7 +434,9 @@ export class MatchCoordinator extends DurableObject<Env> {
       surface:
         view === "page"
           ? createPublicMatchPageSurface(snapshot)
-          : createPublicMatchOverlaySurface(snapshot),
+          : view === "component"
+            ? createPublicMatchComponentSurface(snapshot)
+            : createPublicMatchOverlaySurface(snapshot),
     };
   }
 

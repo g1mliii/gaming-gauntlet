@@ -6,14 +6,18 @@ import { QueueList, ScoreBug } from "@gaming-gauntlet/ui";
 import "@gaming-gauntlet/ui/styles.css";
 import "./extension.css";
 import { useExtensionSnapshot } from "./live-snapshot";
+import { useTwitchExtensionState } from "./twitch";
 
-const OVERLAY_POLL_INTERVAL_MS = 15_000;
+const BASE_OVERLAY_POLL_INTERVAL_MS = 30_000;
+const HIGHLIGHTED_OVERLAY_POLL_INTERVAL_MS = 15_000;
 
 function toFriendlyError(): string {
   return "The extension overlay feed is offline right now.";
 }
 
-export function resolveRequestedMatchKey(search = window.location.search): string | null {
+export function resolveRequestedMatchKey(
+  search = window.location.search
+): string | null {
   const searchParams = new URLSearchParams(search);
   return (
     searchParams.get("slug")?.trim() ??
@@ -22,25 +26,38 @@ export function resolveRequestedMatchKey(search = window.location.search): strin
   );
 }
 
-export function VideoOverlayApp({
-  matchSlug = resolveRequestedMatchKey(),
-}: {
-  matchSlug?: string | null;
-}) {
+export function VideoOverlayApp() {
+  const runtime = useTwitchExtensionState();
+  const matchSlug =
+    runtime.broadcasterConfig?.matchSlug ?? runtime.query.slugFallback;
+  const pollIntervalMs =
+    runtime.isVisible && !runtime.context?.isPaused
+      ? runtime.isHighlighted
+        ? HIGHLIGHTED_OVERLAY_POLL_INTERVAL_MS
+        : BASE_OVERLAY_POLL_INTERVAL_MS
+      : null;
   const { isLoading, pageError, snapshot } =
     useExtensionSnapshot<PublicMatchOverlaySurface>({
-    missingPathError:
-      "Add ?slug=<match slug> to the extension overlay URL to load a live match.",
-    path: matchSlug
-      ? `/api/public/matches/${matchSlug}/surface?view=overlay`
-      : null,
-    pollIntervalMs: OVERLAY_POLL_INTERVAL_MS,
-    stopPollingOnComplete: true,
-    toFriendlyError,
-  });
+      missingPathError:
+        "Save a broadcaster config or add ?slug=<match slug> to preview the overlay.",
+      path: matchSlug
+        ? `/api/public/matches/${matchSlug}/surface?view=overlay`
+        : null,
+      pollIntervalMs,
+      stopPollingOnComplete: true,
+      toFriendlyError,
+    });
+
+  if (!runtime.isVisible) {
+    return null;
+  }
 
   return (
-    <main className="extension-root extension-root--overlay">
+    <main
+      className={`extension-root extension-root--overlay${
+        runtime.isHighlighted ? " extension-root--highlighted" : ""
+      }`}
+    >
       {snapshot ? <ScoreBug match={snapshot} transparent /> : null}
       {snapshot ? (
         <QueueList
@@ -52,7 +69,8 @@ export function VideoOverlayApp({
       ) : null}
       {!snapshot ? (
         <p className="dashboard-message dashboard-message--warning">
-          {pageError ??
+          {runtime.pageError ??
+            pageError ??
             (isLoading ? "Loading live overlay…" : "Overlay unavailable.")}
         </p>
       ) : null}

@@ -9,6 +9,8 @@
     "packages/*"
   ],
   "scripts": {
+    "cf:types": "npm run cf:types --workspace @gaming-gauntlet/edge",
+    "cf:types:check": "npm run cf:types:check --workspace @gaming-gauntlet/edge",
     "dev": "concurrently -n web,extension,edge -c magenta,cyan,yellow \"npm:dev:web\" \"npm:dev:extension\" \"npm:dev:edge\"",
     "dev:web": "npm run dev --workspace @gaming-gauntlet/web",
     "dev:extension": "npm run dev --workspace @gaming-gauntlet/extension",
@@ -21,7 +23,7 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "format": "prettier --write .",
-    "verify": "npm run security:deps && npm run lint && npm run typecheck && npm run test"
+    "verify": "npm run security:deps && npm run lint && npm run cf:types:check && npm run typecheck && npm run test"
   },
   "overrides": {
     "axios@1.14.1": "1.14.0",

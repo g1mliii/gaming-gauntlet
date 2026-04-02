@@ -15,6 +15,9 @@ export const LOCAL_DEV_ORIGINS = [
   "http://127.0.0.1:5174",
 ];
 
+const TWITCH_HOSTED_EXTENSION_HOST_SUFFIX = ".ext-twitch.tv";
+const TWITCH_EXTENSION_FILES_HOST = "extension-files.twitch.tv";
+
 function isLoopbackHost(hostname: string): boolean {
   return (
     hostname === "localhost" ||
@@ -43,15 +46,46 @@ export function getTrustedLocalDevOrigins(env: Env): string[] {
     : [];
 }
 
+export function isHostedTwitchExtensionOrigin(origin: string | null): boolean {
+  if (!origin) {
+    return false;
+  }
+
+  try {
+    const { hostname, protocol } = new URL(origin);
+
+    if (protocol !== "https:") {
+      return false;
+    }
+
+    return (
+      hostname === TWITCH_EXTENSION_FILES_HOST ||
+      hostname.endsWith(TWITCH_HOSTED_EXTENSION_HOST_SUFFIX)
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function isAllowedOrigin(
   origin: string | null,
-  allowedOrigins: Iterable<string>
+  allowedOrigins: Iterable<string>,
+  options?: {
+    allowHostedTwitchExtensions?: boolean;
+  }
 ): boolean {
   if (!origin) {
     return false;
   }
 
-  return new Set(allowedOrigins).has(origin);
+  if (new Set(allowedOrigins).has(origin)) {
+    return true;
+  }
+
+  return (
+    options?.allowHostedTwitchExtensions === true &&
+    isHostedTwitchExtensionOrigin(origin)
+  );
 }
 
 function appendSecurityHeaders(headers: Headers): Headers {
@@ -215,6 +249,7 @@ export function withCors(
   response: Response,
   options?: {
     allowCredentials?: boolean;
+    allowHostedTwitchExtensions?: boolean;
     allowedOrigins?: string[];
   }
 ): Response {
@@ -224,7 +259,11 @@ export function withCors(
     ...getTrustedLocalDevOrigins(env),
   ];
 
-  if (!isAllowedOrigin(origin, allowedOrigins)) {
+  if (
+    !isAllowedOrigin(origin, allowedOrigins, {
+      allowHostedTwitchExtensions: options?.allowHostedTwitchExtensions,
+    })
+  ) {
     return response;
   }
 
@@ -253,13 +292,21 @@ export function withCors(
 
 export function corsPreflight(request: Request, env: Env): Response {
   const origin = request.headers.get("Origin");
+  const url = new URL(request.url);
   const allowedOrigins = [
     env.APP_ORIGIN,
     env.EXTENSION_ORIGIN,
     ...getTrustedLocalDevOrigins(env),
   ];
+  const allowHostedTwitchExtensions =
+    url.pathname.startsWith("/api/extension/") ||
+    url.pathname.startsWith("/api/public/");
 
-  if (!isAllowedOrigin(origin, allowedOrigins)) {
+  if (
+    !isAllowedOrigin(origin, allowedOrigins, {
+      allowHostedTwitchExtensions,
+    })
+  ) {
     return new Response(null, { status: 403 });
   }
 
@@ -274,7 +321,7 @@ export function corsPreflight(request: Request, env: Env): Response {
     headers: createHeaders({
       "Access-Control-Allow-Origin": resolvedOrigin,
       "Access-Control-Allow-Credentials": "true",
-      "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Allow-Headers": "Content-Type, x-extension-jwt",
       "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
       Vary: "Origin",
     }),

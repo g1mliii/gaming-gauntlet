@@ -6,7 +6,7 @@ import {
   queueStatusSchema,
 } from "./match";
 
-export const publicSurfaceViewSchema = z.enum(["page", "overlay"]);
+export const publicSurfaceViewSchema = z.enum(["component", "page", "overlay"]);
 
 export const publicMatchPlayerSchema = z.object({
   id: z.string().min(1),
@@ -41,6 +41,14 @@ export const publicMatchOverlaySurfaceSchema = z.object({
   upcomingQueue: z.array(publicQueuePreviewItemSchema),
 });
 
+export const publicMatchComponentSurfaceSchema = publicMatchOverlaySurfaceSchema
+  .omit({
+    upcomingQueue: true,
+  })
+  .extend({
+    upcomingQueueCount: z.number().int().nonnegative(),
+  });
+
 export const publicMatchPageSurfaceSchema =
   publicMatchOverlaySurfaceSchema.extend({
     boardRevision: z.number().int().nonnegative(),
@@ -50,6 +58,9 @@ export const publicMatchPageSurfaceSchema =
 
 export type PublicBoardEntry = z.infer<typeof publicBoardEntrySchema>;
 export type PublicCurrentGame = z.infer<typeof publicCurrentGameSchema>;
+export type PublicMatchComponentSurface = z.infer<
+  typeof publicMatchComponentSurfaceSchema
+>;
 export type PublicMatchOverlaySurface = z.infer<
   typeof publicMatchOverlaySurfaceSchema
 >;
@@ -96,6 +107,10 @@ function getUpcomingQueue(
     }));
 }
 
+function getUpcomingQueueCount(snapshot: MatchSnapshot): number {
+  return snapshot.queue.filter((entry) => entry.status === "queued").length;
+}
+
 function getTopBoard(
   snapshot: MatchSnapshot,
   boardLimit = DEFAULT_TOP_BOARD_LIMIT
@@ -133,6 +148,21 @@ export function createPublicMatchOverlaySurface(
   };
 }
 
+export function createPublicMatchComponentSurface(
+  snapshot: MatchSnapshot
+): PublicMatchComponentSurface {
+  return {
+    slug: snapshot.slug,
+    title: snapshot.title,
+    status: snapshot.status,
+    updatedAt: snapshot.updatedAt,
+    targetWins: snapshot.targetWins,
+    players: toPublicPlayers(snapshot),
+    currentGame: getCurrentGame(snapshot),
+    upcomingQueueCount: getUpcomingQueueCount(snapshot),
+  };
+}
+
 export function createPublicMatchPageSurface(
   snapshot: MatchSnapshot,
   options?: {
@@ -146,7 +176,6 @@ export function createPublicMatchPageSurface(
     }),
     boardRevision: snapshot.boardRevision,
     topBoard: getTopBoard(snapshot, options?.boardLimit),
-    remainingQueueCount: snapshot.queue.filter((entry) => entry.status === "queued")
-      .length,
+    remainingQueueCount: getUpcomingQueueCount(snapshot),
   };
 }

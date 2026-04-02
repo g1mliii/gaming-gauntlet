@@ -1725,6 +1725,61 @@ export function createRepository(env: Env) {
     return [...grouped.values()];
   }
 
+  async function listMatchesForTwitchChannelId(
+    twitchChannelId: string
+  ): Promise<MatchSummary[]> {
+    const rows = await all<{ id: string }>(
+      db,
+      `SELECT DISTINCT match.id
+        FROM matches match
+        JOIN channel_links link ON link.id = match.channel_link_id
+        JOIN channels owner_channel ON owner_channel.id = link.owner_channel_id
+        LEFT JOIN channels linked_channel ON linked_channel.id = link.linked_channel_id
+        WHERE owner_channel.twitch_channel_id = ?
+           OR linked_channel.twitch_channel_id = ?
+        ORDER BY match.updated_at DESC`,
+      twitchChannelId,
+      twitchChannelId
+    );
+
+    const summaries = await Promise.all(
+      rows.map((row) => getMatchSummaryById(row.id))
+    );
+
+    return summaries.filter((summary): summary is MatchSummary =>
+      Boolean(summary)
+    );
+  }
+
+  async function getMatchSummaryForTwitchChannelSlug(
+    twitchChannelId: string,
+    slug: string
+  ): Promise<MatchSummary | null> {
+    const row = await first<{ id: string }>(
+      db,
+      `SELECT match.id
+        FROM matches match
+        JOIN channel_links link ON link.id = match.channel_link_id
+        JOIN channels owner_channel ON owner_channel.id = link.owner_channel_id
+        LEFT JOIN channels linked_channel ON linked_channel.id = link.linked_channel_id
+        WHERE match.slug = ?
+          AND (
+            owner_channel.twitch_channel_id = ?
+            OR linked_channel.twitch_channel_id = ?
+          )
+        LIMIT 1`,
+      slug,
+      twitchChannelId,
+      twitchChannelId
+    );
+
+    if (!row) {
+      return null;
+    }
+
+    return getMatchSummaryById(row.id);
+  }
+
   async function getAccessibleMatchForUser(
     userId: string,
     matchId: string
@@ -2311,11 +2366,13 @@ export function createRepository(env: Env) {
     getMatchSnapshot,
     getMatchSnapshotBySlug,
     getMatchSummaryForUser,
+    getMatchSummaryForTwitchChannelSlug,
     getRoleForUser,
     getSession,
     listAuditLogForUser,
     listChannelLinksForUser,
     listMatchesForUser,
+    listMatchesForTwitchChannelId,
     removeModerator,
     autoCompleteInactiveMatch,
     updateMatchStatusForUser,

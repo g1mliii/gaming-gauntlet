@@ -1,11 +1,12 @@
 import "@testing-library/jest-dom/vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import {
-  createDemoMatchSnapshot,
   createPublicMatchOverlaySurface,
+  createDemoMatchSnapshot,
 } from "@gaming-gauntlet/contracts";
 
 import { VideoOverlayApp } from "./video-overlay";
+import { installTwitchHelperMock } from "./twitch.test-support";
 
 function jsonResponse(payload: unknown, init?: ResponseInit): Response {
   return new Response(JSON.stringify(payload), {
@@ -27,20 +28,26 @@ describe("VideoOverlayApp", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", fetchMock);
     fetchMock.mockReset();
+    window.__GG_TWITCH_RUNTIME__ = undefined;
+    window.history.replaceState({}, "", "/video_overlay.html");
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
   });
 
-  it("renders the cheap overlay surface contract", async () => {
+  it("renders the cheap overlay surface contract from broadcaster config", async () => {
     const surface = createPublicMatchOverlaySurface(
       createDemoMatchSnapshot({ slug: "gauntlet-finals" })
     );
+    const twitch = installTwitchHelperMock();
 
     fetchMock.mockImplementation(async () => jsonResponse(surface));
 
-    render(<VideoOverlayApp matchSlug="gauntlet-finals" />);
+    render(<VideoOverlayApp />);
+    act(() => {
+      twitch.authorize();
+    });
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
@@ -52,7 +59,31 @@ describe("VideoOverlayApp", () => {
     });
   });
 
+  it("falls back to query-string preview outside twitch helper", async () => {
+    const surface = createPublicMatchOverlaySurface(
+      createDemoMatchSnapshot({ slug: "query-preview" })
+    );
+    window.history.replaceState(
+      {},
+      "",
+      "/video_overlay.html?slug=query-preview"
+    );
+    fetchMock.mockImplementation(async () => jsonResponse(surface));
+
+    render(<VideoOverlayApp />);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "/api/public/matches/query-preview/surface?view=overlay"
+        ),
+        expect.any(Object)
+      );
+    });
+  });
+
   it("shows the overlay unavailable state on request failure", async () => {
+    const twitch = installTwitchHelperMock();
     fetchMock.mockImplementation(async () =>
       jsonResponse(
         {
@@ -64,7 +95,10 @@ describe("VideoOverlayApp", () => {
       )
     );
 
-    render(<VideoOverlayApp matchSlug="gauntlet-finals" />);
+    render(<VideoOverlayApp />);
+    act(() => {
+      twitch.authorize();
+    });
 
     await waitFor(() => {
       expect(

@@ -87,9 +87,68 @@ npm run test:e2e
 1. `npx wrangler whoami`
 2. Create the D1 database and update `wrangler.toml`.
 3. Create the event ingest queue.
-4. Set Worker secrets for `TWITCH_CLIENT_SECRET`, `TWITCH_EVENTSUB_SECRET`, `SESSION_SECRET`, `TOKEN_ENCRYPTION_KEY`, and `TWITCH_EXTENSION_SECRET` as needed.
-5. Deploy the worker and Durable Object bindings.
-6. Point the web and extension assets to the deployed edge origins.
+4. Set Worker secrets for `TWITCH_CLIENT_SECRET`, `TWITCH_EVENTSUB_SECRET`, `SESSION_SECRET`, `TOKEN_ENCRYPTION_KEY`, and `TWITCH_EXTENSION_SECRET`.
+5. Optional shared-bot secrets for the same environment: `TWITCH_BOT_ACCESS_TOKEN` and `TWITCH_BOT_REFRESH_TOKEN`.
+6. Deploy the worker and Durable Object bindings.
+7. Point the web and extension assets to the deployed edge origins.
+
+Required Wrangler secret commands:
+
+```bash
+npx wrangler secret put TWITCH_CLIENT_SECRET --config wrangler.toml
+npx wrangler secret put TWITCH_EVENTSUB_SECRET --config wrangler.toml
+npx wrangler secret put SESSION_SECRET --config wrangler.toml
+npx wrangler secret put TOKEN_ENCRYPTION_KEY --config wrangler.toml
+npx wrangler secret put TWITCH_EXTENSION_SECRET --config wrangler.toml
+```
+
+Optional shared-bot secrets:
+
+```bash
+npx wrangler secret put TWITCH_BOT_ACCESS_TOKEN --config wrangler.toml
+npx wrangler secret put TWITCH_BOT_REFRESH_TOKEN --config wrangler.toml
+```
+
+Local dev secrets go in `.dev.vars` for `wrangler.local.toml`.
+
+## Twitch Extension Local Test
+
+Local Test settings should match the current extension build outputs:
+
+- Root URI / Testing Base URI: `http://localhost:5174/`
+- Video - Fullscreen Viewer Path: `video_overlay.html`
+- Video - Component Viewer Path: `video_component.html`
+- Config Path: `config.html`
+- Live Config Path: `live_config.html`
+- Configuration source: `Extension Configuration Service`
+
+Recommended type scope:
+
+- Enable `Video - Fullscreen`
+- Enable `Video - Component`
+- Disable `Panel`
+- Disable `Mobile`
+
+Recommended `connect-src` allowlist entries:
+
+- `http://localhost:8787`
+- `https://api.gaming-gauntlet.com`
+- `https://gaming-gauntlet-edge.pressplay-subai.workers.dev`
+
+Local test flow:
+
+1. Run `npm run dev:extension`
+2. Run `npm run dev:edge`
+3. Open the extension in Twitch Local Test
+4. Use `config.html` to save the broadcaster match slug
+5. Verify `live_config.html`, `video_overlay.html`, and `video_component.html`
+
+Hosted test flow after local verification:
+
+1. Run `npm run build --workspace @gaming-gauntlet/extension`
+2. Upload the generated `apps/extension/dist` assets in the Twitch `Files` tab
+3. Switch the version from Local Test to Hosted Test
+4. Update non-local URIs only after Hosted Test is confirmed
 
 ## Wrangler Config Split
 

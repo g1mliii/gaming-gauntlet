@@ -19,11 +19,11 @@ describe("withCors", () => {
   const productionEnv = {
     APP_ORIGIN: "https://app.example.com",
     EXTENSION_ORIGIN: "https://extension.example.com",
-  } as Env;
+  } as unknown as Env;
   const localEnv = {
     APP_ORIGIN: "http://localhost:5173",
     EXTENSION_ORIGIN: "http://localhost:5174",
-  } as Env;
+  } as unknown as Env;
 
   it("exposes ETag to the configured app origin", () => {
     const response = withCors(
@@ -80,17 +80,50 @@ describe("withCors", () => {
       "http://localhost:5173"
     );
   });
+
+  it("allows hosted Twitch extension origins in production", () => {
+    const response = withCors(
+      new Request("https://edge.example.com/api/extension/matches", {
+        headers: {
+          Origin: "https://abc123.ext-twitch.tv",
+        },
+      }),
+      productionEnv,
+      new Response("ok"),
+      {
+        allowHostedTwitchExtensions: true,
+      }
+    );
+
+    expect(response.headers.get("Access-Control-Allow-Origin")).toBe(
+      "https://abc123.ext-twitch.tv"
+    );
+  });
+
+  it("rejects hosted Twitch extension origins unless explicitly allowed", () => {
+    const response = withCors(
+      new Request("https://edge.example.com/api/matches", {
+        headers: {
+          Origin: "https://abc123.ext-twitch.tv",
+        },
+      }),
+      productionEnv,
+      new Response("ok")
+    );
+
+    expect(response.headers.get("Access-Control-Allow-Origin")).toBeNull();
+  });
 });
 
 describe("corsPreflight", () => {
   const productionEnv = {
     APP_ORIGIN: "https://app.example.com",
     EXTENSION_ORIGIN: "https://extension.example.com",
-  } as Env;
+  } as unknown as Env;
   const localEnv = {
     APP_ORIGIN: "http://localhost:5173",
     EXTENSION_ORIGIN: "http://localhost:5174",
-  } as Env;
+  } as unknown as Env;
 
   it("rejects localhost extension preflight requests in production", () => {
     const response = corsPreflight(
@@ -121,5 +154,36 @@ describe("corsPreflight", () => {
     expect(response.headers.get("Access-Control-Allow-Origin")).toBe(
       "http://localhost:5174"
     );
+  });
+
+  it("allows hosted Twitch extension preflight requests in production", () => {
+    const response = corsPreflight(
+      new Request("https://edge.example.com/api/extension/matches", {
+        method: "OPTIONS",
+        headers: {
+          Origin: "https://abc123.ext-twitch.tv",
+        },
+      }),
+      productionEnv
+    );
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get("Access-Control-Allow-Origin")).toBe(
+      "https://abc123.ext-twitch.tv"
+    );
+  });
+
+  it("rejects hosted Twitch extension preflight requests on app-only routes", () => {
+    const response = corsPreflight(
+      new Request("https://edge.example.com/api/matches", {
+        method: "OPTIONS",
+        headers: {
+          Origin: "https://abc123.ext-twitch.tv",
+        },
+      }),
+      productionEnv
+    );
+
+    expect(response.status).toBe(403);
   });
 });

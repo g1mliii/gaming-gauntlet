@@ -1,6 +1,7 @@
 export * from "./domain/auth";
 export * from "./domain/audit";
 export * from "./domain/chat";
+export * from "./domain/extension";
 export * from "./domain/games";
 export * from "./domain/match";
 export * from "./domain/public-surface";
