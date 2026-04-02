@@ -12,6 +12,63 @@ import { useOperatorSnapshot } from "../lib/operator-snapshot";
 
 const AUTO_COMPLETE_LIVE_HOURS = 3;
 const AUTO_COMPLETE_PAUSED_MINUTES = 15;
+const QUEUE_WHEEL_STATUS_DEFAULT =
+  "Draw the next round from the queue or fall back to the top seed.";
+
+type QueueWheelState = {
+  open: boolean;
+  phase: "idle" | "spinning" | "result";
+  highlightedQueueItemId: string | null;
+  selectedQueueItemId: string | null;
+  selectedTitle: string | null;
+  statusText: string;
+};
+
+type QueueWheelSpinFrame = {
+  item: MatchSnapshot["queue"][number];
+  delayMs: number;
+};
+
+function prefersReducedMotion(): boolean {
+  if (
+    typeof window === "undefined" ||
+    typeof window.matchMedia !== "function"
+  ) {
+    return false;
+  }
+
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function getQueuedItems(
+  snapshot: MatchSnapshot | null
+): MatchSnapshot["queue"] {
+  return snapshot?.queue.filter((entry) => entry.status === "queued") ?? [];
+}
+
+function createQueueWheelSpinPlan(
+  items: MatchSnapshot["queue"],
+  selectedIndex: number
+): QueueWheelSpinFrame[] {
+  if (items.length === 0) {
+    return [];
+  }
+
+  const fullCycles = Math.max(2, Math.min(4, Math.ceil(9 / items.length)));
+  const totalSteps = fullCycles * items.length + selectedIndex + 1;
+
+  return Array.from({ length: totalSteps }, (_, index) => ({
+    item: items[index % items.length]!,
+    delayMs:
+      index < totalSteps - 3
+        ? 80
+        : index === totalSteps - 3
+          ? 120
+          : index === totalSteps - 2
+            ? 170
+            : 230,
+  }));
+}
 
 function toFriendlyError(error: unknown): string {
   if (error instanceof TypeError) {
@@ -182,6 +239,14 @@ export function ControlRoomPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [manualTitle, setManualTitle] = useState("");
+  const [queueWheel, setQueueWheel] = useState<QueueWheelState>({
+    open: false,
+    phase: "idle",
+    highlightedQueueItemId: null,
+    selectedQueueItemId: null,
+    selectedTitle: null,
+    statusText: QUEUE_WHEEL_STATUS_DEFAULT,
+  });
   const { isLoading, pageError, replaceSnapshot, snapshot } =
     useOperatorSnapshot({
       matchId: matchId || null,
@@ -189,14 +254,51 @@ export function ControlRoomPage() {
       toFriendlyError,
     });
   const latestSnapshotRef = useRef<MatchSnapshot | null>(null);
+  const queueWheelTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     latestSnapshotRef.current = snapshot;
   }, [snapshot]);
 
+  useEffect(() => {
+    return () => {
+      if (queueWheelTimerRef.current !== null) {
+        window.clearTimeout(queueWheelTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (queueWheel.phase !== "spinning") {
+      return;
+    }
+
+    if (!snapshot || snapshot.currentGameId || snapshot.status === "complete") {
+      clearQueueWheelTimer();
+      setQueueWheel((current) =>
+        current.phase !== "spinning"
+          ? current
+          : {
+              ...current,
+              phase: "result",
+              statusText: snapshot?.currentGameId
+                ? "Wheel stopped because a round is already live."
+                : "Wheel stopped because the match state changed.",
+            }
+      );
+    }
+  }, [queueWheel.phase, snapshot]);
+
   function commitSnapshot(nextSnapshot: MatchSnapshot) {
     latestSnapshotRef.current = nextSnapshot;
     replaceSnapshot(nextSnapshot);
+  }
+
+  function clearQueueWheelTimer() {
+    if (queueWheelTimerRef.current !== null) {
+      window.clearTimeout(queueWheelTimerRef.current);
+      queueWheelTimerRef.current = null;
+    }
   }
 
   const boardSuggestions =
@@ -209,18 +311,16 @@ export function ControlRoomPage() {
   const playerById = new Map(
     snapshot?.players.map((player) => [player.id, player.displayName]) ?? []
   );
+  const queuedItems = getQueuedItems(snapshot);
   const queuedPositionById = new Map(
-    snapshot?.queue
-      .filter((entry) => entry.status === "queued")
-      .map((entry, index) => [entry.id, index]) ?? []
+    queuedItems.map((entry, index) => [entry.id, index])
   );
   const hasLiveRound = Boolean(snapshot?.currentGameId);
-  const hasQueuedItems = Boolean(
-    snapshot?.queue.some((entry) => entry.status === "queued")
-  );
+  const hasQueuedItems = queuedItems.length > 0;
   const lifecycleAction = snapshot ? getLifecycleAction(snapshot.status) : null;
   const controlsLocked = snapshot?.status === "complete";
-  const mutationDisabled = Boolean(busyAction) || controlsLocked;
+  const mutationDisabled =
+    Boolean(busyAction) || controlsLocked || queueWheel.phase === "spinning";
 
   async function handleStatusChange(status: MatchSummary["status"]) {
     if (!matchId || !latestSnapshotRef.current) {
@@ -271,11 +371,106 @@ export function ControlRoomPage() {
       if (action.type === "add_manual_queue_item") {
         setManualTitle("");
       }
+      if (action.type === "start_selected_round") {
+        setQueueWheel((current) => ({
+          ...current,
+          open: true,
+          phase: "result",
+          highlightedQueueItemId: action.queueItemId,
+          selectedQueueItemId: action.queueItemId,
+          statusText: current.selectedTitle
+            ? `Wheel landed on ${current.selectedTitle}. Round is live.`
+            : "Wheel draw locked in the next round.",
+        }));
+      }
     } catch (error) {
       setActionError(toFriendlyError(error));
+      if (action.type === "start_selected_round") {
+        setQueueWheel((current) => ({
+          ...current,
+          open: true,
+          phase: "result",
+          statusText: current.selectedTitle
+            ? `Wheel landed on ${current.selectedTitle}, but the round could not start.`
+            : "The wheel draw could not start the round.",
+        }));
+      }
     } finally {
       setBusyAction(null);
     }
+  }
+
+  function handleQueueWheelSpin() {
+    if (!snapshot || hasLiveRound || queuedItems.length === 0) {
+      return;
+    }
+
+    clearQueueWheelTimer();
+
+    const selectedIndex = Math.floor(Math.random() * queuedItems.length);
+    const selectedItem = queuedItems[selectedIndex];
+
+    if (!selectedItem) {
+      return;
+    }
+
+    const finishSpin = () => {
+      setQueueWheel({
+        open: true,
+        phase: "result",
+        highlightedQueueItemId: selectedItem.id,
+        selectedQueueItemId: selectedItem.id,
+        selectedTitle: selectedItem.title,
+        statusText: `Wheel landed on ${selectedItem.title}. Starting round...`,
+      });
+      void handleControlAction({
+        type: "start_selected_round",
+        queueItemId: selectedItem.id,
+      });
+    };
+
+    if (prefersReducedMotion()) {
+      finishSpin();
+      return;
+    }
+
+    const spinPlan = createQueueWheelSpinPlan(queuedItems, selectedIndex);
+
+    if (spinPlan.length === 0) {
+      finishSpin();
+      return;
+    }
+
+    let frameIndex = 0;
+    setQueueWheel({
+      open: true,
+      phase: "spinning",
+      highlightedQueueItemId: spinPlan[0]?.item.id ?? selectedItem.id,
+      selectedQueueItemId: selectedItem.id,
+      selectedTitle: selectedItem.title,
+      statusText: "Wheel is drawing the next round...",
+    });
+
+    const step = () => {
+      const frame = spinPlan[frameIndex];
+
+      if (!frame) {
+        queueWheelTimerRef.current = null;
+        finishSpin();
+        return;
+      }
+
+      setQueueWheel((current) => ({
+        ...current,
+        open: true,
+        phase: "spinning",
+        highlightedQueueItemId: frame.item.id,
+      }));
+      frameIndex += 1;
+      queueWheelTimerRef.current = window.setTimeout(step, frame.delayMs);
+    };
+
+    step();
   }
 
   if (!snapshot && isLoading) {
@@ -529,6 +724,10 @@ export function ControlRoomPage() {
             <div>
               <p className="control-room__label">Queue</p>
               <h2 className="control-room__title">Run rounds from one list</h2>
+              <p className="control-room__status-copy">
+                Shuffle the full queue, launch the top seed, or let the wheel
+                draw the next round for you.
+              </p>
             </div>
             <div className="control-room__actions">
               <button
@@ -544,6 +743,16 @@ export function ControlRoomPage() {
                 Randomize upcoming
               </button>
               <button
+                className="dashboard-button dashboard-button--ghost control-room__wheel-button"
+                type="button"
+                disabled={mutationDisabled || hasLiveRound || !hasQueuedItems}
+                onClick={() => {
+                  handleQueueWheelSpin();
+                }}
+              >
+                Spin wheel round
+              </button>
+              <button
                 className="dashboard-button"
                 type="button"
                 disabled={mutationDisabled || hasLiveRound || !hasQueuedItems}
@@ -557,6 +766,50 @@ export function ControlRoomPage() {
               </button>
             </div>
           </div>
+
+          {queueWheel.open ? (
+            <section className="control-room__wheel-panel" aria-live="polite">
+              <div
+                className={`control-room__wheel-stage control-room__wheel-stage--${queueWheel.phase}`}
+              >
+                <div
+                  className="control-room__wheel-pointer"
+                  aria-hidden="true"
+                />
+                <div className="control-room__wheel-ring" aria-hidden="true" />
+                <div className="control-room__wheel-core">
+                  <p className="control-room__label">Round wheel</p>
+                  <strong>
+                    {queuedItems.find(
+                      (entry) => entry.id === queueWheel.highlightedQueueItemId
+                    )?.title ??
+                      queueWheel.selectedTitle ??
+                      "Spin to draw"}
+                  </strong>
+                  <p className="control-room__status-copy">
+                    {queueWheel.statusText}
+                  </p>
+                </div>
+              </div>
+              <div className="control-room__wheel-slots">
+                {queuedItems.map((entry) => {
+                  const isHighlighted =
+                    entry.id === queueWheel.highlightedQueueItemId;
+                  const isSelected =
+                    entry.id === queueWheel.selectedQueueItemId;
+
+                  return (
+                    <span
+                      key={entry.id}
+                      className={`gg-chip control-room__wheel-slot ${isHighlighted ? "control-room__wheel-slot--active" : "gg-chip--soft"} ${isSelected ? "control-room__wheel-slot--selected" : ""}`}
+                    >
+                      {entry.title}
+                    </span>
+                  );
+                })}
+              </div>
+            </section>
+          ) : null}
 
           <form
             className="control-room__composer"

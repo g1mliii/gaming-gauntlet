@@ -35,6 +35,7 @@ type SessionRow = {
   session_id: string;
   expires_at: string;
   last_seen_at: string;
+  shared_bot_connected: number;
   user_id: string;
   twitch_user_id: string;
   user_login: string;
@@ -59,6 +60,9 @@ type LinkRow = {
   pair_key: string | null;
   created_at: string;
   updated_at: string;
+  owner_authorized?: number;
+  linked_authorized?: number;
+  subscription_health?: MatchSummary["subscriptionHealth"] | null;
   invited_channel_login: string | null;
   owner_channel_id: string;
   linked_channel_id: string | null;
@@ -103,6 +107,7 @@ type MatchRow = {
   slug: string;
   title: string;
   status: "draft" | "live" | "paused" | "complete";
+  subscription_health?: MatchSummary["subscriptionHealth"] | null;
   board_revision: number;
   chat_enabled_until: string | null;
   target_wins: number | null;
@@ -132,11 +137,6 @@ type AuditLogRow = {
   invited_channel_login: string | null;
 };
 
-type ChannelScopesRow = {
-  channel_id: string;
-  scopes_json: string;
-};
-
 type SubscriptionStatusRow = {
   channel_link_id: string;
   status: string;
@@ -153,6 +153,10 @@ type MatchMetaRow = {
   target_wins: number | null;
   created_at: string;
   updated_at: string;
+};
+
+type PrunableMatchRow = {
+  id: string;
 };
 
 type MatchAccessRow = MatchMetaRow & {
@@ -317,10 +321,6 @@ function parseJsonArray(value: string): string[] {
   }
 }
 
-function hasScope(scopes: string[] | undefined, scope: string): boolean {
-  return Boolean(scopes?.includes(scope));
-}
-
 function deriveSubscriptionHealth(
   statuses: string[]
 ): MatchSummary["subscriptionHealth"] {
@@ -396,6 +396,33 @@ function deriveChatIntegrationStatus(input: {
   }
 
   return "idle";
+}
+
+const SUBSCRIPTION_HEALTH_SUBQUERY = `SELECT
+    channel_link_id,
+    CASE
+      WHEN SUM(CASE WHEN status LIKE '%revoked%' THEN 1 ELSE 0 END) > 0 THEN 'revoked'
+      WHEN SUM(CASE WHEN status LIKE '%fail%' OR status = 'repairing' THEN 1 ELSE 0 END) > 0 THEN 'repairing'
+      WHEN SUM(CASE WHEN status LIKE '%pending%' THEN 1 ELSE 0 END) > 0 THEN 'repairing'
+      WHEN COUNT(*) > 0
+        AND SUM(CASE WHEN status = 'enabled' THEN 1 ELSE 0 END) = COUNT(*) THEN 'ready'
+      ELSE 'error'
+    END AS subscription_health
+  FROM eventsub_subscriptions
+  GROUP BY channel_link_id`;
+
+function resolveSubscriptionHealth(
+  value: string | null | undefined
+): MatchSummary["subscriptionHealth"] {
+  switch (value) {
+    case "ready":
+    case "repairing":
+    case "revoked":
+    case "error":
+      return value;
+    default:
+      return "idle";
+  }
 }
 
 export function createRepository(env: Env) {
@@ -532,12 +559,29 @@ export function createRepository(env: Env) {
       touchLastSeen?: boolean;
     }
   ): Promise<AuthSession | null> {
+    const includeSharedBotConnected =
+      options?.includeSharedBotConnected ?? false;
+    const configuredSharedBotLogin = env.TWITCH_SHARED_BOT_LOGIN
+      ? normalizeLogin(env.TWITCH_SHARED_BOT_LOGIN)
+      : null;
     const row = await first<SessionRow>(
       db,
       `SELECT
           s.id AS session_id,
           s.expires_at,
           s.last_seen_at,
+          ${
+            includeSharedBotConnected
+              ? `EXISTS(
+            SELECT 1
+            FROM twitch_tokens token
+            JOIN users bot_user ON bot_user.id = token.subject_user_id
+            WHERE token.scopes_json LIKE '%"user:bot"%'
+              AND (? IS NULL OR bot_user.login = ?)
+            LIMIT 1
+          )`
+              : "0"
+          } AS shared_bot_connected,
           u.id AS user_id,
           u.twitch_user_id,
           u.login AS user_login,
@@ -553,6 +597,9 @@ export function createRepository(env: Env) {
           AND s.expires_at > ?
         ORDER BY c.created_at ASC
         LIMIT 1`,
+      ...(includeSharedBotConnected
+        ? [configuredSharedBotLogin, configuredSharedBotLogin]
+        : []),
       sessionId,
       nowIso()
     );
@@ -565,11 +612,16 @@ export function createRepository(env: Env) {
       (options?.touchLastSeen ?? true) &&
       shouldTouchSessionLastSeen(row.last_seen_at)
     ) {
+      const nextLastSeenAt = nowIso();
       await run(
         db,
-        `UPDATE sessions SET last_seen_at = ? WHERE id = ?`,
-        nowIso(),
-        sessionId
+        `UPDATE sessions
+          SET last_seen_at = ?
+          WHERE id = ?
+            AND (last_seen_at IS NULL OR last_seen_at = ?)`,
+        nextLastSeenAt,
+        sessionId,
+        row.last_seen_at
       );
     }
 
@@ -581,9 +633,7 @@ export function createRepository(env: Env) {
         login: row.user_login,
         displayName: row.user_display_name,
       },
-      sharedBotConnected: options?.includeSharedBotConnected
-        ? (await findSharedBotIdentity()) !== null
-        : false,
+      sharedBotConnected: Boolean(row.shared_bot_connected),
       ownedChannel:
         row.channel_id &&
         row.twitch_channel_id &&
@@ -671,43 +721,6 @@ export function createRepository(env: Env) {
       accessToken: refreshed.access_token,
       scopes: nextScopes,
     };
-  }
-
-  async function getChannelScopes(
-    channelIds: string[]
-  ): Promise<Map<string, string[]>> {
-    if (channelIds.length === 0) {
-      return new Map();
-    }
-
-    const placeholders = channelIds.map(() => "?").join(", ");
-    const rows = await all<ChannelScopesRow>(
-      db,
-      `SELECT channel_id, scopes_json
-        FROM twitch_tokens
-        WHERE channel_id IN (${placeholders})`,
-      ...channelIds
-    );
-
-    const scopesByChannelId = new Map<string, Set<string>>();
-
-    for (const row of rows) {
-      const existing =
-        scopesByChannelId.get(row.channel_id) ?? new Set<string>();
-
-      for (const scope of parseJsonArray(row.scopes_json)) {
-        existing.add(scope);
-      }
-
-      scopesByChannelId.set(row.channel_id, existing);
-    }
-
-    return new Map(
-      [...scopesByChannelId.entries()].map(([channelId, scopes]) => [
-        channelId,
-        [...scopes],
-      ])
-    );
   }
 
   async function getSubscriptionHealthByChannelLinkIds(
@@ -1034,6 +1047,19 @@ export function createRepository(env: Env) {
           cl.pair_key,
           cl.created_at,
           cl.updated_at,
+          EXISTS(
+            SELECT 1
+            FROM twitch_tokens token
+            WHERE token.channel_id = cl.owner_channel_id
+              AND token.scopes_json LIKE '%"channel:bot"%'
+          ) AS owner_authorized,
+          EXISTS(
+            SELECT 1
+            FROM twitch_tokens token
+            WHERE token.channel_id = cl.linked_channel_id
+              AND token.scopes_json LIKE '%"channel:bot"%'
+          ) AS linked_authorized,
+          COALESCE(subscription.subscription_health, 'idle') AS subscription_health,
           cl.invited_channel_login,
           cl.owner_channel_id,
           cl.linked_channel_id,
@@ -1047,6 +1073,8 @@ export function createRepository(env: Env) {
         JOIN channel_link_memberships membership ON membership.channel_link_id = cl.id
         JOIN channels owner_channel ON owner_channel.id = cl.owner_channel_id
         LEFT JOIN channels linked_channel ON linked_channel.id = cl.linked_channel_id
+        LEFT JOIN (${SUBSCRIPTION_HEALTH_SUBQUERY}) subscription
+          ON subscription.channel_link_id = cl.id
         WHERE membership.user_id = ?
         ORDER BY cl.updated_at DESC`,
       userId
@@ -1087,17 +1115,6 @@ export function createRepository(env: Env) {
         WHERE channel_link_id IN (${placeholders})`,
       ...linkIds
     );
-    const scopesByChannelId = await getChannelScopes([
-      ...new Set(
-        links.flatMap((row) =>
-          [row.owner_channel_id, row.linked_channel_id].filter(
-            (value): value is string => Boolean(value)
-          )
-        )
-      ),
-    ]);
-    const subscriptionHealthByLinkId =
-      await getSubscriptionHealthByChannelLinkIds(linkIds);
 
     const membershipsByLink = groupByLinkId(memberships);
     const inviteByLink = new Map(
@@ -1108,6 +1125,11 @@ export function createRepository(env: Env) {
       links.map(async (row) => {
         const linkMemberships = membershipsByLink.get(row.id) ?? [];
         const invite = inviteByLink.get(row.id);
+        const ownerAuthorized = Boolean(row.owner_authorized);
+        const linkedAuthorized = Boolean(row.linked_authorized);
+        const subscriptionHealth = resolveSubscriptionHealth(
+          row.subscription_health
+        );
         const canInspectPendingInvite =
           invite &&
           invite.claimed_at === null &&
@@ -1176,32 +1198,13 @@ export function createRepository(env: Env) {
                 }
               : null,
           chatIntegration: {
-            ownerAuthorized: hasScope(
-              scopesByChannelId.get(row.owner_channel_id),
-              "channel:bot"
-            ),
-            linkedAuthorized:
-              row.linked_channel_id !== null
-                ? hasScope(
-                    scopesByChannelId.get(row.linked_channel_id),
-                    "channel:bot"
-                  )
-                : false,
+            ownerAuthorized,
+            linkedAuthorized,
             status: deriveChatIntegrationStatus({
               linkedChannelId: row.linked_channel_id,
-              ownerAuthorized: hasScope(
-                scopesByChannelId.get(row.owner_channel_id),
-                "channel:bot"
-              ),
-              linkedAuthorized:
-                row.linked_channel_id !== null
-                  ? hasScope(
-                      scopesByChannelId.get(row.linked_channel_id),
-                      "channel:bot"
-                    )
-                  : false,
-              subscriptionHealth:
-                subscriptionHealthByLinkId.get(row.id) ?? "idle",
+              ownerAuthorized,
+              linkedAuthorized,
+              subscriptionHealth,
             }),
           },
         } satisfies ChannelLinkSummary;
@@ -1645,7 +1648,18 @@ export function createRepository(env: Env) {
     };
   }
 
-  async function listMatchesForUser(userId: string): Promise<MatchSummary[]> {
+  async function listMatchesForUser(
+    userId: string,
+    options?: {
+      excludeCompletedOlderThanMs?: number;
+    }
+  ): Promise<MatchSummary[]> {
+    const completedCutoff =
+      typeof options?.excludeCompletedOlderThanMs === "number"
+        ? new Date(
+            Date.now() - Math.max(options.excludeCompletedOlderThanMs, 0)
+          ).toISOString()
+        : null;
     const rows = await all<MatchRow>(
       db,
       `SELECT
@@ -1654,6 +1668,7 @@ export function createRepository(env: Env) {
           match.slug,
           match.title,
           match.status,
+          COALESCE(subscription.subscription_health, 'idle') AS subscription_health,
           match.board_revision,
           match.chat_enabled_until,
           match.target_wins,
@@ -1667,16 +1682,21 @@ export function createRepository(env: Env) {
           channel.display_name AS channel_display_name
         FROM matches match
         JOIN channel_link_memberships membership ON membership.channel_link_id = match.channel_link_id
+        LEFT JOIN (${SUBSCRIPTION_HEALTH_SUBQUERY}) subscription
+          ON subscription.channel_link_id = match.channel_link_id
         JOIN match_participants participant ON participant.match_id = match.id
         JOIN channels channel ON channel.id = participant.channel_id
         WHERE membership.user_id = ?
+          AND (
+            ? IS NULL
+            OR match.status != 'complete'
+            OR match.updated_at > ?
+          )
         ORDER BY match.updated_at DESC, participant.created_at ASC`,
-      userId
+      userId,
+      completedCutoff,
+      completedCutoff
     );
-    const subscriptionHealthByLinkId =
-      await getSubscriptionHealthByChannelLinkIds([
-        ...new Set(rows.map((row) => row.channel_link_id)),
-      ]);
 
     const grouped = new Map<string, MatchSummary>();
 
@@ -1704,8 +1724,7 @@ export function createRepository(env: Env) {
         chatState: deriveChatState(row.status, row.chat_enabled_until),
         chatEnabledUntil: row.chat_enabled_until,
         boardRevision: row.board_revision,
-        subscriptionHealth:
-          subscriptionHealthByLinkId.get(row.channel_link_id) ?? "idle",
+        subscriptionHealth: resolveSubscriptionHealth(row.subscription_health),
         targetWins: row.target_wins,
         players: [
           {
@@ -1725,6 +1744,98 @@ export function createRepository(env: Env) {
     return [...grouped.values()];
   }
 
+  async function listPrunableCompletedMatches(options?: {
+    olderThanMs?: number;
+    limit?: number;
+  }): Promise<string[]> {
+    const olderThanMs = options?.olderThanMs ?? 7 * 24 * 60 * 60 * 1000;
+    const limit = Math.max(1, options?.limit ?? 25);
+    const cutoff = new Date(
+      Date.now() - Math.max(olderThanMs, 0)
+    ).toISOString();
+    const rows = await all<PrunableMatchRow>(
+      db,
+      `SELECT id
+        FROM matches
+        WHERE status = 'complete'
+          AND updated_at <= ?
+        ORDER BY updated_at ASC
+        LIMIT ?`,
+      cutoff,
+      limit
+    );
+
+    return rows.map((row) => row.id);
+  }
+
+  async function deleteMatchesByIds(matchIds: string[]): Promise<number> {
+    if (matchIds.length === 0) {
+      return 0;
+    }
+
+    const placeholders = matchIds.map(() => "?").join(", ");
+    const bindings = [...matchIds];
+
+    await db.batch([
+      db
+        .prepare(
+          `DELETE FROM results
+            WHERE match_id IN (${placeholders})`
+        )
+        .bind(...bindings),
+      db
+        .prepare(
+          `DELETE FROM votes
+            WHERE match_id IN (${placeholders})`
+        )
+        .bind(...bindings),
+      db
+        .prepare(
+          `DELETE FROM queue_entries
+            WHERE match_id IN (${placeholders})`
+        )
+        .bind(...bindings),
+      db
+        .prepare(
+          `DELETE FROM processed_command_messages
+            WHERE match_id IN (${placeholders})`
+        )
+        .bind(...bindings),
+      db
+        .prepare(
+          `DELETE FROM channel_chat_targets
+            WHERE match_id IN (${placeholders})`
+        )
+        .bind(...bindings),
+      db
+        .prepare(
+          `DELETE FROM suggestions
+            WHERE match_id IN (${placeholders})`
+        )
+        .bind(...bindings),
+      db
+        .prepare(
+          `DELETE FROM match_participants
+            WHERE match_id IN (${placeholders})`
+        )
+        .bind(...bindings),
+      db
+        .prepare(
+          `DELETE FROM audit_log
+            WHERE match_id IN (${placeholders})`
+        )
+        .bind(...bindings),
+      db
+        .prepare(
+          `DELETE FROM matches
+            WHERE id IN (${placeholders})`
+        )
+        .bind(...bindings),
+    ]);
+
+    return matchIds.length;
+  }
+
   async function listMatchesForTwitchChannelId(
     twitchChannelId: string
   ): Promise<MatchSummary[]> {
@@ -1741,14 +1852,13 @@ export function createRepository(env: Env) {
       twitchChannelId,
       twitchChannelId
     );
-
-    const summaries = await Promise.all(
-      rows.map((row) => getMatchSummaryById(row.id))
+    const summariesById = await getMatchSummariesByIds(
+      rows.map((row) => row.id)
     );
 
-    return summaries.filter((summary): summary is MatchSummary =>
-      Boolean(summary)
-    );
+    return rows
+      .map((row) => summariesById.get(row.id) ?? null)
+      .filter((summary): summary is MatchSummary => Boolean(summary));
   }
 
   async function getMatchSummaryForTwitchChannelSlug(
@@ -1777,7 +1887,7 @@ export function createRepository(env: Env) {
       return null;
     }
 
-    return getMatchSummaryById(row.id);
+    return (await getMatchSummariesByIds([row.id])).get(row.id) ?? null;
   }
 
   async function getAccessibleMatchForUser(
@@ -1792,6 +1902,7 @@ export function createRepository(env: Env) {
           match.slug,
           match.title,
           match.status,
+          COALESCE(subscription.subscription_health, 'idle') AS subscription_health,
           match.board_revision,
           match.chat_enabled_until,
           match.target_wins,
@@ -1822,36 +1933,24 @@ export function createRepository(env: Env) {
       return null;
     }
 
-    return getMatchSummaryById(matchId);
+    return (await getMatchSummariesByIds([matchId])).get(matchId) ?? null;
   }
 
   async function getMatchSummaryById(
     matchId: string
   ): Promise<MatchSummary | null> {
-    const match = await first<MatchMetaRow>(
-      db,
-      `SELECT
-          id,
-          channel_link_id,
-          slug,
-          title,
-          status,
-          board_revision,
-          chat_enabled_until,
-          target_wins,
-          created_at,
-          updated_at
-        FROM matches
-        WHERE id = ?
-        LIMIT 1`,
-      matchId
-    );
+    return (await getMatchSummariesByIds([matchId])).get(matchId) ?? null;
+  }
 
-    if (!match) {
-      return null;
+  async function getMatchSummariesByIds(
+    matchIds: string[]
+  ): Promise<Map<string, MatchSummary>> {
+    if (matchIds.length === 0) {
+      return new Map();
     }
 
-    const playerRows = await all<MatchRow>(
+    const placeholders = matchIds.map(() => "?").join(", ");
+    const rows = await all<MatchRow>(
       db,
       `SELECT
           match.id,
@@ -1871,38 +1970,63 @@ export function createRepository(env: Env) {
           channel.login AS channel_login,
           channel.display_name AS channel_display_name
         FROM matches match
+        LEFT JOIN (${SUBSCRIPTION_HEALTH_SUBQUERY}) subscription
+          ON subscription.channel_link_id = match.channel_link_id
         JOIN match_participants participant ON participant.match_id = match.id
         JOIN channels channel ON channel.id = participant.channel_id
-        WHERE match.id = ?
-        ORDER BY participant.created_at ASC`,
-      matchId
+        WHERE match.id IN (${placeholders})
+        ORDER BY match.updated_at DESC, participant.created_at ASC`,
+      ...matchIds
     );
-    const subscriptionHealthByLinkId =
-      await getSubscriptionHealthByChannelLinkIds([match.channel_link_id]);
 
-    return {
-      id: match.id,
-      channelLinkId: match.channel_link_id,
-      slug: match.slug,
-      title: match.title,
-      status: match.status,
-      chatState: deriveChatState(match.status, match.chat_enabled_until),
-      chatEnabledUntil: match.chat_enabled_until,
-      boardRevision: match.board_revision,
-      subscriptionHealth:
-        subscriptionHealthByLinkId.get(match.channel_link_id) ?? "idle",
-      targetWins: match.target_wins,
-      players: playerRows.map((row) => ({
-        id: row.participant_id,
-        displayName: row.channel_display_name,
-        channelId: row.channel_id,
-        channelLogin: row.channel_login,
-        role: row.participant_role,
-        wins: row.participant_wins,
-      })),
-      createdAt: match.created_at,
-      updatedAt: match.updated_at,
-    };
+    if (rows.length === 0) {
+      return new Map();
+    }
+
+    const grouped = new Map<string, MatchSummary>();
+
+    for (const row of rows) {
+      const current = grouped.get(row.id);
+
+      if (current) {
+        current.players.push({
+          id: row.participant_id,
+          displayName: row.channel_display_name,
+          channelId: row.channel_id,
+          channelLogin: row.channel_login,
+          role: row.participant_role,
+          wins: row.participant_wins,
+        });
+        continue;
+      }
+
+      grouped.set(row.id, {
+        id: row.id,
+        channelLinkId: row.channel_link_id,
+        slug: row.slug,
+        title: row.title,
+        status: row.status,
+        chatState: deriveChatState(row.status, row.chat_enabled_until),
+        chatEnabledUntil: row.chat_enabled_until,
+        boardRevision: row.board_revision,
+        subscriptionHealth: resolveSubscriptionHealth(row.subscription_health),
+        targetWins: row.target_wins,
+        players: [
+          {
+            id: row.participant_id,
+            displayName: row.channel_display_name,
+            channelId: row.channel_id,
+            channelLogin: row.channel_login,
+            role: row.participant_role,
+            wins: row.participant_wins,
+          },
+        ],
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      });
+    }
+
+    return grouped;
   }
 
   async function updateMatchStatusForUser(
@@ -2372,8 +2496,10 @@ export function createRepository(env: Env) {
     listAuditLogForUser,
     listChannelLinksForUser,
     listMatchesForUser,
+    listPrunableCompletedMatches,
     listMatchesForTwitchChannelId,
     removeModerator,
+    deleteMatchesByIds,
     autoCompleteInactiveMatch,
     updateMatchStatusForUser,
     upsertIdentity,

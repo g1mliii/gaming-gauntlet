@@ -63,6 +63,7 @@ type RepoMock = {
   createChannelLink: ReturnType<typeof vi.fn>;
   createMatch: ReturnType<typeof vi.fn>;
   createSession: ReturnType<typeof vi.fn>;
+  deleteMatchesByIds: ReturnType<typeof vi.fn>;
   deleteSession: ReturnType<typeof vi.fn>;
   ensureFreshTwitchToken: ReturnType<typeof vi.fn>;
   findSharedBotIdentity: ReturnType<typeof vi.fn>;
@@ -77,6 +78,7 @@ type RepoMock = {
   listAuditLogForUser: ReturnType<typeof vi.fn>;
   listChannelLinksForUser: ReturnType<typeof vi.fn>;
   listMatchesForUser: ReturnType<typeof vi.fn>;
+  listPrunableCompletedMatches: ReturnType<typeof vi.fn>;
   listMatchesForTwitchChannelId: ReturnType<typeof vi.fn>;
   removeModerator: ReturnType<typeof vi.fn>;
   updateMatchStatusForUser: ReturnType<typeof vi.fn>;
@@ -114,6 +116,7 @@ function createRepoMock(): RepoMock {
     createChannelLink: vi.fn(),
     createMatch: vi.fn(),
     createSession: vi.fn(),
+    deleteMatchesByIds: vi.fn(),
     deleteSession: vi.fn(),
     ensureFreshTwitchToken: vi.fn(),
     findSharedBotIdentity: vi.fn(),
@@ -128,6 +131,7 @@ function createRepoMock(): RepoMock {
     listAuditLogForUser: vi.fn(),
     listChannelLinksForUser: vi.fn(),
     listMatchesForUser: vi.fn(),
+    listPrunableCompletedMatches: vi.fn(),
     listMatchesForTwitchChannelId: vi.fn(),
     removeModerator: vi.fn(),
     updateMatchStatusForUser: vi.fn(),
@@ -257,6 +261,7 @@ function createCoordinatorStub(
     processCommandsRpc: vi.fn(),
     syncSnapshotMetaRpc: vi.fn(),
     applyControlActionRpc: vi.fn(),
+    deleteMatchRpc: vi.fn(),
     ...overrides,
   } as unknown as DurableObjectStub;
 }
@@ -921,6 +926,52 @@ describe("handleRequest", () => {
     });
   });
 
+  it("prunes stale completed matches before listing active drafts", async () => {
+    const repo = createRepoMock();
+    createRepositoryMock.mockReturnValue(repo);
+    const cookie = await createSignedSessionCookie("session_1");
+    const deleteMatchRpc = vi.fn().mockResolvedValue(undefined);
+
+    repo.getSession.mockResolvedValue(signedInSession());
+    repo.listPrunableCompletedMatches.mockResolvedValue([
+      "match_old_1",
+      "match_old_2",
+    ]);
+    repo.deleteMatchesByIds.mockResolvedValue(2);
+    repo.listMatchesForUser.mockResolvedValue([buildMatchSummary()]);
+    vi.mocked(env.MATCH_COORDINATOR.idFromName)
+      .mockReturnValueOnce("durable-old-1" as unknown as DurableObjectId)
+      .mockReturnValueOnce("durable-old-2" as unknown as DurableObjectId);
+    vi.mocked(env.MATCH_COORDINATOR.get).mockReturnValue(
+      createCoordinatorStub({
+        deleteMatchRpc,
+      })
+    );
+
+    const response = await handleRequest(
+      new Request("http://localhost:8787/api/matches", {
+        headers: {
+          Cookie: cookie,
+          Origin: env.APP_ORIGIN,
+        },
+      }),
+      env
+    );
+
+    expect(response.status).toBe(200);
+    expect(repo.listPrunableCompletedMatches).toHaveBeenCalledTimes(1);
+    expect(deleteMatchRpc).toHaveBeenCalledTimes(2);
+    expect(deleteMatchRpc).toHaveBeenNthCalledWith(1, "match_old_1");
+    expect(deleteMatchRpc).toHaveBeenNthCalledWith(2, "match_old_2");
+    expect(repo.deleteMatchesByIds).toHaveBeenCalledWith([
+      "match_old_1",
+      "match_old_2",
+    ]);
+    expect(await response.json()).toEqual({
+      items: [buildMatchSummary()],
+    });
+  });
+
   it("requires authentication for control-room actions", async () => {
     const repo = createRepoMock();
     createRepositoryMock.mockReturnValue(repo);
@@ -1309,7 +1360,10 @@ describe("handleRequest", () => {
     expect(response.headers.get("Access-Control-Allow-Origin")).toBe(
       env.EXTENSION_ORIGIN
     );
-    expect(getSurfaceEnvelope).toHaveBeenCalledWith("match_public", "component");
+    expect(getSurfaceEnvelope).toHaveBeenCalledWith(
+      "match_public",
+      "component"
+    );
     await expect(response.json()).resolves.toEqual(componentSurface);
   });
 

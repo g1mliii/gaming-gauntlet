@@ -109,6 +109,10 @@ const PUBLIC_MATCH_PAGE_CACHE_TTL_SECONDS = 30;
 const PUBLIC_MATCH_PAGE_STALE_SECONDS = 90;
 const PUBLIC_MATCH_OVERLAY_CACHE_TTL_SECONDS = 15;
 const PUBLIC_MATCH_OVERLAY_STALE_SECONDS = 45;
+const COMPLETED_MATCH_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+const COMPLETED_MATCH_PRUNE_BATCH_SIZE = 25;
+const COMPLETED_MATCH_PRUNE_INTERVAL_MS = 15 * 60 * 1000;
+const COMPLETED_MATCH_PRUNE_DELETE_CONCURRENCY = 4;
 const VIEWER_CACHE_MATCH_ID_HEADER = "x-gg-cache-match-id";
 const VIEWER_CACHE_STORED_AT_HEADER = "x-gg-cache-stored-at";
 const VIEWER_CACHE_TTL_HEADER = "x-gg-cache-ttl";
@@ -120,6 +124,7 @@ const REQUIRED_SHARED_BOT_SCOPES = [
   "user:write:chat",
 ] as const;
 let lastQueueReplyCooldownPruneAt = 0;
+let lastCompletedMatchPruneAt = 0;
 
 function hasDesiredEventSubSubscriptions(
   existing: Array<{
@@ -322,6 +327,7 @@ type MatchCoordinatorStub = DurableObjectStub & {
   processCommandsRpc: MatchCoordinator["processCommandsRpc"];
   syncSnapshotMetaRpc: MatchCoordinator["syncSnapshotMetaRpc"];
   applyControlActionRpc: MatchCoordinator["applyControlActionRpc"];
+  deleteMatchRpc: MatchCoordinator["deleteMatchRpc"];
 };
 
 function getViewerProjectionCacheContext(
@@ -538,6 +544,82 @@ async function getSurfaceEnvelopeFromCoordinator(
   view: PublicSurfaceView
 ): Promise<SurfaceEnvelope> {
   return getMatchCoordinator(env, matchId).getSurfaceEnvelope(matchId, view);
+}
+
+async function deleteMatchFromCoordinator(
+  env: Env,
+  matchId: string
+): Promise<void> {
+  await getMatchCoordinator(env, matchId).deleteMatchRpc(matchId);
+}
+
+async function pruneOldCompletedMatches(
+  env: Env,
+  repo: ReturnType<typeof createRepository>
+): Promise<void> {
+  const candidates =
+    (await repo.listPrunableCompletedMatches({
+      olderThanMs: COMPLETED_MATCH_RETENTION_MS,
+      limit: COMPLETED_MATCH_PRUNE_BATCH_SIZE,
+    })) ?? [];
+
+  if (candidates.length === 0) {
+    return;
+  }
+
+  const teardownResults: PromiseSettledResult<string>[] = [];
+
+  for (
+    let index = 0;
+    index < candidates.length;
+    index += COMPLETED_MATCH_PRUNE_DELETE_CONCURRENCY
+  ) {
+    const batch = candidates.slice(
+      index,
+      index + COMPLETED_MATCH_PRUNE_DELETE_CONCURRENCY
+    );
+    const batchResults = await Promise.allSettled(
+      batch.map(async (matchId) => {
+        await deleteMatchFromCoordinator(env, matchId);
+        return matchId;
+      })
+    );
+    teardownResults.push(...batchResults);
+  }
+  const deletableMatchIds = teardownResults.flatMap((result) =>
+    result.status === "fulfilled" ? [result.value] : []
+  );
+
+  if (deletableMatchIds.length === 0) {
+    console.error(
+      "completed match prune skipped after coordinator teardown failures",
+      {
+        attempted: candidates,
+      }
+    );
+    return;
+  }
+
+  if (deletableMatchIds.length !== candidates.length) {
+    console.error(
+      "completed match prune partially skipped after coordinator teardown failures",
+      {
+        attempted: candidates,
+        deleted: deletableMatchIds,
+      }
+    );
+  }
+
+  await repo.deleteMatchesByIds(deletableMatchIds);
+}
+
+function shouldScheduleCompletedMatchPrune(now = Date.now()): boolean {
+  if (now - lastCompletedMatchPruneAt < COMPLETED_MATCH_PRUNE_INTERVAL_MS) {
+    return false;
+  }
+
+  lastCompletedMatchPruneAt = now;
+  return true;
 }
 
 async function processCommandBatchWithCoordinator(
@@ -1632,8 +1714,22 @@ export async function handleRequest(
       const session = await requireAuthenticatedSession(request, env, repo);
 
       if (request.method === "GET") {
+        if (!ctx) {
+          await pruneOldCompletedMatches(env, repo);
+        } else if (shouldScheduleCompletedMatchPrune()) {
+          const prunePromise = pruneOldCompletedMatches(env, repo).catch(
+            (error) => {
+              console.error("completed match prune failed", error);
+            }
+          );
+
+          ctx.waitUntil(prunePromise);
+        }
+
         return appJson(request, env, {
-          items: await repo.listMatchesForUser(session.user.id),
+          items: await repo.listMatchesForUser(session.user.id, {
+            excludeCompletedOlderThanMs: COMPLETED_MATCH_RETENTION_MS,
+          }),
         });
       }
 
@@ -2270,10 +2366,10 @@ export async function handleRequest(
                 cacheTtlSeconds: PUBLIC_MATCH_COMPONENT_CACHE_TTL_SECONDS,
                 staleSeconds: PUBLIC_MATCH_COMPONENT_STALE_SECONDS,
               }
-          : {
-              cacheTtlSeconds: PUBLIC_MATCH_OVERLAY_CACHE_TTL_SECONDS,
-              staleSeconds: PUBLIC_MATCH_OVERLAY_STALE_SECONDS,
-            };
+            : {
+                cacheTtlSeconds: PUBLIC_MATCH_OVERLAY_CACHE_TTL_SECONDS,
+                staleSeconds: PUBLIC_MATCH_OVERLAY_STALE_SECONDS,
+              };
       const cacheContext = getViewerProjectionCacheContext(
         request,
         env,

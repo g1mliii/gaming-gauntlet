@@ -15,9 +15,11 @@ import {
   rejectSuggestion,
   removeQueueItem,
   startNextRound,
-  updateMatchStatusRequestSchema
+  startSelectedRound,
+  updateMatchStatusRequestSchema,
 } from "./match";
 import { createDemoMatchSnapshot } from "../lib/demo";
+import type { MatchSnapshot } from "./match";
 
 describe("createMatchRequestSchema", () => {
   it("accepts the phase-2 match payload", () => {
@@ -25,7 +27,7 @@ describe("createMatchRequestSchema", () => {
       channelLinkId: "link_1",
       title: "Gauntlet Finals",
       slug: "gauntlet-finals",
-      targetWins: 5
+      targetWins: 5,
     });
 
     expect(parsed.channelLinkId).toBe("link_1");
@@ -42,9 +44,9 @@ describe("createMatchRequestSchema", () => {
           {
             channelId: "1001",
             channelLogin: "pixelriot",
-            displayName: "PixelRiot"
-          }
-        ]
+            displayName: "PixelRiot",
+          },
+        ],
       })
     ).toThrow();
   });
@@ -55,14 +57,14 @@ describe("createMatchRequestSchema", () => {
         channelLinkId: "link_1",
         title: "Gauntlet Finals",
         slug: "grand finals",
-        targetWins: 5
+        targetWins: 5,
       })
     ).toThrow();
   });
 
   it("parses the phase-3 status update payload", () => {
     const parsed = updateMatchStatusRequestSchema.parse({
-      status: "live"
+      status: "live",
     });
 
     expect(parsed.status).toBe("live");
@@ -73,7 +75,7 @@ describe("createMatchRequestSchema", () => {
       matchId: "match_1",
       boardRevision: 3,
       updatedAt: "2026-03-25T01:00:00.000Z",
-      suggestions: []
+      suggestions: [],
     });
 
     expect(parsed.boardRevision).toBe(3);
@@ -112,7 +114,7 @@ describe("createMatchRequestSchema", () => {
       broadcasterId: "1001",
       viewerId: "2001",
       messageText: "!gg vote 01",
-      replyParentId: null
+      replyParentId: null,
     });
 
     expect(parsed.type).toBe("chat_command");
@@ -120,16 +122,15 @@ describe("createMatchRequestSchema", () => {
 
   it("parses control-room action payloads", () => {
     const parsed = matchControlActionSchema.parse({
-      type: "move_queue_item",
+      type: "start_selected_round",
       queueItemId: "queue_1",
-      direction: "down"
     });
 
-    expect(parsed.type).toBe("move_queue_item");
-    if (parsed.type !== "move_queue_item") {
-      throw new Error("expected move_queue_item action");
+    expect(parsed.type).toBe("start_selected_round");
+    if (parsed.type !== "start_selected_round") {
+      throw new Error("expected start_selected_round action");
     }
-    expect(parsed.direction).toBe("down");
+    expect(parsed.queueItemId).toBe("queue_1");
   });
 });
 
@@ -192,9 +193,9 @@ describe("phase-4 match controls", () => {
 
     const nextSnapshot = rejectSuggestion(snapshot, "sgg_01");
 
-    expect(nextSnapshot.suggestions.find((entry) => entry.id === "sgg_01")?.status).toBe(
-      "rejected"
-    );
+    expect(
+      nextSnapshot.suggestions.find((entry) => entry.id === "sgg_01")?.status
+    ).toBe("rejected");
     expect(nextSnapshot.queue).toEqual(snapshot.queue);
   });
 
@@ -218,17 +219,17 @@ describe("phase-4 match controls", () => {
           title: "Mario Kart 8 Deluxe",
           sourceSuggestionId: "sgg_02",
           status: "queued",
-          winnerPlayerId: null
-        }
-      ]
+          winnerPlayerId: null,
+        },
+      ],
     });
 
     const nextSnapshot = removeQueueItem(snapshot, "queue_sgg_02");
 
     expect(nextSnapshot.queue).toHaveLength(0);
-    expect(nextSnapshot.suggestions.find((entry) => entry.id === "sgg_02")?.status).toBe(
-      "board"
-    );
+    expect(
+      nextSnapshot.suggestions.find((entry) => entry.id === "sgg_02")?.status
+    ).toBe("board");
   });
 
   it("moves queued items without changing live queue entries", () => {
@@ -240,7 +241,7 @@ describe("phase-4 match controls", () => {
           title: "Mario Kart 8 Deluxe",
           sourceSuggestionId: "sgg_02",
           status: "live",
-          winnerPlayerId: null
+          winnerPlayerId: null,
         },
         {
           id: "queue_a",
@@ -248,7 +249,7 @@ describe("phase-4 match controls", () => {
           title: "Rocket League",
           sourceSuggestionId: null,
           status: "queued",
-          winnerPlayerId: null
+          winnerPlayerId: null,
         },
         {
           id: "queue_b",
@@ -256,10 +257,10 @@ describe("phase-4 match controls", () => {
           title: "Neon White",
           sourceSuggestionId: "sgg_03",
           status: "queued",
-          winnerPlayerId: null
-        }
+          winnerPlayerId: null,
+        },
       ],
-      currentGameId: "queue_live"
+      currentGameId: "queue_live",
     });
 
     const nextSnapshot = moveQueueItem(snapshot, "queue_b", "up");
@@ -267,7 +268,7 @@ describe("phase-4 match controls", () => {
     expect(nextSnapshot.queue.map((entry) => entry.id)).toEqual([
       "queue_live",
       "queue_b",
-      "queue_a"
+      "queue_a",
     ]);
     expect(nextSnapshot.currentGameId).toBe("queue_live");
   });
@@ -281,7 +282,7 @@ describe("phase-4 match controls", () => {
           title: "Mario Kart 8 Deluxe",
           sourceSuggestionId: "sgg_02",
           status: "live",
-          winnerPlayerId: null
+          winnerPlayerId: null,
         },
         {
           id: "queue_a",
@@ -289,7 +290,7 @@ describe("phase-4 match controls", () => {
           title: "Rocket League",
           sourceSuggestionId: null,
           status: "queued",
-          winnerPlayerId: null
+          winnerPlayerId: null,
         },
         {
           id: "queue_b",
@@ -297,10 +298,10 @@ describe("phase-4 match controls", () => {
           title: "Neon White",
           sourceSuggestionId: "sgg_03",
           status: "queued",
-          winnerPlayerId: null
-        }
+          winnerPlayerId: null,
+        },
       ],
-      currentGameId: "queue_live"
+      currentGameId: "queue_live",
     });
 
     const nextSnapshot = randomizeUpcomingQueue(snapshot, () => 0);
@@ -308,7 +309,7 @@ describe("phase-4 match controls", () => {
     expect(nextSnapshot.queue[0]?.id).toBe("queue_live");
     expect(nextSnapshot.queue.slice(1).map((entry) => entry.id)).toEqual([
       "queue_b",
-      "queue_a"
+      "queue_a",
     ]);
   });
 
@@ -322,9 +323,9 @@ describe("phase-4 match controls", () => {
             title: "Rocket League",
             sourceSuggestionId: null,
             status: "queued",
-            winnerPlayerId: null
-          }
-        ]
+            winnerPlayerId: null,
+          },
+        ],
       }),
       currentGameId: null,
     };
@@ -333,6 +334,50 @@ describe("phase-4 match controls", () => {
 
     expect(nextSnapshot.currentGameId).toBe("queue_a");
     expect(nextSnapshot.queue[0]?.status).toBe("live");
+  });
+
+  it("starts a selected queued round and promotes it to the live slot", () => {
+    const snapshot = {
+      ...createDemoMatchSnapshot({}),
+      currentGameId: null,
+      queue: [
+        {
+          id: "queue_completed",
+          order: 0,
+          title: "Mario Kart 8 Deluxe",
+          sourceSuggestionId: "sgg_02",
+          status: "completed",
+          winnerPlayerId: "player_a",
+        },
+        {
+          id: "queue_a",
+          order: 1,
+          title: "Rocket League",
+          sourceSuggestionId: null,
+          status: "queued",
+          winnerPlayerId: null,
+        },
+        {
+          id: "queue_b",
+          order: 2,
+          title: "Neon White",
+          sourceSuggestionId: "sgg_03",
+          status: "queued",
+          winnerPlayerId: null,
+        },
+      ],
+    } satisfies MatchSnapshot;
+
+    const nextSnapshot = startSelectedRound(snapshot, "queue_b");
+
+    expect(nextSnapshot.currentGameId).toBe("queue_b");
+    expect(nextSnapshot.queue.map((entry) => entry.id)).toEqual([
+      "queue_completed",
+      "queue_b",
+      "queue_a",
+    ]);
+    expect(nextSnapshot.queue[1]?.status).toBe("live");
+    expect(nextSnapshot.queue[2]?.status).toBe("queued");
   });
 
   it("records winners, advances the queue, and marks played suggestions", () => {
@@ -344,7 +389,7 @@ describe("phase-4 match controls", () => {
           title: "Mario Kart 8 Deluxe",
           sourceSuggestionId: "sgg_02",
           status: "live",
-          winnerPlayerId: null
+          winnerPlayerId: null,
         },
         {
           id: "queue_manual_01",
@@ -352,22 +397,24 @@ describe("phase-4 match controls", () => {
           title: "Rocket League",
           sourceSuggestionId: null,
           status: "queued",
-          winnerPlayerId: null
-        }
+          winnerPlayerId: null,
+        },
       ],
-      currentGameId: "queue_sgg_02"
+      currentGameId: "queue_sgg_02",
     });
 
     const nextSnapshot = recordQueueWin(snapshot, "queue_sgg_02", "player_a");
 
-    expect(nextSnapshot.players.find((player) => player.id === "player_a")?.wins).toBe(3);
+    expect(
+      nextSnapshot.players.find((player) => player.id === "player_a")?.wins
+    ).toBe(3);
     expect(nextSnapshot.queue[0]?.status).toBe("completed");
     expect(nextSnapshot.queue[0]?.winnerPlayerId).toBe("player_a");
     expect(nextSnapshot.queue[1]?.status).toBe("live");
     expect(nextSnapshot.currentGameId).toBe("queue_manual_01");
-    expect(nextSnapshot.suggestions.find((entry) => entry.id === "sgg_02")?.status).toBe(
-      "played"
-    );
+    expect(
+      nextSnapshot.suggestions.find((entry) => entry.id === "sgg_02")?.status
+    ).toBe("played");
   });
 
   it("closes live rounds without assigning a winner", () => {
@@ -379,7 +426,7 @@ describe("phase-4 match controls", () => {
           title: "Mario Kart 8 Deluxe",
           sourceSuggestionId: "sgg_02",
           status: "live",
-          winnerPlayerId: null
+          winnerPlayerId: null,
         },
         {
           id: "queue_manual_01",
@@ -387,10 +434,10 @@ describe("phase-4 match controls", () => {
           title: "Rocket League",
           sourceSuggestionId: null,
           status: "queued",
-          winnerPlayerId: null
-        }
+          winnerPlayerId: null,
+        },
       ],
-      currentGameId: "queue_sgg_02"
+      currentGameId: "queue_sgg_02",
     });
 
     const nextSnapshot = closeCurrentRound(snapshot, "queue_sgg_02");
@@ -406,11 +453,11 @@ describe("phase-4 match controls", () => {
 
     const nextSnapshot = applyMatchControlAction(snapshot, {
       type: "reject_suggestion",
-      suggestionId: "sgg_01"
+      suggestionId: "sgg_01",
     });
 
-    expect(nextSnapshot.suggestions.find((entry) => entry.id === "sgg_01")?.status).toBe(
-      "rejected"
-    );
+    expect(
+      nextSnapshot.suggestions.find((entry) => entry.id === "sgg_01")?.status
+    ).toBe("rejected");
   });
 });

@@ -2,12 +2,34 @@ import { z } from "zod";
 
 import { roleSchema } from "./roles";
 
-export const matchStatusSchema = z.enum(["draft", "live", "paused", "complete"]);
-export const suggestionStatusSchema = z.enum(["board", "approved", "queued", "played", "rejected"]);
+export const matchStatusSchema = z.enum([
+  "draft",
+  "live",
+  "paused",
+  "complete",
+]);
+export const suggestionStatusSchema = z.enum([
+  "board",
+  "approved",
+  "queued",
+  "played",
+  "rejected",
+]);
 export const queueStatusSchema = z.enum(["queued", "live", "completed"]);
 export const queueMoveDirectionSchema = z.enum(["up", "down"]);
-export const chatStateSchema = z.enum(["idle", "live", "paused_grace", "expired"]);
-export const subscriptionHealthSchema = z.enum(["idle", "ready", "repairing", "revoked", "error"]);
+export const chatStateSchema = z.enum([
+  "idle",
+  "live",
+  "paused_grace",
+  "expired",
+]);
+export const subscriptionHealthSchema = z.enum([
+  "idle",
+  "ready",
+  "repairing",
+  "revoked",
+  "error",
+]);
 export const MATCH_PAUSE_GRACE_MS = 10 * 60 * 1000;
 export const MATCH_AUTO_COMPLETE_PAUSED_BUFFER_MS = 5 * 60 * 1000;
 export const MATCH_AUTO_COMPLETE_LIVE_INACTIVITY_MS = 3 * 60 * 60 * 1000;
@@ -18,7 +40,7 @@ export const websocketEventTypeSchema = z.enum([
   "suggestions.updated",
   "queue.updated",
   "score.updated",
-  "match.status.updated"
+  "match.status.updated",
 ]);
 
 export const playerSchema = z.object({
@@ -27,7 +49,7 @@ export const playerSchema = z.object({
   channelId: z.string().min(1),
   channelLogin: z.string().min(1),
   role: roleSchema,
-  wins: z.number().int().nonnegative()
+  wins: z.number().int().nonnegative(),
 });
 
 export const suggestionSchema = z.object({
@@ -39,7 +61,7 @@ export const suggestionSchema = z.object({
   sourceChannelId: z.string().min(1).nullable(),
   suggestedBy: z.string().min(1).nullable(),
   voteCount: z.number().int().nonnegative(),
-  status: suggestionStatusSchema
+  status: suggestionStatusSchema,
 });
 
 export const queueItemSchema = z.object({
@@ -48,7 +70,7 @@ export const queueItemSchema = z.object({
   title: z.string().min(1),
   sourceSuggestionId: z.string().nullable(),
   status: queueStatusSchema,
-  winnerPlayerId: z.string().nullable()
+  winnerPlayerId: z.string().nullable(),
 });
 
 export const matchSnapshotSchema = z.object({
@@ -65,78 +87,91 @@ export const matchSnapshotSchema = z.object({
   suggestions: z.array(suggestionSchema),
   queue: z.array(queueItemSchema),
   currentGameId: z.string().nullable(),
-  updatedAt: z.string().datetime()
+  updatedAt: z.string().datetime(),
 });
 
 export const websocketEventEnvelopeSchema = z.object({
   type: websocketEventTypeSchema,
   matchId: z.string().min(1),
   occurredAt: z.string().datetime(),
-  payload: z.unknown()
+  payload: z.unknown(),
 });
 
-export const createMatchRequestSchema = z.object({
-  channelLinkId: z.string().min(1),
-  title: z.string().min(3),
-  slug: z.string().min(3).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
-  targetWins: z.number().int().positive().nullable().default(null)
-}).strict();
+export const createMatchRequestSchema = z
+  .object({
+    channelLinkId: z.string().min(1),
+    title: z.string().min(3),
+    slug: z
+      .string()
+      .min(3)
+      .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+    targetWins: z.number().int().positive().nullable().default(null),
+  })
+  .strict();
 
-export const updateMatchStatusRequestSchema = z.object({
-  status: matchStatusSchema
-}).strict();
+export const updateMatchStatusRequestSchema = z
+  .object({
+    status: matchStatusSchema,
+  })
+  .strict();
 
 export const matchControlActionSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("approve_suggestion"),
-    suggestionId: z.string().min(1)
+    suggestionId: z.string().min(1),
   }),
   z.object({
     type: z.literal("reject_suggestion"),
-    suggestionId: z.string().min(1)
+    suggestionId: z.string().min(1),
   }),
   z.object({
     type: z.literal("add_manual_queue_item"),
-    title: z.string().trim().min(1)
+    title: z.string().trim().min(1),
   }),
   z.object({
     type: z.literal("remove_queue_item"),
-    queueItemId: z.string().min(1)
+    queueItemId: z.string().min(1),
   }),
   z.object({
     type: z.literal("move_queue_item"),
     queueItemId: z.string().min(1),
-    direction: queueMoveDirectionSchema
+    direction: queueMoveDirectionSchema,
   }),
   z.object({
-    type: z.literal("randomize_queue")
+    type: z.literal("randomize_queue"),
   }),
   z.object({
-    type: z.literal("start_next_round")
+    type: z.literal("start_next_round"),
+  }),
+  z.object({
+    type: z.literal("start_selected_round"),
+    queueItemId: z.string().min(1),
   }),
   z.object({
     type: z.literal("record_round_winner"),
     queueItemId: z.string().min(1),
-    winnerPlayerId: z.string().min(1)
+    winnerPlayerId: z.string().min(1),
   }),
   z.object({
     type: z.literal("close_round"),
-    queueItemId: z.string().min(1).optional()
-  })
+    queueItemId: z.string().min(1).optional(),
+  }),
 ]);
 
 export const extensionBootstrapRequestSchema = z.object({
   channelId: z.string().min(1),
-  role: z.enum(["viewer", "broadcaster", "moderator", "external"]).default("external"),
+  role: z
+    .enum(["viewer", "broadcaster", "moderator", "external"])
+    .default("external"),
   opaqueUserId: z.string().min(1).default("U-demo"),
-  userId: z.string().min(1).optional()
+  userId: z.string().min(1).optional(),
 });
 
 export const boardResponseSchema = z.object({
   matchId: z.string().min(1),
   boardRevision: z.number().int().nonnegative(),
   updatedAt: z.string().datetime(),
-  suggestions: z.array(suggestionSchema)
+  suggestions: z.array(suggestionSchema),
 });
 
 export const chatCommandQueueMessageSchema = z.object({
@@ -147,13 +182,18 @@ export const chatCommandQueueMessageSchema = z.object({
   broadcasterId: z.string().min(1),
   viewerId: z.string().min(1),
   messageText: z.string().min(1),
-  replyParentId: z.string().min(1).nullable()
+  replyParentId: z.string().min(1).nullable(),
 });
 
 export const subscriptionReconcileQueueMessageSchema = z.object({
   type: z.literal("subscription_reconcile"),
   channelLinkId: z.string().min(1),
-  reason: z.enum(["match_status", "link_accepted", "chat_auth", "manual_repair"])
+  reason: z.enum([
+    "match_status",
+    "link_accepted",
+    "chat_auth",
+    "manual_repair",
+  ]),
 });
 
 export const subscriptionRevokedQueueMessageSchema = z.object({
@@ -161,17 +201,19 @@ export const subscriptionRevokedQueueMessageSchema = z.object({
   subscriptionId: z.string().min(1),
   broadcasterId: z.string().min(1).nullable(),
   sourceChannelId: z.string().min(1).nullable(),
-  reason: z.string().min(1)
+  reason: z.string().min(1),
 });
 
 export const edgeQueueMessageSchema = z.discriminatedUnion("type", [
   chatCommandQueueMessageSchema,
   subscriptionReconcileQueueMessageSchema,
-  subscriptionRevokedQueueMessageSchema
+  subscriptionRevokedQueueMessageSchema,
 ]);
 
 export type BoardResponse = z.infer<typeof boardResponseSchema>;
-export type ChatCommandQueueMessage = z.infer<typeof chatCommandQueueMessageSchema>;
+export type ChatCommandQueueMessage = z.infer<
+  typeof chatCommandQueueMessageSchema
+>;
 export type CreateMatchRequest = z.infer<typeof createMatchRequestSchema>;
 export type EdgeQueueMessage = z.infer<typeof edgeQueueMessageSchema>;
 export type MatchControlAction = z.infer<typeof matchControlActionSchema>;
@@ -181,10 +223,18 @@ export type Player = z.infer<typeof playerSchema>;
 export type QueueItem = z.infer<typeof queueItemSchema>;
 export type QueueMoveDirection = z.infer<typeof queueMoveDirectionSchema>;
 export type Suggestion = z.infer<typeof suggestionSchema>;
-export type SubscriptionReconcileQueueMessage = z.infer<typeof subscriptionReconcileQueueMessageSchema>;
-export type SubscriptionRevokedQueueMessage = z.infer<typeof subscriptionRevokedQueueMessageSchema>;
-export type UpdateMatchStatusRequest = z.infer<typeof updateMatchStatusRequestSchema>;
-export type WebsocketEventEnvelope = z.infer<typeof websocketEventEnvelopeSchema>;
+export type SubscriptionReconcileQueueMessage = z.infer<
+  typeof subscriptionReconcileQueueMessageSchema
+>;
+export type SubscriptionRevokedQueueMessage = z.infer<
+  typeof subscriptionRevokedQueueMessageSchema
+>;
+export type UpdateMatchStatusRequest = z.infer<
+  typeof updateMatchStatusRequestSchema
+>;
+export type WebsocketEventEnvelope = z.infer<
+  typeof websocketEventEnvelopeSchema
+>;
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -339,12 +389,17 @@ function completeRound(
     suggestions,
     queue,
     currentGameId: nextQueued?.id ?? null,
-    updatedAt: nowIso()
+    updatedAt: nowIso(),
   };
 }
 
-export function approveSuggestion(snapshot: MatchSnapshot, suggestionId: string): MatchSnapshot {
-  const suggestion = snapshot.suggestions.find((entry) => entry.id === suggestionId);
+export function approveSuggestion(
+  snapshot: MatchSnapshot,
+  suggestionId: string
+): MatchSnapshot {
+  const suggestion = snapshot.suggestions.find(
+    (entry) => entry.id === suggestionId
+  );
   if (!suggestion || suggestion.status !== "board") {
     return snapshot;
   }
@@ -352,7 +407,8 @@ export function approveSuggestion(snapshot: MatchSnapshot, suggestionId: string)
   if (
     snapshot.queue.some(
       (entry) =>
-        entry.sourceSuggestionId === suggestionId && entry.status !== "completed"
+        entry.sourceSuggestionId === suggestionId &&
+        entry.status !== "completed"
     )
   ) {
     return snapshot;
@@ -377,11 +433,11 @@ export function approveSuggestion(snapshot: MatchSnapshot, suggestionId: string)
         title: suggestion.title,
         sourceSuggestionId: suggestion.id,
         status: snapshot.currentGameId ? "queued" : "live",
-        winnerPlayerId: null
-      }
+        winnerPlayerId: null,
+      },
     ],
     currentGameId: snapshot.currentGameId ?? nextQueueId,
-    updatedAt: nowIso()
+    updatedAt: nowIso(),
   };
 }
 
@@ -389,7 +445,9 @@ export function rejectSuggestion(
   snapshot: MatchSnapshot,
   suggestionId: string
 ): MatchSnapshot {
-  const suggestion = snapshot.suggestions.find((entry) => entry.id === suggestionId);
+  const suggestion = snapshot.suggestions.find(
+    (entry) => entry.id === suggestionId
+  );
 
   if (!suggestion || suggestion.status !== "board") {
     return snapshot;
@@ -404,7 +462,7 @@ export function rejectSuggestion(
   return {
     ...snapshot,
     suggestions,
-    updatedAt: nowIso()
+    updatedAt: nowIso(),
   };
 }
 
@@ -430,11 +488,11 @@ export function addManualQueueItem(
         title: trimmedTitle,
         sourceSuggestionId: null,
         status: snapshot.currentGameId ? "queued" : "live",
-        winnerPlayerId: null
-      }
+        winnerPlayerId: null,
+      },
     ],
     currentGameId: snapshot.currentGameId ?? nextQueueId,
-    updatedAt: nowIso()
+    updatedAt: nowIso(),
   };
 }
 
@@ -462,7 +520,7 @@ export function removeQueueItem(
     queue: reindexQueue(
       snapshot.queue.filter((entry) => entry.id !== queueItemId)
     ),
-    updatedAt: nowIso()
+    updatedAt: nowIso(),
   };
 }
 
@@ -471,15 +529,20 @@ export function moveQueueItem(
   queueItemId: string,
   direction: QueueMoveDirection
 ): MatchSnapshot {
-  const queuedIndices = snapshot.queue.reduce<number[]>((indices, entry, index) => {
-    if (entry.status === "queued") {
-      indices.push(index);
-    }
+  const queuedIndices = snapshot.queue.reduce<number[]>(
+    (indices, entry, index) => {
+      if (entry.status === "queued") {
+        indices.push(index);
+      }
 
-    return indices;
-  }, []);
+      return indices;
+    },
+    []
+  );
   const queuedItems = queuedIndices.map((index) => snapshot.queue[index]);
-  const queuedPosition = queuedItems.findIndex((entry) => entry.id === queueItemId);
+  const queuedPosition = queuedItems.findIndex(
+    (entry) => entry.id === queueItemId
+  );
 
   if (queuedPosition === -1) {
     return snapshot;
@@ -505,7 +568,7 @@ export function moveQueueItem(
   return {
     ...snapshot,
     queue: reindexQueue(nextQueue),
-    updatedAt: nowIso()
+    updatedAt: nowIso(),
   };
 }
 
@@ -513,13 +576,16 @@ export function randomizeUpcomingQueue(
   snapshot: MatchSnapshot,
   random: () => number = Math.random
 ): MatchSnapshot {
-  const queuedIndices = snapshot.queue.reduce<number[]>((indices, entry, index) => {
-    if (entry.status === "queued") {
-      indices.push(index);
-    }
+  const queuedIndices = snapshot.queue.reduce<number[]>(
+    (indices, entry, index) => {
+      if (entry.status === "queued") {
+        indices.push(index);
+      }
 
-    return indices;
-  }, []);
+      return indices;
+    },
+    []
+  );
 
   if (queuedIndices.length < 2) {
     return snapshot;
@@ -544,7 +610,7 @@ export function randomizeUpcomingQueue(
   return {
     ...snapshot,
     queue: reindexQueue(nextQueue),
-    updatedAt: nowIso()
+    updatedAt: nowIso(),
   };
 }
 
@@ -565,12 +631,56 @@ export function startNextRound(snapshot: MatchSnapshot): MatchSnapshot {
       entry.id === nextQueued.id
         ? {
             ...entry,
-            status: "live"
+            status: "live",
           }
         : entry
     ),
     currentGameId: nextQueued.id,
-    updatedAt: nowIso()
+    updatedAt: nowIso(),
+  };
+}
+
+export function startSelectedRound(
+  snapshot: MatchSnapshot,
+  queueItemId: string
+): MatchSnapshot {
+  if (snapshot.currentGameId) {
+    return snapshot;
+  }
+
+  const selectedIndex = snapshot.queue.findIndex(
+    (entry) => entry.id === queueItemId && entry.status === "queued"
+  );
+
+  if (selectedIndex === -1) {
+    return snapshot;
+  }
+
+  const firstQueuedIndex = snapshot.queue.findIndex(
+    (entry) => entry.status === "queued"
+  );
+
+  if (firstQueuedIndex === -1) {
+    return snapshot;
+  }
+
+  const nextQueue = [...snapshot.queue];
+  const [selectedEntry] = nextQueue.splice(selectedIndex, 1);
+
+  if (!selectedEntry) {
+    return snapshot;
+  }
+
+  nextQueue.splice(firstQueuedIndex, 0, {
+    ...selectedEntry,
+    status: "live",
+  });
+
+  return {
+    ...snapshot,
+    queue: reindexQueue(nextQueue),
+    currentGameId: queueItemId,
+    updatedAt: nowIso(),
   };
 }
 
@@ -617,8 +727,14 @@ export function applyMatchControlAction(
       return randomizeUpcomingQueue(snapshot);
     case "start_next_round":
       return startNextRound(snapshot);
+    case "start_selected_round":
+      return startSelectedRound(snapshot, action.queueItemId);
     case "record_round_winner":
-      return recordQueueWin(snapshot, action.queueItemId, action.winnerPlayerId);
+      return recordQueueWin(
+        snapshot,
+        action.queueItemId,
+        action.winnerPlayerId
+      );
     case "close_round":
       return closeCurrentRound(snapshot, action.queueItemId);
     default:
@@ -635,6 +751,6 @@ export function createWebsocketEnvelope(
     type,
     matchId,
     occurredAt: new Date().toISOString(),
-    payload
+    payload,
   };
 }

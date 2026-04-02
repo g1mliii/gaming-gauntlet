@@ -1,5 +1,11 @@
 import "@testing-library/jest-dom/vitest";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import {
   approveSuggestion,
   createDemoMatchSnapshot,
@@ -74,6 +80,7 @@ describe("ControlRoomPage", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -84,7 +91,9 @@ describe("ControlRoomPage", () => {
 
     renderControlRoom();
 
-    expect(await screen.findByText(/run rounds from one list/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/run rounds from one list/i)
+    ).toBeInTheDocument();
     expect(screen.getByText(/2 awaiting review/i)).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/api/control/matches/match_1/snapshot"),
@@ -156,9 +165,14 @@ describe("ControlRoomPage", () => {
       screen.getByRole("button", { name: /randomize upcoming/i })
     ).toBeInTheDocument();
     expect(
+      screen.getByRole("button", { name: /spin wheel round/i })
+    ).toBeInTheDocument();
+    expect(
       screen.getByRole("button", { name: /start next round/i })
     ).toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: /manual add/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("textbox", { name: /manual add/i })
+    ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /add to queue/i })
     ).toBeInTheDocument();
@@ -168,9 +182,7 @@ describe("ControlRoomPage", () => {
     expect(
       screen.getByRole("button", { name: /move down/i })
     ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /remove/i })
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /remove/i })).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /pixelriot wins/i })
     ).toBeInTheDocument();
@@ -200,7 +212,10 @@ describe("ControlRoomPage", () => {
     fetchMock.mockImplementation(async (input, init) => {
       const url = String(input);
 
-      if (url.includes("/api/matches/match_1/status") && init?.method === "PATCH") {
+      if (
+        url.includes("/api/matches/match_1/status") &&
+        init?.method === "PATCH"
+      ) {
         return jsonResponse({
           ok: true,
           match: createMatchSummary(pausedSnapshot),
@@ -212,7 +227,9 @@ describe("ControlRoomPage", () => {
 
     renderControlRoom();
 
-    expect(await screen.findByRole("button", { name: /start match/i })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: /start match/i })
+    ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /start match/i }));
 
     await waitFor(() => {
@@ -223,12 +240,118 @@ describe("ControlRoomPage", () => {
         })
       );
     });
-    expect(await screen.findByRole("button", { name: /resume match/i })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: /resume match/i })
+    ).toBeInTheDocument();
     expect(screen.getAllByText(/paused/i).length).toBeGreaterThan(0);
     expect(
-      screen.getAllByText(/auto-completes after about 15 minutes paused unless you resume/i)
-        .length
+      screen.getAllByText(
+        /auto-completes after about 15 minutes paused unless you resume/i
+      ).length
     ).toBeGreaterThan(0);
+  });
+
+  it("spins the queue wheel and starts the selected queued round", async () => {
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn().mockImplementation(() => ({
+        matches: true,
+        media: "(prefers-reduced-motion: reduce)",
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      }))
+    );
+    const initialSnapshot: MatchSnapshot = {
+      ...createDemoMatchSnapshot({
+        matchId: "match_1",
+      }),
+      currentGameId: null,
+      queue: [
+        {
+          id: "queue_a",
+          order: 0,
+          title: "Rocket League",
+          sourceSuggestionId: null,
+          status: "queued",
+          winnerPlayerId: null,
+        },
+        {
+          id: "queue_b",
+          order: 1,
+          title: "Neon White",
+          sourceSuggestionId: "sgg_03",
+          status: "queued",
+          winnerPlayerId: null,
+        },
+      ],
+    };
+    const spunSnapshot: MatchSnapshot = {
+      ...initialSnapshot,
+      queue: [
+        {
+          id: "queue_a",
+          order: 0,
+          title: "Rocket League",
+          sourceSuggestionId: null,
+          status: "live",
+          winnerPlayerId: null,
+        },
+        {
+          id: "queue_b",
+          order: 1,
+          title: "Neon White",
+          sourceSuggestionId: "sgg_03",
+          status: "queued",
+          winnerPlayerId: null,
+        },
+      ],
+      currentGameId: "queue_a",
+    };
+
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (
+        url.includes("/api/matches/match_1/control/actions") &&
+        init?.method === "POST"
+      ) {
+        return jsonResponse({
+          ok: true,
+          snapshot: spunSnapshot,
+        });
+      }
+
+      return jsonResponse(initialSnapshot);
+    });
+
+    renderControlRoom();
+
+    await screen.findByRole("button", { name: /spin wheel round/i });
+    fireEvent.click(screen.getByRole("button", { name: /spin wheel round/i }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        2,
+        expect.stringContaining("/api/matches/match_1/control/actions"),
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            type: "start_selected_round",
+            queueItemId: "queue_a",
+          }),
+        })
+      );
+    });
+    expect(
+      screen.getByText(/wheel landed on rocket league\. round is live\./i)
+    ).toBeInTheDocument();
+
+    randomSpy.mockRestore();
   });
 
   it("preserves newer websocket state when a status request resolves later", async () => {
@@ -270,7 +393,10 @@ describe("ControlRoomPage", () => {
     fetchMock.mockImplementation((input, init) => {
       const url = String(input);
 
-      if (url.includes("/api/matches/match_1/status") && init?.method === "PATCH") {
+      if (
+        url.includes("/api/matches/match_1/status") &&
+        init?.method === "PATCH"
+      ) {
         return new Promise<Response>((resolve) => {
           resolveStatus = resolve;
         });
@@ -307,7 +433,9 @@ describe("ControlRoomPage", () => {
       );
     });
 
-    expect(await screen.findByRole("button", { name: /resume match/i })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: /resume match/i })
+    ).toBeInTheDocument();
     expect(screen.getByText(/3 awaiting review/i)).toBeInTheDocument();
   });
 
@@ -344,18 +472,32 @@ describe("ControlRoomPage", () => {
 
     renderControlRoom();
 
-    expect(await screen.findByText(/queue and board controls are locked/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/queue and board controls are locked/i)
+    ).toBeInTheDocument();
     expect(
       screen.getByText(/complete is the shutdown state/i)
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/auto-completes after about 15 minutes paused or 3 hours without match activity/i)
+      screen.getByText(
+        /auto-completes after about 15 minutes paused or 3 hours without match activity/i
+      )
     ).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /complete match/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /start match/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /resume match/i })).not.toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: /approve/i })[0]).toBeDisabled();
-    expect(screen.getByRole("button", { name: /randomize upcoming/i })).toBeDisabled();
+    expect(
+      screen.queryByRole("button", { name: /complete match/i })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /start match/i })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /resume match/i })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getAllByRole("button", { name: /approve/i })[0]
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: /randomize upcoming/i })
+    ).toBeDisabled();
     expect(screen.getByRole("textbox", { name: /manual add/i })).toBeDisabled();
     expect(MockWebSocket.instances.length).toBe(0);
   });

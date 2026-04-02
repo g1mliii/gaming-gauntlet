@@ -29,7 +29,8 @@
   align-items: center;
   gap: 1rem;
   padding: 1rem clamp(1rem, 3vw, 2rem);
-  border-bottom: 1px solid color-mix(in oklab, var(--gg-border) 60%, transparent);
+  border-bottom: 1px solid
+    color-mix(in oklab, var(--gg-border) 60%, transparent);
   background: color-mix(in oklab, var(--gg-bg) 94%, black);
   position: sticky;
   top: 0;
@@ -61,7 +62,14 @@
     color 160ms ease-out,
     border-color 160ms ease-out,
     background-color 160ms ease-out;
-  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
+  clip-path: polygon(
+    0 0,
+    calc(100% - 10px) 0,
+    100% 10px,
+    100% 100%,
+    10px 100%,
+    0 calc(100% - 10px)
+  );
 }
 
 .site-header__brand:hover,
@@ -114,7 +122,14 @@
   font-family: var(--gg-font-display);
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
+  clip-path: polygon(
+    0 0,
+    calc(100% - 14px) 0,
+    100% 14px,
+    100% 100%,
+    14px 100%,
+    0 calc(100% - 14px)
+  );
 }
 
 .hero-grid,
@@ -158,7 +173,14 @@
   border: 1px solid var(--gg-border);
   border-radius: var(--gg-radius-md);
   background: color-mix(in oklab, var(--gg-surface) 82%, black);
-  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
+  clip-path: polygon(
+    0 0,
+    calc(100% - 12px) 0,
+    100% 12px,
+    100% 100%,
+    12px 100%,
+    0 calc(100% - 12px)
+  );
 }
 
 .route-card__link {
@@ -175,7 +197,14 @@
   color: var(--gg-accent-2);
   line-height: 1;
   text-align: center;
-  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
+  clip-path: polygon(
+    0 0,
+    calc(100% - 12px) 0,
+    100% 12px,
+    100% 100%,
+    12px 100%,
+    0 calc(100% - 12px)
+  );
 }
 
 .stat-card p,
@@ -224,7 +253,14 @@
     transform 160ms ease-out,
     border-color 160ms ease-out,
     background-color 160ms ease-out;
-  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
+  clip-path: polygon(
+    0 0,
+    calc(100% - 14px) 0,
+    100% 14px,
+    100% 100%,
+    14px 100%,
+    0 calc(100% - 14px)
+  );
 }
 
 .control-grid button.control-button--utility {
@@ -234,12 +270,20 @@
 
 .control-grid button.control-button--team-alpha {
   border-color: color-mix(in oklab, var(--gg-team-alpha) 45%, var(--gg-border));
-  background: color-mix(in oklab, var(--gg-team-alpha) 10%, var(--gg-surface-2));
+  background: color-mix(
+    in oklab,
+    var(--gg-team-alpha) 10%,
+    var(--gg-surface-2)
+  );
 }
 
 .control-grid button.control-button--team-bravo {
   border-color: color-mix(in oklab, var(--gg-team-bravo) 45%, var(--gg-border));
-  background: color-mix(in oklab, var(--gg-team-bravo) 10%, var(--gg-surface-2));
+  background: color-mix(
+    in oklab,
+    var(--gg-team-bravo) 10%,
+    var(--gg-surface-2)
+  );
 }
 
 .overlay-page {
@@ -326,7 +370,14 @@
     transform 160ms ease-out,
     border-color 160ms ease-out,
     background-color 160ms ease-out;
-  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
+  clip-path: polygon(
+    0 0,
+    calc(100% - 14px) 0,
+    100% 14px,
+    100% 100%,
+    14px 100%,
+    0 calc(100% - 14px)
+  );
 }
 
 .dashboard-button {
@@ -385,7 +436,14 @@
 .dashboard-empty {
   border: 1px solid var(--gg-border);
   border-radius: var(--gg-radius-md);
-  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
+  clip-path: polygon(
+    0 0,
+    calc(100% - 14px) 0,
+    100% 14px,
+    100% 100%,
+    14px 100%,
+    0 calc(100% - 14px)
+  );
 }
 
 .dashboard-banner,
@@ -472,7 +530,14 @@
   border-left-width: 5px;
   line-height: 1.2;
   overflow-wrap: anywhere;
-  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
+  clip-path: polygon(
+    0 0,
+    calc(100% - 14px) 0,
+    100% 14px,
+    100% 100%,
+    14px 100%,
+    0 calc(100% - 14px)
+  );
 }
 
 .dashboard-message--success {
@@ -573,7 +638,14 @@
   border-radius: var(--gg-radius-md);
   background: color-mix(in oklab, var(--gg-bg) 80%, black);
   color: inherit;
-  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
+  clip-path: polygon(
+    0 0,
+    calc(100% - 12px) 0,
+    100% 12px,
+    100% 100%,
+    12px 100%,
+    0 calc(100% - 12px)
+  );
 }
 
 .dashboard-field input[aria-invalid="true"],
@@ -687,7 +759,14 @@
   border: 1px solid var(--gg-border);
   border-radius: var(--gg-radius-md);
   background: color-mix(in oklab, var(--gg-surface) 88%, black);
-  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
+  clip-path: polygon(
+    0 0,
+    calc(100% - 14px) 0,
+    100% 14px,
+    100% 100%,
+    14px 100%,
+    0 calc(100% - 14px)
+  );
 }
 
 .control-room__summary {
@@ -804,6 +883,136 @@
   align-items: end;
 }
 
+.control-room__wheel-button {
+  border-color: color-mix(in oklab, #f1b94c 44%, var(--gg-border));
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in oklab, #f1b94c 14%, transparent),
+      color-mix(in oklab, #ff7d6e 10%, transparent)
+    ),
+    color-mix(in oklab, var(--gg-surface-2) 92%, black);
+}
+
+.control-room__wheel-panel {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid color-mix(in oklab, #f1b94c 28%, var(--gg-border));
+  border-radius: var(--gg-radius-md);
+  background:
+    radial-gradient(
+      circle at top,
+      color-mix(in oklab, #f1b94c 16%, transparent),
+      transparent 52%
+    ),
+    color-mix(in oklab, var(--gg-surface) 84%, black);
+}
+
+.control-room__wheel-stage {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 13rem;
+  padding: 1rem;
+  overflow: hidden;
+  border: 1px solid color-mix(in oklab, var(--gg-border) 72%, transparent);
+  border-radius: calc(var(--gg-radius-md) - 0.2rem);
+  background:
+    radial-gradient(
+      circle at center,
+      color-mix(in oklab, #f1b94c 16%, transparent),
+      transparent 54%
+    ),
+    color-mix(in oklab, var(--gg-surface-2) 88%, black);
+}
+
+.control-room__wheel-pointer {
+  position: absolute;
+  top: 50%;
+  right: clamp(0.8rem, 2vw, 1.4rem);
+  width: 0;
+  height: 0;
+  border-top: 0.8rem solid transparent;
+  border-bottom: 0.8rem solid transparent;
+  border-left: 1rem solid color-mix(in oklab, #f1b94c 90%, white);
+  transform: translateY(-50%);
+  filter: drop-shadow(0 0 0.6rem color-mix(in oklab, #f1b94c 26%, transparent));
+}
+
+.control-room__wheel-ring {
+  position: absolute;
+  inset: 1.2rem auto auto 50%;
+  width: min(16rem, 72vw);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  transform: translateX(-50%);
+  background: conic-gradient(
+    from 0deg,
+    color-mix(in oklab, #f1b94c 68%, transparent) 0deg 32deg,
+    transparent 32deg 70deg,
+    color-mix(in oklab, #ff7d6e 56%, transparent) 70deg 108deg,
+    transparent 108deg 144deg,
+    color-mix(in oklab, var(--gg-accent) 34%, transparent) 144deg 176deg,
+    transparent 176deg 214deg,
+    color-mix(in oklab, #f1b94c 54%, transparent) 214deg 248deg,
+    transparent 248deg 286deg,
+    color-mix(in oklab, #ff7d6e 48%, transparent) 286deg 320deg,
+    transparent 320deg 360deg
+  );
+  opacity: 0.82;
+  mask: radial-gradient(circle, transparent 0 52%, black 53% 100%);
+}
+
+.control-room__wheel-stage--spinning .control-room__wheel-ring {
+  animation: control-room-wheel-rotate 1s linear infinite;
+}
+
+.control-room__wheel-core {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 0.45rem;
+  justify-items: center;
+  max-width: 24rem;
+  text-align: center;
+}
+
+.control-room__wheel-core strong {
+  font-family: var(--gg-font-display);
+  font-size: clamp(1.2rem, 2.4vw, 1.8rem);
+  line-height: 0.94;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.control-room__wheel-stage--result .control-room__wheel-core strong {
+  color: color-mix(in oklab, #f1b94c 82%, var(--gg-text));
+}
+
+.control-room__wheel-slots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.control-room__wheel-slot {
+  transition:
+    transform 180ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 180ms ease-out,
+    background-color 180ms ease-out;
+}
+
+.control-room__wheel-slot--active {
+  transform: translateY(-0.1rem) scale(1.03);
+  border-color: color-mix(in oklab, #f1b94c 54%, var(--gg-border));
+  background: color-mix(in oklab, #f1b94c 16%, var(--gg-surface-2));
+}
+
+.control-room__wheel-slot--selected {
+  border-color: color-mix(in oklab, #ff7d6e 44%, var(--gg-border));
+}
+
 .control-room__list {
   display: grid;
   gap: 0.85rem;
@@ -916,10 +1125,25 @@
   }
 }
 
+@keyframes control-room-wheel-rotate {
+  from {
+    transform: translateX(-50%) rotate(0deg);
+  }
+
+  to {
+    transform: translateX(-50%) rotate(360deg);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .dashboard-skeleton__bar,
-  .dashboard-skeleton__panel {
+  .dashboard-skeleton__panel,
+  .control-room__wheel-ring {
     animation: none;
+  }
+
+  .control-room__wheel-slot {
+    transition: none;
   }
 }
 

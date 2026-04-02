@@ -461,6 +461,10 @@ export class MatchCoordinator extends DurableObject<Env> {
     return this.applyControlAction(matchId, action);
   }
 
+  async deleteMatchRpc(matchId: string): Promise<void> {
+    await this.deleteMatch(matchId);
+  }
+
   private async getSnapshot(matchId: string): Promise<MatchSnapshot> {
     const runtime = await this.ensureRuntime(matchId);
     this.ensureSnapshotSuggestions(runtime);
@@ -518,6 +522,21 @@ export class MatchCoordinator extends DurableObject<Env> {
 
     await this.finalizeCommands(matchId, runtime);
     return runtime.snapshot;
+  }
+
+  private async deleteMatch(matchId: string): Promise<void> {
+    if (this.activeMatchId && this.activeMatchId !== matchId) {
+      return;
+    }
+
+    for (const socket of this.state.getWebSockets()) {
+      socket.close(1001, "match_deleted");
+    }
+
+    await this.state.storage.deleteAll();
+    this.runtime = null;
+    this.loadingState = null;
+    this.activeMatchId = null;
   }
 
   private async ensureRuntime(matchId: string): Promise<RuntimeState> {
@@ -621,7 +640,9 @@ export class MatchCoordinator extends DurableObject<Env> {
     const replies: Array<ReplyPayload | null> = [];
 
     for (const input of inputs) {
-      replies.push(await this.applyCommand(matchId, runtime, input, Date.now()));
+      replies.push(
+        await this.applyCommand(matchId, runtime, input, Date.now())
+      );
     }
 
     await this.finalizeCommands(matchId, runtime);
@@ -1204,11 +1225,14 @@ function readSocketMatchId(
   state: DurableObjectState,
   webSocket: WebSocket
 ): string | null {
-  const attachment = webSocket.deserializeAttachment() as
-    | { matchId?: unknown }
-    | null;
+  const attachment = webSocket.deserializeAttachment() as {
+    matchId?: unknown;
+  } | null;
 
-  if (typeof attachment?.matchId === "string" && attachment.matchId.length > 0) {
+  if (
+    typeof attachment?.matchId === "string" &&
+    attachment.matchId.length > 0
+  ) {
     return attachment.matchId;
   }
 
