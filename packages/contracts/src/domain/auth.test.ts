@@ -1,7 +1,6 @@
 import {
   addChannelLinkMemberRequestSchema,
   authSessionSchema,
-  canCreateBroadcasterInvite,
   canCreateMatches,
   canManageModerators,
   channelLinkSummarySchema,
@@ -110,8 +109,6 @@ describe("auth contracts", () => {
   });
 
   it("encodes the phase-2 permission model", () => {
-    expect(canCreateBroadcasterInvite("owner")).toBe(true);
-    expect(canCreateBroadcasterInvite("streamer")).toBe(false);
     expect(canManageModerators("owner")).toBe(true);
     expect(canManageModerators("streamer")).toBe(true);
     expect(canManageModerators("mod")).toBe(false);

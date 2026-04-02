@@ -124,10 +124,6 @@ export type CreateChannelLinkRequest = z.infer<typeof createChannelLinkRequestSc
 export type InviteStatus = z.infer<typeof inviteStatusSchema>;
 export type MatchSummary = z.infer<typeof matchSummarySchema>;
 
-export function canCreateBroadcasterInvite(role: z.infer<typeof roleSchema>): boolean {
-  return role === "owner";
-}
-
 export function canManageModerators(role: z.infer<typeof roleSchema>): boolean {
   return role === "owner" || role === "streamer";
 }

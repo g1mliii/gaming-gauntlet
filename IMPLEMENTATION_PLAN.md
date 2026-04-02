@@ -126,6 +126,7 @@ tasks/
 - Moderation tools
 - Reconnect and idempotency logic
 - Error states and empty states
+- Consolidate the initial dashboard bootstrap into a single `/api/dashboard/bootstrap` response that returns session, channel links, and matches while keeping the existing refresh endpoints for compatibility
 - Deployment runbooks and smoke tests
 
 ## Acceptance Criteria For Bootstrap

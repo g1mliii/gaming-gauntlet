@@ -125,8 +125,8 @@ async function run(
   db: D1Database,
   sql: string,
   ...bindings: unknown[]
-): Promise<void> {
-  await db
+): Promise<D1Result<Record<string, unknown>>> {
+  return db
     .prepare(sql)
     .bind(...bindings)
     .run();
@@ -390,8 +390,8 @@ export function createChatStore(env: Env) {
     subscriptionId: string,
     status: string,
     lastError: string | null = null
-  ): Promise<void> {
-    await run(
+  ): Promise<boolean> {
+    const result = await run(
       db,
       `UPDATE eventsub_subscriptions
         SET status = ?,
@@ -406,16 +406,20 @@ export function createChatStore(env: Env) {
       nowIso(),
       subscriptionId
     );
+
+    return (result.meta?.changes ?? 0) > 0;
   }
 
-  async function deleteEventSubSubscriptions(
-    channelLinkId: string
-  ): Promise<void> {
-    await run(
+  async function deleteEventSubSubscription(
+    subscriptionId: string
+  ): Promise<boolean> {
+    const result = await run(
       db,
-      `DELETE FROM eventsub_subscriptions WHERE channel_link_id = ?`,
-      channelLinkId
+      `DELETE FROM eventsub_subscriptions WHERE subscription_id = ?`,
+      subscriptionId
     );
+
+    return (result.meta?.changes ?? 0) > 0;
   }
 
   async function loadCommandState(
@@ -740,7 +744,7 @@ export function createChatStore(env: Env) {
   }
 
   return {
-    deleteEventSubSubscriptions,
+    deleteEventSubSubscription,
     flushCommandState,
     getProcessedCommandMessageExpiry,
     getEventSubSubscription,

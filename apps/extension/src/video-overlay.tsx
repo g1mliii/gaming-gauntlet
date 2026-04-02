@@ -15,17 +15,6 @@ function toFriendlyError(): string {
   return "The extension overlay feed is offline right now.";
 }
 
-export function resolveRequestedMatchKey(
-  search = window.location.search
-): string | null {
-  const searchParams = new URLSearchParams(search);
-  return (
-    searchParams.get("slug")?.trim() ??
-    searchParams.get("matchId")?.trim() ??
-    null
-  );
-}
-
 export function VideoOverlayApp() {
   const runtime = useTwitchExtensionState();
   const matchSlug =

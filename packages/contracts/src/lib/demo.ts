@@ -89,17 +89,3 @@ export function createDemoMatchSnapshot(partial?: Partial<MatchSnapshot>): Match
     updatedAt: partial?.updatedAt ?? new Date().toISOString()
   };
 }
-
-export function createOverlayViewModel(snapshot: MatchSnapshot) {
-  const currentGame = snapshot.queue.find((entry) => entry.id === snapshot.currentGameId) ?? null;
-  const nextGames = snapshot.queue.filter((entry) => entry.status === "queued").slice(0, 3);
-
-    return {
-      matchId: snapshot.matchId,
-      title: snapshot.title,
-      players: snapshot.players,
-      currentGame,
-      nextGames,
-      targetWins: snapshot.targetWins
-    };
-}

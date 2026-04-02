@@ -1,9 +1,11 @@
-import { createDemoMatchSnapshot, createOverlayViewModel } from "./demo";
+import { createDemoMatchSnapshot } from "./demo";
 
-describe("overlay view model", () => {
-  it("surfaces the current and queued games", () => {
-    const overlay = createOverlayViewModel(createDemoMatchSnapshot());
-    expect(overlay.currentGame?.title).toBe("Mario Kart 8 Deluxe");
-    expect(overlay.nextGames).toHaveLength(1);
+describe("createDemoMatchSnapshot", () => {
+  it("creates a snapshot with live and queued defaults", () => {
+    const snapshot = createDemoMatchSnapshot();
+    expect(snapshot.queue.find((entry) => entry.id === snapshot.currentGameId)?.title).toBe(
+      "Mario Kart 8 Deluxe"
+    );
+    expect(snapshot.queue.filter((entry) => entry.status === "queued")).toHaveLength(1);
   });
 });

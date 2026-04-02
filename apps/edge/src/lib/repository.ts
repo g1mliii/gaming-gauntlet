@@ -278,8 +278,8 @@ async function run(
   db: D1Database,
   sql: string,
   ...bindings: unknown[]
-): Promise<void> {
-  await db
+): Promise<D1Result<Record<string, unknown>>> {
+  return db
     .prepare(sql)
     .bind(...bindings)
     .run();
@@ -2071,7 +2071,7 @@ export function createRepository(env: Env) {
       }
     }
 
-    await run(
+    const result = await run(
       db,
       `UPDATE matches
         SET status = ?,
@@ -2083,6 +2083,16 @@ export function createRepository(env: Env) {
       timestamp,
       matchId
     );
+
+    if ((result.meta?.changes ?? 0) === 0) {
+      const summary = await getMatchSummaryById(matchId);
+
+      if (!summary) {
+        throw new AppError(404, "match_not_found");
+      }
+
+      return summary;
+    }
 
     await syncChatTargetsForChannelLink(match.channel_link_id);
     await writeAuditLog({

@@ -150,6 +150,10 @@ function hasDesiredEventSubSubscriptions(
   );
 }
 
+function isUsableEventSubSubscriptionStatus(status: string): boolean {
+  return status === "enabled" || status.includes("pending");
+}
+
 function normalizeLogin(value: string): string {
   return value.trim().toLowerCase();
 }
@@ -957,65 +961,97 @@ async function reconcileEventSubSubscriptions(
 ): Promise<void> {
   const existing = await chatStore.listEventSubSubscriptions(channelLinkId);
   const plan = await chatStore.getSubscriptionPlan(channelLinkId);
+  const desiredSourceChannelIds = plan?.activeSourceChannelIds ?? [];
+  const desiredSources = new Set(desiredSourceChannelIds);
+  const retainedSources = new Set<string>();
+  const subscriptionsToDelete = existing.filter((subscription) => {
+    if (!desiredSources.has(subscription.source_twitch_channel_id)) {
+      return true;
+    }
+
+    if (!isUsableEventSubSubscriptionStatus(subscription.status)) {
+      return true;
+    }
+
+    if (retainedSources.has(subscription.source_twitch_channel_id)) {
+      return true;
+    }
+
+    retainedSources.add(subscription.source_twitch_channel_id);
+    return false;
+  });
+  const sourceChannelIdsToCreate = desiredSourceChannelIds.filter(
+    (sourceChannelId) => !retainedSources.has(sourceChannelId)
+  );
 
   if (
     !plan ||
     !plan.ownerAuthorized ||
     !plan.linkedAuthorized ||
-    plan.activeSourceChannelIds.length === 0
+    desiredSourceChannelIds.length === 0
   ) {
-    if (existing.length === 0) {
+    if (subscriptionsToDelete.length === 0) {
       return;
     }
 
     const appAccessToken = await getAppAccessToken(env);
-
-    for (const subscription of existing) {
-      await deleteEventSubSubscription(
-        env,
-        appAccessToken,
-        subscription.subscription_id
-      );
-    }
-
-    await chatStore.deleteEventSubSubscriptions(channelLinkId);
+    await Promise.all(
+      subscriptionsToDelete.map(async (subscription) => {
+        await deleteEventSubSubscription(
+          env,
+          appAccessToken,
+          subscription.subscription_id
+        );
+        await chatStore.deleteEventSubSubscription(subscription.subscription_id);
+      })
+    );
     return;
   }
 
-  if (hasDesiredEventSubSubscriptions(existing, plan.activeSourceChannelIds)) {
+  if (
+    subscriptionsToDelete.length === 0 &&
+    sourceChannelIdsToCreate.length === 0 &&
+    hasDesiredEventSubSubscriptions(existing, desiredSourceChannelIds)
+  ) {
     return;
   }
 
   const appAccessToken = await getAppAccessToken(env);
 
-  for (const subscription of existing) {
-    await deleteEventSubSubscription(
-      env,
-      appAccessToken,
-      subscription.subscription_id
+  await Promise.all(
+    subscriptionsToDelete.map(async (subscription) => {
+      await deleteEventSubSubscription(
+        env,
+        appAccessToken,
+        subscription.subscription_id
+      );
+      await chatStore.deleteEventSubSubscription(subscription.subscription_id);
+    })
+  );
+
+  if (sourceChannelIdsToCreate.length > 0) {
+    const bot = await ensureSharedBotIdentity(env, repo);
+
+    await Promise.all(
+      sourceChannelIdsToCreate.map(async (sourceChannelId) => {
+        const subscription = await createEventSubChatMessageSubscription(
+          env,
+          appAccessToken,
+          {
+            broadcasterUserId: sourceChannelId,
+            userId: bot.senderId,
+          }
+        );
+
+        await chatStore.upsertEventSubSubscription({
+          channelLinkId,
+          subscriptionId: subscription.id,
+          sourceTwitchChannelId: sourceChannelId,
+          broadcasterTwitchChannelId: sourceChannelId,
+          status: subscription.status,
+        });
+      })
     );
-  }
-
-  await chatStore.deleteEventSubSubscriptions(channelLinkId);
-  const bot = await ensureSharedBotIdentity(env, repo);
-
-  for (const sourceChannelId of plan.activeSourceChannelIds) {
-    const subscription = await createEventSubChatMessageSubscription(
-      env,
-      appAccessToken,
-      {
-        broadcasterUserId: sourceChannelId,
-        userId: bot.senderId,
-      }
-    );
-
-    await chatStore.upsertEventSubSubscription({
-      channelLinkId,
-      subscriptionId: subscription.id,
-      sourceTwitchChannelId: sourceChannelId,
-      broadcasterTwitchChannelId: sourceChannelId,
-      status: subscription.status,
-    });
   }
 }
 
