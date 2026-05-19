@@ -1,10 +1,7 @@
-import type {
-  PublicQueuePreviewItem,
-  QueueItem,
-} from "@gaming-gauntlet/contracts";
+import type { GauntletQueueItem } from "../types";
 
 type QueueListProps = {
-  items: Array<QueueItem | PublicQueuePreviewItem>;
+  items: GauntletQueueItem[];
   title?: string;
   summary?: string;
   transparent?: boolean;

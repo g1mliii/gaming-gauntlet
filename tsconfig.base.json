@@ -13,10 +13,10 @@
     "allowSyntheticDefaultImports": true,
     "skipLibCheck": true,
     "baseUrl": ".",
+    "ignoreDeprecations": "6.0",
     "paths": {
-      "@gaming-gauntlet/contracts": ["packages/contracts/src/index.ts"],
       "@gaming-gauntlet/ui": ["packages/ui/src/index.ts"]
     },
-    "types": ["vite/client", "vitest/globals", "node"]
+    "types": ["node"]
   }
 }

@@ -1,57 +1,31 @@
 {
-  "name": "gaming-gauntlet-twitch",
+  "name": "gaming-gauntlet-ui-kit",
   "private": true,
   "version": "0.1.0",
-  "description": "Gaming Gauntlet is a Twitch-integrated, multi-streamer challenge board for live game suggestions, voting, overlays, and score tracking.",
+  "description": "Reusable Gaming Gauntlet UI kit extracted from the retired app.",
   "packageManager": "npm@11.6.2",
   "workspaces": [
-    "apps/*",
-    "packages/*"
+    "packages/ui"
   ],
   "scripts": {
-    "cf:types": "npm run cf:types --workspace @gaming-gauntlet/edge",
-    "cf:types:check": "npm run cf:types:check --workspace @gaming-gauntlet/edge",
-    "dev": "concurrently -n web,extension,edge -c magenta,cyan,yellow \"npm:dev:web\" \"npm:dev:extension\" \"npm:dev:edge\"",
-    "dev:web": "npm run dev --workspace @gaming-gauntlet/web",
-    "dev:extension": "npm run dev --workspace @gaming-gauntlet/extension",
-    "dev:edge": "npm run dev --workspace @gaming-gauntlet/edge",
-    "build": "npm run build --workspace @gaming-gauntlet/web && npm run build --workspace @gaming-gauntlet/extension && npm run build --workspace @gaming-gauntlet/edge",
+    "build": "npm run build --workspace @gaming-gauntlet/ui",
     "lint": "eslint . --max-warnings=0",
-    "security:deps": "node ./tasks/check-blocked-packages.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.typecheck.json --pretty false",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:e2e": "playwright test",
     "format": "prettier --write .",
-    "verify": "npm run security:deps && npm run lint && npm run cf:types:check && npm run typecheck && npm run test"
-  },
-  "overrides": {
-    "axios@1.14.1": "1.14.0",
-    "axios@0.30.4": "0.30.3",
-    "plain-crypto-js@4.2.1": "0.0.1-security.0"
+    "verify": "npm run lint && npm run typecheck && npm run build"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260317.1",
     "@eslint/js": "^10.0.1",
-    "@playwright/test": "^1.52.0",
-    "@testing-library/jest-dom": "^6.6.3",
-    "@testing-library/react": "^16.3.0",
     "@types/node": "^24.6.1",
     "@types/react": "^19.1.2",
     "@types/react-dom": "^19.1.2",
-    "@vitejs/plugin-react": "^5.0.2",
-    "concurrently": "^9.1.2",
     "eslint": "^10.1.0",
     "eslint-config-prettier": "^10.1.1",
     "globals": "^16.0.0",
-    "jsdom": "^26.1.0",
-    "playwright": "^1.52.0",
     "prettier": "^3.5.3",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
     "typescript": "^5.8.2",
-    "typescript-eslint": "^8.57.2",
-    "vite": "^7.1.3",
-    "vite-tsconfig-paths": "^5.1.4",
-    "vitest": "^3.2.4",
-    "wrangler": "^4.10.0"
+    "typescript-eslint": "^8.57.2"
   }
 }

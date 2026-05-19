@@ -2,6 +2,7 @@
   "name": "@gaming-gauntlet/ui",
   "version": "0.1.0",
   "private": true,
+  "description": "Gaming Gauntlet design tokens and React UI primitives.",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",

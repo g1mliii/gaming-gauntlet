@@ -1,32 +1,19 @@
-import type {
-  MatchSnapshot,
-  PublicMatchComponentSurface,
-  PublicMatchOverlaySurface,
-  PublicMatchPageSurface,
-} from "@gaming-gauntlet/contracts";
+import type { GauntletMatchSurface } from "../types";
 
 type ScoreBugProps = {
-  match:
-    | MatchSnapshot
-    | PublicMatchComponentSurface
-    | PublicMatchOverlaySurface
-    | PublicMatchPageSurface;
+  match: GauntletMatchSurface;
   transparent?: boolean;
 };
 
-function getCurrentGameTitle(
-  match:
-    | MatchSnapshot
-    | PublicMatchComponentSurface
-    | PublicMatchOverlaySurface
-    | PublicMatchPageSurface
-): string {
-  if ("currentGame" in match) {
-    return match.currentGame?.title ?? "Waiting for next pick";
+function getCurrentGameTitle(match: GauntletMatchSurface): string {
+  if (match.currentGame?.title) {
+    return match.currentGame.title;
   }
 
   const currentGame =
-    match.queue.find((item) => item.id === match.currentGameId) ?? null;
+    match.queue?.find((item) => item.id === match.currentGameId) ??
+    match.upcomingQueue?.find((item) => item.status === "live") ??
+    null;
   return currentGame?.title ?? "Waiting for next pick";
 }
 

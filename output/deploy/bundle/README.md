@@ -1,1 +1,0 @@
-This folder contains the built output assets for the worker "gaming-gauntlet-edge" generated at 2026-03-27T19:37:22.677Z.

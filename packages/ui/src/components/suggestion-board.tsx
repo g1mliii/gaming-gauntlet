@@ -1,10 +1,7 @@
-import type {
-  PublicBoardEntry,
-  Suggestion,
-} from "@gaming-gauntlet/contracts";
+import type { GauntletSuggestion } from "../types";
 
 type SuggestionBoardProps = {
-  suggestions: Array<Suggestion | PublicBoardEntry>;
+  suggestions: GauntletSuggestion[];
   title?: string;
   trackedCount?: number;
   emptyLabel?: string;
@@ -35,14 +32,14 @@ export function SuggestionBoard({
         <ol className="gg-board">
           {boardSuggestions.map((suggestion) => (
             <li
-              key={"id" in suggestion ? suggestion.id : suggestion.boardId}
+              key={suggestion.id ?? suggestion.boardId}
               className="gg-board__row"
             >
               <div>
                 <p className="gg-board__title">{suggestion.title}</p>
                 <p className="gg-board__meta">
                   #{suggestion.boardId}
-                  {"sourceChannelId" in suggestion && suggestion.sourceChannelId
+                  {suggestion.sourceChannelId
                     ? ` from channel ${suggestion.sourceChannelId}`
                     : ""}
                 </p>

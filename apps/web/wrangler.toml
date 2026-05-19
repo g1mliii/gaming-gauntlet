@@ -1,8 +1,0 @@
-name = "gaming-gauntlet-frontend"
-compatibility_date = "2026-03-27"
-workers_dev = false
-
-[assets]
-directory = "./dist"
-html_handling = "auto-trailing-slash"
-not_found_handling = "single-page-application"

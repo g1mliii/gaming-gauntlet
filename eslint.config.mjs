@@ -8,12 +8,7 @@ export default [
     ignores: [
       "**/dist/**",
       "**/coverage/**",
-      "**/output/**",
-      "**/playwright-report/**",
-      "**/test-results/**",
-      "**/.wrangler/**",
-      "**/node_modules/**",
-      "**/worker-configuration.d.ts"
+      "**/node_modules/**"
     ]
   },
   js.configs.recommended,
@@ -27,8 +22,7 @@ export default [
       },
       globals: {
         ...globals.browser,
-        ...globals.node,
-        ...globals.serviceworker
+        ...globals.node
       }
     },
     rules: {
