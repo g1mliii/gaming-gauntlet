@@ -1,792 +1,639 @@
-# Gaming Gauntlet Simplified V1 Implementation Plan
+# Gaming Gauntlet V1 — AI Implementation Phases
 
-## Overview
+This document turns the Gaming Gauntlet V1 plan into AI-agent-sized implementation phases.
 
-Gaming Gauntlet is a simple Twitch streamer-vs-streamer game wheel and score tracker.
+The goal is to let you tell an AI coding agent things like:
 
-A streamer opens the site, creates a lobby, edits a shared list of games, spins a wheel, tracks scores, and uses browser-source OBS overlays to show the current game, scores, and match state on stream.
+> Start Phase 1 only.
 
-The site is designed to be leak-friendly: management access uses a private hidden code that is never placed in the URL and never shown in overlays.
+Each phase includes a clear implementation goal and required regression tests before moving on.
 
-## Core V1 Scope
+---
 
-Build a fast, simple version with:
-
-- Editable game wheel
-- Live game list management
-- Spin button and selected game result
-- Score tracking for two players/streamers
-- Shared lobby state between multiple managers
-- Hidden management code for write access
-- Public read-only lobby state for overlays
-- Multiple OBS browser-source overlay layouts
-- Cloudflare Pages frontend
-- Cloudflare Worker API
-- Cloudflare D1 database
-
-## Product Goal
-
-The first version should be useful without Twitch OAuth, Twitch chat commands, Twitch Extension support, bots, EventSub, or complex realtime infrastructure.
-
-The goal is:
+## Global Instruction To Give The AI First
 
 ```text
-Open site → create lobby → add games → share management code with co-streamer → spin wheel → update score → use OBS overlay.
+You are implementing Gaming Gauntlet V1.
+
+Important rules:
+- Use the existing UI/design kit. Do not redesign the app from scratch.
+- Keep V1 simple: React + Vite + TypeScript frontend, Cloudflare Worker API, Cloudflare D1.
+- Do not add Twitch OAuth, Twitch Extension support, EventSub, chat bots, accounts, billing, or WebSockets.
+- Management codes must never appear in URLs, public API responses, overlays, logs, or visible UI unless the user explicitly clicks reveal/copy inside the management UI.
+- Store only a hash of the management code.
+- Write or update regression tests at the end of every phase.
+- Do not move to the next phase unless lint, typecheck, build, and tests pass.
 ```
 
-## User Flow
+---
 
-### 1. Create Lobby
+# Phase 1 — Scope Cleanup + App Baseline
 
-User goes to Gaming Gauntlet and creates a new lobby.
+## Goal
 
-They enter:
+Make the repo ready for the simplified V1 build.
 
-- Player 1 name
-- Player 2 name
-- Optional starting game list
-- Optional target score
-
-The site creates:
-
-- A public `lobbyId`
-- A private `managementCode`
-
-The URL should only contain the public lobby ID.
-
-Example routes:
+## AI Prompt
 
 ```text
-/g/abc123
-/manage/abc123
-/overlay/abc123/top
+Implement Phase 1: Scope Cleanup + App Baseline.
+
+Tasks:
+1. Audit the existing app structure.
+2. Remove or disable V1-blocking Twitch Extension, Twitch OAuth, EventSub, chat bot, queue, and complex realtime code if present.
+3. Keep the existing UI/design kit.
+4. Confirm the app has basic routes ready for:
+   - /
+   - /create
+   - /manage/:lobbyId
+   - /g/:lobbyId
+   - /overlay/:lobbyId/top
+5. Add placeholder pages if needed.
+6. Make sure the app runs locally.
+7. Do not implement full lobby logic yet.
+
+At the end, add regression tests.
 ```
 
-The private code is never included in the URL.
-
-### 2. Manage Lobby
-
-The management page asks for the hidden code if it is not already saved locally.
-
-Once entered, the code is stored in browser local storage.
-
-All write requests send the code in a request header, not in the URL.
-
-Example:
-
-```http
-Authorization: Bearer <managementCode>
-```
-
-Managers can:
-
-- Add games
-- Remove games
-- Rename games
-- Reorder games
-- Clear the list
-- Spin the wheel
-- Set the current selected game
-- Increase/decrease scores
-- Reset scores
-- Rename players
-- Change target score
-- Reset lobby state
-
-### 3. Share Management
-
-The lobby owner can share:
-
-- The lobby management URL
-- The hidden management code separately
-
-The URL is safe to leak because it does not contain the code.
-
-The code should never appear in:
-
-- Browser URL
-- OBS overlay
-- Public lobby page
-- API response after initial creation, except optional manual reveal/copy inside management UI
-
-### 4. OBS Overlay
-
-OBS users add a browser source URL.
-
-Overlay URLs are read-only and public.
-
-Example overlay routes:
+## Regression Tests For Phase 1
 
 ```text
-/overlay/abc123/top
-/overlay/abc123/compact-left
-/overlay/abc123/compact-right
-/overlay/abc123/square
-/overlay/abc123/lower-third
-/overlay/abc123/wheel
+Add tests that verify:
+- The app can render the landing page.
+- /create route exists.
+- /manage/:lobbyId route exists.
+- /overlay/:lobbyId/top route exists.
+- No V1 route requires Twitch login.
+- No route includes managementCode, code, token, or secret in URL params.
 ```
 
-Each overlay pulls the current lobby state and renders it in a stream-friendly layout.
+---
 
-## Best OBS Integration Approach
+# Phase 2 — Shared Types, Validation, and D1 Schema
 
-The best integration for V1 is **OBS Browser Source links**.
+## Goal
 
-Do not make streamers install anything. Do not require OBS WebSocket. Do not require a plugin. Do not make them log into Twitch inside OBS.
+Create the backend foundation before building UI features.
 
-The management page should generate copyable browser-source URLs for every overlay layout.
-
-### OBS Setup Flow For Streamers
-
-Inside the management page, add an **OBS Overlays** panel.
-
-Each overlay should have:
-
-- Overlay name
-- Short description
-- Recommended OBS width and height
-- Copy URL button
-- Preview button
-- Optional transparent-background note
-
-Example UI:
+## AI Prompt
 
 ```text
-OBS Overlays
+Implement Phase 2: Shared Types, Validation, and D1 Schema.
 
-Top Bar
-Best for the top middle of the stream.
-Recommended size: 1920 × 180
-[Copy OBS URL] [Preview]
+Tasks:
+1. Add shared TypeScript types for:
+   - Lobby
+   - Game
+   - LobbyState
+   - PublicLobbyState
+   - CreateLobbyRequest
+   - CreateLobbyResponse
+2. Add Zod validation for all API request bodies.
+3. Create Cloudflare D1 migrations for:
+   - lobbies
+   - games
+   - lobby_secrets
+4. Store only managementCodeHash, never raw managementCode.
+5. Add helper functions for:
+   - creating lobby IDs
+   - creating management codes
+   - hashing management codes
+   - verifying management codes
+6. Include version and updatedAt fields for polling.
 
-Lower Third
-Best for the bottom of the stream.
-Recommended size: 1920 × 220
-[Copy OBS URL] [Preview]
-
-Compact Left
-Best for the left side of gameplay.
-Recommended size: 420 × 720
-[Copy OBS URL] [Preview]
-
-Compact Right
-Best for the right side of gameplay.
-Recommended size: 420 × 720
-[Copy OBS URL] [Preview]
-
-Square Card
-Best for a stream corner.
-Recommended size: 480 × 480
-[Copy OBS URL] [Preview]
-
-Wheel
-Best when the streamer wants the wheel spin visible.
-Recommended size: 900 × 900
-[Copy OBS URL] [Preview]
+Do not build the UI yet except what is needed to compile.
+At the end, add regression tests.
 ```
 
-### OBS Instructions To Show In The App
-
-Add this short instruction block directly inside the management page:
+## Regression Tests For Phase 2
 
 ```text
-How to add this to OBS:
-
-1. Copy the overlay URL.
-2. In OBS, go to Sources.
-3. Click +.
-4. Choose Browser.
-5. Paste the URL.
-6. Set the recommended width and height.
-7. Click OK.
-8. Drag the overlay where you want it on stream.
+Add tests that verify:
+- D1 schema/migrations are valid.
+- Lobby type requires id, player names, scores, status, version, createdAt, updatedAt.
+- Game type requires id, lobbyId, title, position, enabled.
+- managementCodeHash exists but raw managementCode is never stored.
+- Invalid create lobby payloads are rejected.
+- Hash verification accepts correct code and rejects incorrect code.
 ```
 
-### Recommended Overlay Sizes
+---
 
-| Overlay | Best Use | OBS Width | OBS Height |
-|---|---:|---:|---:|
-| Top Bar | Top center of stream | 1920 | 180 |
-| Lower Third | Bottom of stream | 1920 | 220 |
-| Compact Left | Left side vertical layout | 420 | 720 |
-| Compact Right | Right side vertical layout | 420 | 720 |
-| Square Card | Corner card | 480 | 480 |
-| Wheel | Visible spin scene/source | 900 | 900 |
-| Fullscreen Showcase | Intermission or intro scene | 1920 | 1080 |
+# Phase 3 — Core Lobby API
 
-### Overlay URL Design
+## Goal
 
-Overlay URLs should be clean and safe:
+Build the backend endpoints needed for lobby creation and public state.
+
+## AI Prompt
 
 ```text
-https://gaminggauntlet.com/overlay/:lobbyId/top
-https://gaminggauntlet.com/overlay/:lobbyId/lower-third
-https://gaminggauntlet.com/overlay/:lobbyId/compact-left
-https://gaminggauntlet.com/overlay/:lobbyId/compact-right
-https://gaminggauntlet.com/overlay/:lobbyId/square
-https://gaminggauntlet.com/overlay/:lobbyId/wheel
+Implement Phase 3: Core Lobby API.
+
+Tasks:
+1. Implement:
+   - POST /api/lobbies
+   - GET /api/lobbies/:lobbyId/state
+   - POST /api/lobbies/:lobbyId/verify
+2. POST /api/lobbies should accept:
+   - playerOneName
+   - playerTwoName
+   - optional starting game list
+   - optional targetScore
+3. POST /api/lobbies should return:
+   - lobbyId
+   - managementCode
+4. This is the only automatic API response that may include the raw managementCode.
+5. GET /state must return only public state.
+6. GET /state must never return managementCode, managementCodeHash, secret, token, or authorization data.
+7. Add version and updatedAt to state responses.
+8. Add proper 404 and validation error responses.
+
+At the end, add regression tests.
 ```
 
-Do not include the management code in query params.
-
-Avoid this:
+## Regression Tests For Phase 3
 
 ```text
-/overlay/abc123/top?code=secret
+Add tests that verify:
+- POST /api/lobbies creates a lobby.
+- POST /api/lobbies returns lobbyId and managementCode.
+- Created lobby has games if starting games were provided.
+- GET /api/lobbies/:lobbyId/state returns public lobby state.
+- GET /state never returns managementCode or managementCodeHash.
+- POST /verify returns success for the correct code.
+- POST /verify rejects an incorrect code.
+- Unknown lobbyId returns 404.
 ```
 
-Use only public, read-only lobby state for overlays.
+---
 
-### Optional Overlay Customization
+# Phase 4 — Authenticated Lobby + Game Management API
 
-For V1, keep customization simple.
+## Goal
 
-Optional query params are fine because they are not secret:
+Add all write operations using the management code in the request header.
+
+## AI Prompt
 
 ```text
-/overlay/abc123/top?theme=neon
-/overlay/abc123/top?showNext=true
-/overlay/abc123/top?scale=1.2
-/overlay/abc123/square?brand=false
+Implement Phase 4: Authenticated Lobby + Game Management API.
+
+Tasks:
+1. Add auth middleware/helper that reads:
+   Authorization: Bearer <managementCode>
+2. Never accept management code from query params.
+3. Implement:
+   - PATCH /api/lobbies/:lobbyId
+   - POST /api/lobbies/:lobbyId/games
+   - PATCH /api/lobbies/:lobbyId/games/:gameId
+   - DELETE /api/lobbies/:lobbyId/games/:gameId
+   - POST /api/lobbies/:lobbyId/games/reorder
+4. PATCH lobby should support:
+   - player names
+   - scores
+   - target score
+   - current game
+   - status
+5. Game endpoints should support:
+   - add
+   - rename
+   - remove
+   - enable/disable
+   - reorder
+6. Every successful write should increment lobby.version and update updatedAt.
+7. Return safe public state after mutations.
+
+At the end, add regression tests.
 ```
 
-Safe query params:
-
-- `theme`
-- `scale`
-- `showNext`
-- `brand`
-- `transparent`
-- `animation`
-
-Unsafe query params:
-
-- `code`
-- `token`
-- `secret`
-- `managementCode`
-
-### Best User Experience
-
-The easiest experience is:
-
-1. Streamer creates lobby.
-2. Streamer opens management room.
-3. Streamer clicks `Copy OBS URL`.
-4. Streamer pastes URL into OBS Browser Source.
-5. Overlay updates automatically as they manage the match.
-
-No account required. No install required. No Twitch setup required.
-
-### OBS Troubleshooting Notes
-
-Add a small help section:
+## Regression Tests For Phase 4
 
 ```text
-Overlay not showing?
-- Make sure the OBS source type is Browser.
-- Make sure the URL is pasted correctly.
-- Make sure width and height match the recommended size.
-- Right-click the source and choose Transform → Fit to Screen if needed.
-- Refresh the browser source.
-- Make sure the lobby still exists.
+Add tests that verify:
+- Write endpoints reject missing Authorization header.
+- Write endpoints reject wrong management code.
+- Write endpoints accept correct Bearer code.
+- Query param secrets like ?code=abc are ignored/rejected.
+- Updating scores increments version.
+- Renaming players increments version.
+- Adding/editing/deleting/reordering games increments version.
+- API responses after writes never include managementCode or managementCodeHash.
 ```
 
-## Overlay Layouts
+---
 
-V1 should include these overlay formats.
+# Phase 5 — Create Page + Management Code UX
 
-### Top Bar
+## Goal
 
-For top-middle of the stream.
+Build the creation flow and safe management-code handling.
 
-Shows:
-
-- Player names
-- Scores
-- Current game
-- Target score if set
-
-### Lower Third
-
-For bottom of stream.
-
-Shows:
-
-- Current game
-- Scores
-- Optional next games
-
-### Compact Left
-
-Small vertical overlay for left side.
-
-Shows:
-
-- Current game
-- Player 1 score
-- Player 2 score
-
-### Compact Right
-
-Same as compact left, aligned for right side.
-
-### Square Card
-
-Good for corner placement.
-
-Shows:
-
-- Current selected game
-- Score block
-- Small Gaming Gauntlet branding
-
-### Wheel Overlay
-
-Optional browser source that shows the wheel itself.
-
-Useful if streamers want the spin visible on stream.
-
-### Fullscreen Showcase
-
-Useful for intro, intermission, or "next game" scenes.
-
-Shows:
-
-- Big current game
-- Large score
-- Player names
-- Optional wheel result animation
-
-## Pages And Routes
+## AI Prompt
 
 ```text
-/                         Landing page
-/create                   Create lobby
-/manage/:lobbyId          Management room
-/g/:lobbyId               Public lobby view
-/overlay/:lobbyId/top     OBS top bar overlay
-/overlay/:lobbyId/lower   OBS lower-third overlay
-/overlay/:lobbyId/left    OBS compact left overlay
-/overlay/:lobbyId/right   OBS compact right overlay
-/overlay/:lobbyId/square  OBS square overlay
-/overlay/:lobbyId/wheel   OBS wheel overlay
-/overlay/:lobbyId/full    Fullscreen showcase overlay
+Implement Phase 5: Create Page + Management Code UX.
+
+Tasks:
+1. Build /create using the existing UI/design kit.
+2. Form fields:
+   - Player 1 name
+   - Player 2 name
+   - Optional starting game list
+   - Optional target score
+3. On submit, call POST /api/lobbies.
+4. After creation, show:
+   - Management URL
+   - Public lobby URL
+   - Management code with hidden-by-default display
+5. Management code must be hidden by default.
+6. Reveal requires an explicit user click.
+7. Copy code requires an explicit user action.
+8. Never put the management code in the URL.
+9. Store the management code in localStorage only after creation or successful verification.
+10. Redirect/open /manage/:lobbyId without the code in the URL.
+
+At the end, add regression tests.
 ```
 
-## Tech Stack
-
-Use the simple Cloudflare stack:
+## Regression Tests For Phase 5
 
 ```text
-Frontend:
-- React
-- Vite
-- TypeScript
-- Existing UI kit
-- Cloudflare Pages
-
-Backend:
-- Cloudflare Worker
-- Cloudflare D1
-- Zod for validation
+Add tests that verify:
+- User can create a lobby from /create.
+- Created management URL does not include the management code.
+- Created public URL does not include the management code.
+- Management code is hidden by default.
+- Reveal button reveals code only after click.
+- localStorage stores code only after creation or verification.
+- DOM does not expose the code in overlay/public links.
 ```
 
-Do not use Twitch Extension, Twitch OAuth, EventSub, Queues, or chat bot infrastructure in V1.
+---
 
-Durable Objects are optional and should be avoided unless truly needed.
+# Phase 6 — Management Room UI
 
-## Realtime Strategy
+## Goal
 
-For V1, use simple polling instead of WebSockets or Durable Objects.
+Build the main streamer control room.
 
-Management page and overlays can poll:
-
-```http
-GET /api/lobbies/:lobbyId/state
-```
-
-Poll every 1–2 seconds.
-
-Each state response includes:
-
-```ts
-updatedAt: number
-version: number
-```
-
-Clients can avoid unnecessary rerenders if the version has not changed.
-
-This is cheaper, simpler, and good enough for OBS overlays.
-
-## Basic Data Model
-
-### Lobby
-
-```ts
-type Lobby = {
-  id: string
-  playerOneName: string
-  playerTwoName: string
-  playerOneScore: number
-  playerTwoScore: number
-  targetScore: number | null
-  currentGameId: string | null
-  status: "active" | "finished"
-  version: number
-  createdAt: number
-  updatedAt: number
-}
-```
-
-### Game
-
-```ts
-type Game = {
-  id: string
-  lobbyId: string
-  title: string
-  position: number
-  enabled: boolean
-  createdAt: number
-  updatedAt: number
-}
-```
-
-### Management Access
-
-```ts
-type LobbySecret = {
-  lobbyId: string
-  managementCodeHash: string
-  createdAt: number
-}
-```
-
-Store only a hash of the management code.
-
-Do not store the raw code.
-
-## API Endpoints
-
-### Public Read
-
-```http
-GET /api/lobbies/:lobbyId/state
-```
-
-Returns public lobby state for the management page, public page, and overlays.
-
-Should never return the management code.
-
-### Create Lobby
-
-```http
-POST /api/lobbies
-```
-
-Creates a lobby and returns:
-
-```ts
-{
-  lobbyId: string
-  managementCode: string
-}
-```
-
-This is the only time the raw management code is automatically returned.
-
-### Verify Management Code
-
-```http
-POST /api/lobbies/:lobbyId/verify
-```
-
-Checks whether a management code is valid.
-
-### Update Lobby
-
-```http
-PATCH /api/lobbies/:lobbyId
-```
-
-Requires management code.
-
-Can update:
-
-- Player names
-- Scores
-- Target score
-- Current game
-- Status
-
-### Manage Games
-
-```http
-POST /api/lobbies/:lobbyId/games
-PATCH /api/lobbies/:lobbyId/games/:gameId
-DELETE /api/lobbies/:lobbyId/games/:gameId
-POST /api/lobbies/:lobbyId/games/reorder
-```
-
-Requires management code.
-
-### Spin Wheel
-
-```http
-POST /api/lobbies/:lobbyId/spin
-```
-
-Requires management code.
-
-Server chooses the selected game from enabled games and updates `currentGameId`.
-
-## UI Requirements
-
-### Management Page
-
-Main layout:
-
-- Large wheel on the left
-- Editable game list on the right
-- Score controls below or beside the wheel
-- Current selected game clearly visible
-- Overlay URL copy buttons
-- Hidden code management section
-
-Right-side game editor:
-
-- Add game input
-- Inline rename
-- Delete button
-- Enable/disable toggle
-- Drag reorder if easy, otherwise up/down buttons for V1
-
-Score controls:
-
-- `+1` and `-1` for each player
-- Reset score
-- Optional target score
-- Clear current game
-- Reset match
-
-### Overlay Settings
-
-Management page should provide copy buttons for each overlay type:
+## AI Prompt
 
 ```text
-Top Bar
-Lower Third
-Compact Left
-Compact Right
-Square
-Wheel
-Fullscreen Showcase
+Implement Phase 6: Management Room UI.
+
+Tasks:
+1. Build /manage/:lobbyId.
+2. If no local management code exists, show code entry form.
+3. Verify the code using POST /api/lobbies/:lobbyId/verify.
+4. After verification, store code in localStorage.
+5. Build management UI using the existing UI/design kit:
+   - Wheel area
+   - Editable game list
+   - Add game input
+   - Rename game
+   - Delete game
+   - Enable/disable game
+   - Reorder game using drag-and-drop or up/down buttons
+   - Score controls for both players
+   - Reset scores
+   - Rename players
+   - Target score editor
+   - Current game display
+   - Clear current game
+   - Reset match
+6. All write requests must send:
+   Authorization: Bearer <managementCode>
+7. Poll public state every 1–2 seconds.
+8. Avoid rerendering if version has not changed.
+
+At the end, add regression tests.
 ```
 
-Each copied URL should be safe for OBS and should not include the management code.
-
-## Deployment
-
-Use:
+## Regression Tests For Phase 6
 
 ```text
-Cloudflare Pages
-Cloudflare Worker
-Cloudflare D1
+Add tests that verify:
+- /manage/:lobbyId asks for code when localStorage has no code.
+- Correct code unlocks management UI.
+- Wrong code shows invalid code state.
+- Add game works.
+- Rename game works.
+- Delete game works.
+- Enable/disable game works.
+- Reorder game works.
+- +1 and -1 score controls work.
+- Reset score works.
+- Player rename works.
+- Target score update works.
+- All write requests use Authorization header.
+- No write request sends code in URL or query params.
 ```
 
-Suggested structure:
+---
+
+# Phase 7 — Wheel Logic + Spin Flow
+
+## Goal
+
+Make the core game mechanic work.
+
+## AI Prompt
 
 ```text
-apps/
-  web/
-  worker/
-packages/
-  ui/
-  shared/
+Implement Phase 7: Wheel Logic + Spin Flow.
+
+Tasks:
+1. Add wheel component using the existing UI/design kit.
+2. Add POST /api/lobbies/:lobbyId/spin.
+3. Spin endpoint must:
+   - require Authorization header
+   - select from enabled games only
+   - reject spin if no enabled games exist
+   - set currentGameId
+   - increment version
+   - update updatedAt
+4. Add frontend spin button.
+5. Add spin animation.
+6. Respect prefers-reduced-motion.
+7. After spin completes, show the selected game clearly.
+8. Make sure overlays receive the selected game via public state polling.
+
+At the end, add regression tests.
 ```
 
-Or, if the repo is already simpler, keep it simpler:
+## Regression Tests For Phase 7
 
 ```text
-src/
-worker/
-shared/
+Add tests that verify:
+- Spin requires Authorization header.
+- Spin rejects wrong code.
+- Spin selects only enabled games.
+- Spin rejects when there are no enabled games.
+- Spin updates currentGameId.
+- Spin increments version.
+- Management UI shows selected game after spin.
+- Reduced-motion mode does not rely on long animation to update state.
 ```
 
-Do not spend time restructuring unless it directly speeds up development.
+---
 
-## Delivery Phases
+# Phase 8 — OBS Overlay Routes
 
-### Phase 1 — Simplify Existing App
+## Goal
 
-- Remove Twitch Extension scope from V1
-- Remove chat command scope from V1
-- Remove EventSub and bot scope from V1
-- Keep only website, management page, Worker API, D1, and OBS overlays
-- Confirm the app runs locally
+Build all read-only browser-source overlays.
 
-### Phase 2 — Lobby And State API
-
-- Create D1 schema
-- Add lobby creation endpoint
-- Add public lobby state endpoint
-- Add management-code verification
-- Add authenticated update endpoints
-- Store management code as a hash
-
-### Phase 3 — Management UI
-
-- Build `/create`
-- Build `/manage/:lobbyId`
-- Add wheel component
-- Add editable game list
-- Add score controls
-- Add current game display
-- Add overlay URL copy section
-
-### Phase 4 — Wheel Logic
-
-- Add spin animation
-- Pick enabled game
-- Save selected game to lobby state
-- Sync selected game to overlays
-- Add reset/clear selected game
-
-### Phase 5 — OBS Overlays
-
-Build overlay routes:
-
-- Top bar
-- Lower third
-- Compact left
-- Compact right
-- Square
-- Wheel
-- Fullscreen showcase
-
-Each overlay should:
-
-- Use transparent background where appropriate
-- Be readable on stream
-- Poll lobby state
-- Hide all management controls
-- Never expose the management code
-
-### Phase 6 — Polish And Deploy
-
-- Add loading states
-- Add empty game list state
-- Add invalid lobby state
-- Add invalid code state
-- Add copied-to-clipboard feedback
-- Add basic mobile responsiveness for management
-- Deploy to Cloudflare Pages and Worker
-- Connect domain `gaminggauntlet.com`
-
-## Out Of Scope For V1
-
-Do not build these yet:
-
-- Twitch Extension
-- Twitch OAuth
-- Twitch chat commands
-- Viewer voting
-- EventSub
-- Shared bot account
-- Cloudflare Queues
-- Complex moderation system
-- Public account system
-- Billing
-- Team management
-- Automated game result ingestion
-- Heavy realtime WebSocket infrastructure
-
-These can be added later if the basic wheel product works well.
-
-## V1 Acceptance Criteria
-
-The first version is complete when:
-
-- A user can create a lobby
-- A user can copy a management URL and hidden code
-- Another person can join management using the code
-- The code never appears in the URL
-- Games can be added, edited, removed, and reordered
-- The wheel can be spun
-- The selected game updates for everyone
-- Scores can be updated manually
-- OBS overlay URLs work as browser sources
-- At least six overlay layouts exist
-- Overlay pages never show management controls or secret codes
-- App deploys successfully on Cloudflare Pages
-- API runs through Cloudflare Worker
-- State persists in D1
-
-## Recommended First Build Target
-
-Build this first:
+## AI Prompt
 
 ```text
-/create
-/manage/:lobbyId
-/overlay/:lobbyId/top
-/api/lobbies
-/api/lobbies/:lobbyId/state
+Implement Phase 8: OBS Overlay Routes.
+
+Tasks:
+1. Build these overlay routes:
+   - /overlay/:lobbyId/top
+   - /overlay/:lobbyId/lower-third
+   - /overlay/:lobbyId/compact-left
+   - /overlay/:lobbyId/compact-right
+   - /overlay/:lobbyId/square
+   - /overlay/:lobbyId/wheel
+   - /overlay/:lobbyId/full
+2. Each overlay must:
+   - be public and read-only
+   - poll GET /api/lobbies/:lobbyId/state every 1–2 seconds
+   - use transparent background where appropriate
+   - be readable on stream
+   - show only public state
+   - never show management controls
+   - never show management code
+3. Add loading, invalid lobby, and empty state displays.
+4. Use the existing design kit styling.
+5. Add safe optional query params only:
+   - theme
+   - scale
+   - showNext
+   - brand
+   - transparent
+   - animation
+6. Reject or ignore unsafe query params:
+   - code
+   - token
+   - secret
+   - managementCode
+
+At the end, add regression tests.
 ```
 
-Once that works, add the other overlay formats and polish the management UI.
+## Regression Tests For Phase 8
 
-## Implementation Notes
-
-### Keep The Secret Out Of URLs
-
-Correct:
-
-```http
-PATCH /api/lobbies/abc123
-Authorization: Bearer <managementCode>
+```text
+Add tests that verify:
+- All overlay routes render.
+- Overlays call only public state endpoint.
+- Overlays do not render management controls.
+- Overlays do not expose managementCode, code, token, secret, or managementCodeHash.
+- Overlay URLs generated by the app never include secrets.
+- Invalid lobby overlay shows safe error state.
+- Safe query params work.
+- Unsafe query params are ignored or rejected.
 ```
 
-Incorrect:
+---
 
-```http
-PATCH /api/lobbies/abc123?code=<managementCode>
+# Phase 9 — OBS URL Panel in Management UI
+
+## Goal
+
+Make it easy for streamers to copy overlay links into OBS.
+
+## AI Prompt
+
+```text
+Implement Phase 9: OBS Overlay URL Panel.
+
+Tasks:
+1. Add an OBS Overlays panel to /manage/:lobbyId.
+2. Include these overlays:
+   - Top Bar
+   - Lower Third
+   - Compact Left
+   - Compact Right
+   - Square Card
+   - Wheel
+   - Fullscreen Showcase
+3. For each overlay show:
+   - name
+   - short description
+   - recommended OBS width
+   - recommended OBS height
+   - Copy OBS URL button
+   - Preview button
+4. Add OBS instructions:
+   1. Copy the overlay URL.
+   2. In OBS, go to Sources.
+   3. Click +.
+   4. Choose Browser.
+   5. Paste the URL.
+   6. Set the recommended width and height.
+   7. Click OK.
+   8. Drag the overlay where you want it on stream.
+5. Add troubleshooting notes.
+6. Generated overlay URLs must never include management code.
+
+At the end, add regression tests.
 ```
 
-### Overlay Polling Example
+## Regression Tests For Phase 9
 
-```ts
-async function fetchLobbyState(lobbyId: string) {
-  const response = await fetch(`/api/lobbies/${lobbyId}/state`, {
-    headers: {
-      "Accept": "application/json",
-    },
-  })
-
-  if (!response.ok) {
-    throw new Error("Failed to load lobby state")
-  }
-
-  return response.json()
-}
+```text
+Add tests that verify:
+- OBS panel renders on management page.
+- Every overlay has a copy URL button.
+- Every overlay has a preview button.
+- Recommended sizes are shown.
+- Copied URLs do not include management code.
+- Copied URLs do not include unsafe query params.
+- OBS instructions render.
+- Troubleshooting notes render.
 ```
 
-### Copy OBS URL Example
+---
 
-```ts
-function getOverlayUrl(origin: string, lobbyId: string, overlay: string) {
-  return `${origin}/overlay/${lobbyId}/${overlay}`
-}
+# Phase 10 — Abuse Protection + Cloudflare Hardening
+
+## Goal
+
+Add protection for streamer URLs and public endpoints.
+
+## AI Prompt
+
+```text
+Implement Phase 10: Abuse Protection + Cloudflare Hardening.
+
+Tasks:
+1. Add reasonable rate limiting for public read endpoints.
+2. Add stricter rate limiting for write endpoints.
+3. Add stricter rate limiting for verify endpoint to prevent code guessing.
+4. Add CORS rules appropriate for the deployed frontend.
+5. Add security headers.
+6. Add request size limits.
+7. Add validation to reject malformed lobby IDs and game IDs.
+8. Add caching strategy where safe:
+   - Do not cache authenticated write responses.
+   - Public state can be short-cache or no-cache depending on polling behavior.
+9. Add Cloudflare-oriented notes/config for:
+   - WAF rules
+   - bot fight mode / managed challenge where appropriate
+   - rate limiting rules
+   - DDoS protection
+10. Make sure overlays still work smoothly in OBS.
+
+At the end, add regression tests.
 ```
 
-### Recommended Overlay Rendering Rules
+## Regression Tests For Phase 10
 
-- Use transparent page backgrounds for overlays.
-- Avoid tiny text.
-- Keep score and current game readable at a glance.
-- Use CSS text shadows or strong panels for readability over gameplay.
-- Respect `prefers-reduced-motion`.
-- Keep all overlays read-only.
-- Use route-level overlay layouts instead of one layout with too many settings.
+```text
+Add tests that verify:
+- Verify endpoint rate limit exists.
+- Public state endpoint has abuse protection.
+- Write endpoints have stricter abuse protection.
+- Malformed lobby IDs are rejected.
+- Oversized request bodies are rejected.
+- Security headers are present.
+- CORS does not allow unsafe broad access for authenticated writes.
+- OBS overlay polling is not broken by protection rules.
+```
+
+---
+
+# Phase 11 — Polish + Deployment
+
+## Goal
+
+Make V1 shippable.
+
+## AI Prompt
+
+```text
+Implement Phase 11: Polish + Deployment.
+
+Tasks:
+1. Add loading states.
+2. Add empty game list state.
+3. Add invalid lobby state.
+4. Add invalid management code state.
+5. Add copied-to-clipboard feedback.
+6. Add basic mobile responsiveness for management UI.
+7. Add deployment config for:
+   - Cloudflare Pages frontend
+   - Cloudflare Worker API
+   - Cloudflare D1 migrations
+8. Add environment variable documentation.
+9. Add README setup instructions.
+10. Add deployment checklist for gaminggauntlet.com.
+11. Run full regression suite.
+
+At the end, add final regression tests.
+```
+
+## Regression Tests For Phase 11
+
+```text
+Add tests that verify:
+- App builds successfully.
+- Worker builds successfully.
+- D1 migrations run successfully.
+- Landing page works.
+- Create lobby flow works.
+- Manage lobby flow works.
+- Spin flow works.
+- Score update flow works.
+- Public lobby page works.
+- All overlay routes work.
+- No public route leaks management code.
+- No API response leaks managementCodeHash.
+- Deployment config references correct Cloudflare bindings.
+```
+
+---
+
+# Final AI Instruction After Every Phase
+
+Give this to the AI at the end of each phase:
+
+```text
+Before finishing this phase:
+
+1. Add or update regression tests for everything changed in this phase.
+2. Run:
+   - lint
+   - typecheck
+   - unit tests
+   - integration/API tests
+   - relevant e2e tests
+   - production build
+3. Fix all failures.
+4. Confirm no management code appears in:
+   - URLs
+   - overlay pages
+   - public lobby page
+   - public API responses
+   - logs
+   - generated OBS URLs
+5. Summarize:
+   - what changed
+   - which tests were added
+   - which commands passed
+   - any known limitations
+```
+
+---
+
+# Best First Command To Give The AI
+
+```text
+Start Phase 1 only.
+
+Use the existing UI/design kit. Do not build new major features yet. Clean up the V1 scope, confirm local app startup, add placeholder routes, and add regression tests proving the simplified V1 routes exist and do not require Twitch or expose secrets.
+```
