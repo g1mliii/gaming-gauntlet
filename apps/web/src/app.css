@@ -1,0 +1,80 @@
+@import "@gaming-gauntlet/ui/styles.css";
+
+#root {
+  min-height: 100vh;
+}
+
+.v1-app {
+  display: grid;
+  gap: clamp(1.25rem, 3vw, 2.4rem);
+  min-height: 100vh;
+  padding: clamp(1rem, 3vw, 2.8rem);
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in oklab, var(--gg-accent) 9%, transparent),
+      transparent 36%
+    ),
+    color-mix(in oklab, var(--gg-bg) 95%, black);
+}
+
+.v1-overlay {
+  min-height: 100vh;
+  padding: clamp(0.45rem, 1.2vw, 1rem);
+  background: transparent;
+}
+
+.v1-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.v1-nav__brand {
+  font-family: var(--gg-font-display);
+  font-size: clamp(1.1rem, 2.4vw, 1.55rem);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.v1-nav__links,
+.v1-route-list,
+.v1-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.v1-nav__links a {
+  color: var(--gg-text-dim);
+  font-family: var(--gg-font-display);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.v1-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(0.85rem, 2vw, 1.25rem);
+}
+
+.v1-placeholder-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+@media (max-width: 760px) {
+  .v1-nav {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .v1-grid,
+  .v1-placeholder-form {
+    grid-template-columns: 1fr;
+  }
+}

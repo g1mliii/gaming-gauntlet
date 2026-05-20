@@ -9,6 +9,7 @@ coverage
 .vscode/
 .claude/
 .cache/
+.playwright-mcp/
 .turbo/
 tmp/
 *.log
