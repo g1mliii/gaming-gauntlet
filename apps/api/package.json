@@ -1,0 +1,21 @@
+{
+  "name": "@gaming-gauntlet/api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Gaming Gauntlet V1 Cloudflare Worker API.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json --pretty false",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --pretty false"
+  },
+  "dependencies": {
+    "@gaming-gauntlet/core": "file:../../packages/core"
+  },
+  "devDependencies": {
+    "vitest": "^4.0.13"
+  }
+}

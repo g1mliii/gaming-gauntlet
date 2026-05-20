@@ -92,6 +92,18 @@ export const CreateLobbyResponseSchema = z
   })
   .strict();
 
+export const VerifyLobbyRequestSchema = z
+  .object({
+    managementCode: ManagementCodeSchema
+  })
+  .strict();
+
+export const VerifyLobbyResponseSchema = z
+  .object({
+    success: z.boolean()
+  })
+  .strict();
+
 export type LobbyStatus = z.infer<typeof LobbyStatusSchema>;
 export type Lobby = z.infer<typeof LobbySchema>;
 export type Game = z.infer<typeof GameSchema>;
@@ -99,6 +111,8 @@ export type LobbyState = z.infer<typeof LobbyStateSchema>;
 export type PublicLobbyState = z.infer<typeof PublicLobbyStateSchema>;
 export type CreateLobbyRequest = z.infer<typeof CreateLobbyRequestSchema>;
 export type CreateLobbyResponse = z.infer<typeof CreateLobbyResponseSchema>;
+export type VerifyLobbyRequest = z.infer<typeof VerifyLobbyRequestSchema>;
+export type VerifyLobbyResponse = z.infer<typeof VerifyLobbyResponseSchema>;
 export type ManagementCode = z.infer<typeof ManagementCodeSchema>;
 export type ManagementCodeHash = z.infer<typeof ManagementCodeHashSchema>;
 
@@ -108,6 +122,10 @@ export function parseCreateLobbyRequest(payload: unknown): CreateLobbyRequest {
 
 export function safeParseCreateLobbyRequest(payload: unknown) {
   return CreateLobbyRequestSchema.safeParse(payload);
+}
+
+export function safeParseVerifyLobbyRequest(payload: unknown) {
+  return VerifyLobbyRequestSchema.safeParse(payload);
 }
 
 export function createLobbyId(): string {
