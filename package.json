@@ -6,13 +6,14 @@
   "packageManager": "npm@11.6.2",
   "workspaces": [
     "apps/web",
+    "packages/core",
     "packages/ui"
   ],
   "scripts": {
-    "build": "npm run build --workspace @gaming-gauntlet/ui && npm run build --workspace @gaming-gauntlet/web",
+    "build": "npm run build --workspace @gaming-gauntlet/core && npm run build --workspace @gaming-gauntlet/ui && npm run build --workspace @gaming-gauntlet/web",
     "dev": "npm run dev --workspace @gaming-gauntlet/web",
     "lint": "eslint . --max-warnings=0",
-    "test": "npm run test --workspace @gaming-gauntlet/web",
+    "test": "npm run test --workspace @gaming-gauntlet/core && npm run test --workspace @gaming-gauntlet/web",
     "typecheck": "tsc --noEmit -p tsconfig.typecheck.json --pretty false",
     "format": "prettier --write .",
     "verify": "npm run lint && npm run typecheck && npm run test && npm run build"
