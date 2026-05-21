@@ -43,6 +43,8 @@ class SqliteD1Statement implements ApiStatement {
 }
 
 class SqliteD1Database implements ApiDatabase {
+  readonly batchSizes: number[] = [];
+
   constructor(private readonly database: DatabaseSync) {}
 
   prepare(query: string): ApiStatement {
@@ -52,6 +54,7 @@ class SqliteD1Database implements ApiDatabase {
   async batch(statements: ApiStatement[]): Promise<unknown[]> {
     const results: unknown[] = [];
 
+    this.batchSizes.push(statements.length);
     this.database.exec("BEGIN IMMEDIATE");
 
     try {
@@ -70,6 +73,7 @@ class SqliteD1Database implements ApiDatabase {
 
 describe("Phase 3 core lobby API", () => {
   let sqlite: DatabaseSync;
+  let database: SqliteD1Database;
   let env: ApiEnv;
 
   beforeEach(() => {
@@ -77,7 +81,8 @@ describe("Phase 3 core lobby API", () => {
     sqlite.exec(
       readFileSync(resolve(__dirname, "../../../migrations/0001_v1_lobby_foundation.sql"), "utf8")
     );
-    env = { DB: new SqliteD1Database(sqlite) };
+    database = new SqliteD1Database(sqlite);
+    env = { DB: database };
   });
 
   afterEach(() => {
@@ -245,6 +250,273 @@ describe("Phase 3 core lobby API", () => {
     expect(body.error.code).toBe("payload_too_large");
   });
 
+  test("write endpoints require the correct Authorization bearer code", async () => {
+    const created = await createLobby({
+      playerOneName: "Alice",
+      playerTwoName: "Bob"
+    });
+
+    const missingAuth = await apiJson(
+      `/api/lobbies/${created.lobbyId}`,
+      { playerOneScore: 1 },
+      { method: "PATCH" }
+    );
+    const missingAuthBody = (await missingAuth.json()) as {
+      error: { code: string };
+    };
+
+    expect(missingAuth.status).toBe(401);
+    expect(missingAuthBody.error.code).toBe("unauthorized");
+
+    const wrongAuth = await apiJson(
+      `/api/lobbies/${created.lobbyId}`,
+      { playerOneScore: 1 },
+      {
+        method: "PATCH",
+        headers: { authorization: "Bearer GG-AAAA-BBBB-CCCC" }
+      }
+    );
+    const wrongAuthBody = (await wrongAuth.json()) as {
+      error: { code: string };
+    };
+
+    expect(wrongAuth.status).toBe(401);
+    expect(wrongAuthBody.error.code).toBe("invalid_management_code");
+
+    const accepted = await apiJson(
+      `/api/lobbies/${created.lobbyId}`,
+      { playerOneScore: 1 },
+      {
+        method: "PATCH",
+        headers: authHeader(created.managementCode)
+      }
+    );
+    const acceptedBody = (await accepted.json()) as {
+      lobby: { playerOneScore: number; version: number };
+      version: number;
+    };
+
+    expect(accepted.status).toBe(200);
+    expect(acceptedBody.lobby.playerOneScore).toBe(1);
+    expect(acceptedBody.lobby.version).toBe(2);
+    expect(acceptedBody.version).toBe(2);
+    expect(JSON.stringify(acceptedBody)).not.toMatch(
+      /managementCode|managementCodeHash|secret|token|authorization/i
+    );
+  });
+
+  test("query param management codes are rejected and do not authorize writes", async () => {
+    const created = await createLobby({
+      playerOneName: "Alice",
+      playerTwoName: "Bob"
+    });
+    const response = await apiJson(
+      `/api/lobbies/${created.lobbyId}?code=${encodeURIComponent(created.managementCode)}`,
+      { playerOneScore: 9 },
+      { method: "PATCH" }
+    );
+    const body = (await response.json()) as { error: { code: string } };
+    const stateResponse = await apiGet(`/api/lobbies/${created.lobbyId}/state`);
+    const state = (await stateResponse.json()) as {
+      lobby: { playerOneScore: number; version: number };
+    };
+
+    expect(response.status).toBe(400);
+    expect(body.error.code).toBe("bad_request");
+    expect(state.lobby.playerOneScore).toBe(0);
+    expect(state.lobby.version).toBe(1);
+
+    const mixedCaseResponse = await apiJson(
+      `/api/lobbies/${created.lobbyId}?ManagementCode=${encodeURIComponent(
+        created.managementCode
+      )}`,
+      { playerOneScore: 9 },
+      {
+        method: "PATCH",
+        headers: authHeader(created.managementCode)
+      }
+    );
+    const mixedCaseBody = (await mixedCaseResponse.json()) as { error: { code: string } };
+    const unchangedStateResponse = await apiGet(`/api/lobbies/${created.lobbyId}/state`);
+    const unchangedState = (await unchangedStateResponse.json()) as {
+      lobby: { playerOneScore: number; version: number };
+    };
+
+    expect(mixedCaseResponse.status).toBe(400);
+    expect(mixedCaseBody.error.code).toBe("bad_request");
+    expect(unchangedState.lobby.playerOneScore).toBe(0);
+    expect(unchangedState.lobby.version).toBe(1);
+  });
+
+  test("PATCH /api/lobbies/:lobbyId updates lobby fields and increments version", async () => {
+    const created = await createLobby({
+      playerOneName: "Alice",
+      playerTwoName: "Bob",
+      games: ["Rocket League"]
+    });
+    const initialStateResponse = await apiGet(`/api/lobbies/${created.lobbyId}/state`);
+    const initialState = (await initialStateResponse.json()) as {
+      games: Array<{ id: string }>;
+    };
+
+    const response = await apiJson(
+      `/api/lobbies/${created.lobbyId}`,
+      {
+        playerOneName: "Alicia",
+        playerTwoName: "Bobby",
+        playerOneScore: 3,
+        playerTwoScore: 2,
+        targetScore: 7,
+        currentGameId: initialState.games[0]?.id,
+        status: "playing"
+      },
+      {
+        method: "PATCH",
+        headers: authHeader(created.managementCode)
+      }
+    );
+    const body = (await response.json()) as {
+      lobby: {
+        playerOneName: string;
+        playerTwoName: string;
+        playerOneScore: number;
+        playerTwoScore: number;
+        targetScore: number;
+        currentGameId: string | null;
+        status: string;
+        version: number;
+        updatedAt: string;
+      };
+      updatedAt: string;
+      version: number;
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.lobby).toMatchObject({
+      playerOneName: "Alicia",
+      playerTwoName: "Bobby",
+      playerOneScore: 3,
+      playerTwoScore: 2,
+      targetScore: 7,
+      currentGameId: initialState.games[0]?.id,
+      status: "playing",
+      version: 2
+    });
+    expect(body.version).toBe(2);
+    expect(body.updatedAt).toBe(body.lobby.updatedAt);
+    expect(JSON.stringify(body)).not.toMatch(
+      /managementCode|managementCodeHash|secret|token|authorization/i
+    );
+  });
+
+  test("game add, edit, reorder, and delete writes increment version safely", async () => {
+    const created = await createLobby({
+      playerOneName: "Alice",
+      playerTwoName: "Bob",
+      games: ["Rocket League", "Tetris"]
+    });
+    const headers = authHeader(created.managementCode);
+    const addedResponse = await apiJson(
+      `/api/lobbies/${created.lobbyId}/games`,
+      { title: "Chess" },
+      { headers }
+    );
+    const addedBody = (await addedResponse.json()) as {
+      games: Array<{ id: string; title: string; enabled: boolean; position: number }>;
+      version: number;
+    };
+    const addedGame = addedBody.games.find((game) => game.title === "Chess");
+
+    expect(addedResponse.status).toBe(200);
+    expect(addedBody.version).toBe(2);
+    expect(addedGame).toBeDefined();
+    if (!addedGame) {
+      throw new Error("Expected Chess game to exist after add.");
+    }
+    expect(addedGame).toMatchObject({ title: "Chess", enabled: true, position: 2 });
+
+    const editedResponse = await apiJson(
+      `/api/lobbies/${created.lobbyId}/games/${addedGame.id}`,
+      { title: "Speed Chess", enabled: false },
+      {
+        method: "PATCH",
+        headers
+      }
+    );
+    const editedBody = (await editedResponse.json()) as {
+      games: Array<{ id: string; title: string; enabled: boolean; position: number }>;
+      version: number;
+    };
+
+    expect(editedResponse.status).toBe(200);
+    expect(editedBody.version).toBe(3);
+    expect(editedBody.games.find((game) => game.id === addedGame.id)).toMatchObject({
+      title: "Speed Chess",
+      enabled: false
+    });
+
+    const reorderedIds = [...editedBody.games].reverse().map((game) => game.id);
+    const reorderedResponse = await apiJson(
+      `/api/lobbies/${created.lobbyId}/games/reorder`,
+      { gameIds: reorderedIds },
+      { headers }
+    );
+    const reorderedBody = (await reorderedResponse.json()) as {
+      games: Array<{ id: string; position: number }>;
+      version: number;
+    };
+
+    expect(reorderedResponse.status).toBe(200);
+    expect(reorderedBody.version).toBe(4);
+    expect(reorderedBody.games.map((game) => game.id)).toEqual(reorderedIds);
+    expect(reorderedBody.games.map((game) => game.position)).toEqual([0, 1, 2]);
+
+    const deletedResponse = await apiDelete(
+      `/api/lobbies/${created.lobbyId}/games/${addedGame.id}`,
+      headers
+    );
+    const deletedBody = (await deletedResponse.json()) as {
+      games: Array<{ id: string; position: number }>;
+      version: number;
+    };
+
+    expect(deletedResponse.status).toBe(200);
+    expect(deletedBody.version).toBe(5);
+    expect(deletedBody.games.some((game) => game.id === addedGame.id)).toBe(false);
+    expect(deletedBody.games.map((game) => game.position)).toEqual([0, 1]);
+    expect(JSON.stringify([addedBody, editedBody, reorderedBody, deletedBody])).not.toMatch(
+      /managementCode|managementCodeHash|secret|token|authorization/i
+    );
+  });
+
+  test("max-size game create, reorder, and delete keep D1 batches bounded", async () => {
+    const created = await createLobby({
+      playerOneName: "Alice",
+      playerTwoName: "Bob",
+      games: Array.from({ length: 64 }, (_, index) => `Game ${index + 1}`)
+    });
+    const headers = authHeader(created.managementCode);
+    const stateResponse = await apiGet(`/api/lobbies/${created.lobbyId}/state`);
+    const state = (await stateResponse.json()) as {
+      games: Array<{ id: string }>;
+    };
+    const reversedIds = [...state.games].reverse().map((game) => game.id);
+    const reorderResponse = await apiJson(
+      `/api/lobbies/${created.lobbyId}/games/reorder`,
+      { gameIds: reversedIds },
+      { headers }
+    );
+    const deleteResponse = await apiDelete(
+      `/api/lobbies/${created.lobbyId}/games/${reversedIds[0]}`,
+      headers
+    );
+
+    expect(state.games).toHaveLength(64);
+    expect(reorderResponse.status).toBe(200);
+    expect(deleteResponse.status).toBe(200);
+    expect(Math.max(...database.batchSizes)).toBeLessThanOrEqual(4);
+  });
+
   async function createLobby(payload: {
     playerOneName: string;
     playerTwoName: string;
@@ -261,14 +533,33 @@ describe("Phase 3 core lobby API", () => {
     return handleApiRequest(new Request(`https://api.test${path}`), env);
   }
 
-  function apiJson(path: string, body: unknown): Promise<Response> {
+  function authHeader(managementCode: string): HeadersInit {
+    return { authorization: `Bearer ${managementCode}` };
+  }
+
+  function apiJson(
+    path: string,
+    body: unknown,
+    options: { method?: string; headers?: HeadersInit } = {}
+  ): Promise<Response> {
+    const headers = new Headers(options.headers);
+    headers.set("content-type", "application/json");
+
     return handleApiRequest(
       new Request(`https://api.test${path}`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json"
-        },
+        method: options.method ?? "POST",
+        headers,
         body: JSON.stringify(body)
+      }),
+      env
+    );
+  }
+
+  function apiDelete(path: string, headers?: HeadersInit): Promise<Response> {
+    return handleApiRequest(
+      new Request(`https://api.test${path}`, {
+        method: "DELETE",
+        headers
       }),
       env
     );

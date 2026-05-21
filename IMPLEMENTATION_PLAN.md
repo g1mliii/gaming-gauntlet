@@ -20,6 +20,9 @@ Important rules:
 - Keep V1 simple: React + Vite + TypeScript frontend, Cloudflare Worker API, Cloudflare D1.
 - Do not add Twitch OAuth, Twitch Extension support, EventSub, chat bots, accounts, billing, or WebSockets.
 - Management codes must never appear in URLs, public API responses, overlays, logs, or visible UI unless the user explicitly clicks reveal/copy inside the management UI.
+- Treat the match URL as the only shareable human URL. The management route may exist internally, but the UI must not ask users to copy both a public URL and a management URL.
+- The match URL identifies the lobby; the management passcode authorizes write control.
+- Use "management passcode" in user-facing UI. The API/internal field name may remain managementCode.
 - Store only a hash of the management code.
 - Write or update regression tests at the end of every phase.
 - Do not move to the next phase unless lint, typecheck, build, and tests pass.
@@ -235,23 +238,26 @@ Build the creation flow and safe management-code handling.
 Implement Phase 5: Create Page + Management Code UX.
 
 Tasks:
-1. Build /create using the existing UI/design kit.
+1. Build /create using the existing UI/design kit for inspiration, shape, spacing, and color without copying old layouts or screens directly.
 2. Form fields:
+   - Join existing match by match URL/id plus passcode
+   - Create new match
    - Player 1 name
    - Player 2 name
    - Optional starting game list
    - Optional target score
 3. On submit, call POST /api/lobbies.
 4. After creation, show:
-   - Management URL
-   - Public lobby URL
-   - Management code with hidden-by-default display
-5. Management code must be hidden by default.
-6. Reveal requires an explicit user click.
-7. Copy code requires an explicit user action.
-8. Never put the management code in the URL.
-9. Store the management code in localStorage only after creation or successful verification.
-10. Redirect/open /manage/:lobbyId without the code in the URL.
+   - one Match URL for sharing/opening: /g/:lobbyId
+   - management passcode with hidden-by-default display
+   - Manage this match action that uses the same lobby id without putting the passcode in the URL
+5. Do not show or copy a separate management URL.
+6. Management passcode must be hidden by default.
+7. Reveal requires an explicit user click.
+8. Copy passcode requires an explicit user action.
+9. Never put the management passcode in the URL.
+10. Store the management passcode in localStorage only after creation or successful verification.
+11. After creation, prefer opening /g/:lobbyId as the primary match room. If the user clicks Manage, route to the management surface without the passcode in the URL.
 
 At the end, add regression tests.
 ```
@@ -261,33 +267,37 @@ At the end, add regression tests.
 ```text
 Add tests that verify:
 - User can create a lobby from /create.
-- Created management URL does not include the management code.
-- Created public URL does not include the management code.
-- Management code is hidden by default.
-- Reveal button reveals code only after click.
-- localStorage stores code only after creation or verification.
-- DOM does not expose the code in overlay/public links.
+- User can join an existing match by match URL/id plus passcode.
+- Created flow displays exactly one shareable Match URL.
+- Created flow does not display a separate management URL.
+- Match URL does not include the management passcode.
+- Management passcode is hidden by default.
+- Reveal button reveals passcode only after click.
+- localStorage stores passcode only after creation or verification.
+- DOM does not expose the passcode in match or overlay links.
 ```
 
 ---
 
-# Phase 6 — Management Room UI
+# Phase 6 — Match Room + Management Unlock UI
 
 ## Goal
 
-Build the main streamer control room.
+Build the main match room with an unlockable streamer control surface.
 
 ## AI Prompt
 
 ```text
-Implement Phase 6: Management Room UI.
+Implement Phase 6: Match Room + Management Unlock UI.
 
 Tasks:
-1. Build /manage/:lobbyId.
-2. If no local management code exists, show code entry form.
-3. Verify the code using POST /api/lobbies/:lobbyId/verify.
-4. After verification, store code in localStorage.
-5. Build management UI using the existing UI/design kit:
+1. Build /g/:lobbyId as the primary match room.
+2. Show public match state on /g/:lobbyId without requiring a passcode.
+3. Add a Manage this match action on /g/:lobbyId.
+4. If no local verified management passcode exists, show a passcode entry form.
+5. Verify the passcode using POST /api/lobbies/:lobbyId/verify.
+6. After verification, store passcode in localStorage.
+7. Build management UI using the existing UI/design kit:
    - Wheel area
    - Editable game list
    - Add game input
@@ -302,10 +312,11 @@ Tasks:
    - Current game display
    - Clear current game
    - Reset match
-6. All write requests must send:
+8. All write requests must send:
    Authorization: Bearer <managementCode>
-7. Poll public state every 1–2 seconds.
-8. Avoid rerendering if version has not changed.
+9. Poll public state every 1–2 seconds.
+10. Avoid rerendering if version has not changed.
+11. /manage/:lobbyId may remain as an internal direct route, but the UI must not present it as a URL users need to copy/share.
 
 At the end, add regression tests.
 ```
@@ -314,9 +325,10 @@ At the end, add regression tests.
 
 ```text
 Add tests that verify:
-- /manage/:lobbyId asks for code when localStorage has no code.
-- Correct code unlocks management UI.
-- Wrong code shows invalid code state.
+- /g/:lobbyId renders public match state without a passcode.
+- /g/:lobbyId Manage action asks for passcode when localStorage has no verified passcode.
+- Correct passcode unlocks management UI.
+- Wrong passcode shows invalid passcode state.
 - Add game works.
 - Rename game works.
 - Delete game works.
@@ -328,6 +340,7 @@ Add tests that verify:
 - Target score update works.
 - All write requests use Authorization header.
 - No write request sends code in URL or query params.
+- UI does not show a separate management URL.
 ```
 
 ---
@@ -367,12 +380,12 @@ At the end, add regression tests.
 ```text
 Add tests that verify:
 - Spin requires Authorization header.
-- Spin rejects wrong code.
+- Spin rejects wrong passcode.
 - Spin selects only enabled games.
 - Spin rejects when there are no enabled games.
 - Spin updates currentGameId.
 - Spin increments version.
-- Management UI shows selected game after spin.
+- Unlocked management surface shows selected game after spin.
 - Reduced-motion mode does not rely on long animation to update state.
 ```
 
@@ -440,7 +453,7 @@ Add tests that verify:
 
 ---
 
-# Phase 9 — OBS URL Panel in Management UI
+# Phase 9 — OBS URL Panel in Unlocked Management Surface
 
 ## Goal
 
@@ -452,7 +465,7 @@ Make it easy for streamers to copy overlay links into OBS.
 Implement Phase 9: OBS Overlay URL Panel.
 
 Tasks:
-1. Add an OBS Overlays panel to /manage/:lobbyId.
+1. Add an OBS Overlays panel to the unlocked management surface.
 2. Include these overlays:
    - Top Bar
    - Lower Third
@@ -487,7 +500,7 @@ At the end, add regression tests.
 
 ```text
 Add tests that verify:
-- OBS panel renders on management page.
+- OBS panel renders after management unlock.
 - Every overlay has a copy URL button.
 - Every overlay has a preview button.
 - Recommended sizes are shown.
@@ -513,7 +526,7 @@ Implement Phase 10: Abuse Protection + Cloudflare Hardening.
 Tasks:
 1. Add reasonable rate limiting for public read endpoints.
 2. Add stricter rate limiting for write endpoints.
-3. Add stricter rate limiting for verify endpoint to prevent code guessing.
+3. Add stricter rate limiting for verify endpoint to prevent passcode guessing.
 4. Add CORS rules appropriate for the deployed frontend.
 5. Add security headers.
 6. Add request size limits.
@@ -562,9 +575,9 @@ Tasks:
 1. Add loading states.
 2. Add empty game list state.
 3. Add invalid lobby state.
-4. Add invalid management code state.
+4. Add invalid management passcode state.
 5. Add copied-to-clipboard feedback.
-6. Add basic mobile responsiveness for management UI.
+6. Add basic mobile responsiveness for the match room and unlocked management surface.
 7. Add deployment config for:
    - Cloudflare Pages frontend
    - Cloudflare Worker API
@@ -586,12 +599,12 @@ Add tests that verify:
 - D1 migrations run successfully.
 - Landing page works.
 - Create lobby flow works.
-- Manage lobby flow works.
+- Match management unlock flow works.
 - Spin flow works.
 - Score update flow works.
-- Public lobby page works.
+- Match page works.
 - All overlay routes work.
-- No public route leaks management code.
+- No public route leaks management passcode or management code fields.
 - No API response leaks managementCodeHash.
 - Deployment config references correct Cloudflare bindings.
 ```
@@ -617,7 +630,7 @@ Before finishing this phase:
 4. Confirm no management code appears in:
    - URLs
    - overlay pages
-   - public lobby page
+   - match page unless explicitly revealed inside the unlocked management surface
    - public API responses
    - logs
    - generated OBS URLs

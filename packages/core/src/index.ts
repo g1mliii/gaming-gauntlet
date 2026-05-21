@@ -104,6 +104,44 @@ export const VerifyLobbyResponseSchema = z
   })
   .strict();
 
+export const UpdateLobbyRequestSchema = z
+  .object({
+    playerOneName: PlayerNameSchema.optional(),
+    playerTwoName: PlayerNameSchema.optional(),
+    playerOneScore: ScoreSchema.optional(),
+    playerTwoScore: ScoreSchema.optional(),
+    targetScore: z.number().int().min(1).max(99).nullable().optional(),
+    currentGameId: GameIdSchema.nullable().optional(),
+    status: LobbyStatusSchema.optional()
+  })
+  .strict()
+  .refine((payload) => Object.keys(payload).length > 0, {
+    message: "At least one lobby field must be provided."
+  });
+
+export const AddGameRequestSchema = z
+  .object({
+    title: GameTitleSchema,
+    enabled: z.boolean().default(true)
+  })
+  .strict();
+
+export const UpdateGameRequestSchema = z
+  .object({
+    title: GameTitleSchema.optional(),
+    enabled: z.boolean().optional()
+  })
+  .strict()
+  .refine((payload) => Object.keys(payload).length > 0, {
+    message: "At least one game field must be provided."
+  });
+
+export const ReorderGamesRequestSchema = z
+  .object({
+    gameIds: z.array(GameIdSchema).min(1).max(64)
+  })
+  .strict();
+
 export type LobbyStatus = z.infer<typeof LobbyStatusSchema>;
 export type Lobby = z.infer<typeof LobbySchema>;
 export type Game = z.infer<typeof GameSchema>;
@@ -113,6 +151,10 @@ export type CreateLobbyRequest = z.infer<typeof CreateLobbyRequestSchema>;
 export type CreateLobbyResponse = z.infer<typeof CreateLobbyResponseSchema>;
 export type VerifyLobbyRequest = z.infer<typeof VerifyLobbyRequestSchema>;
 export type VerifyLobbyResponse = z.infer<typeof VerifyLobbyResponseSchema>;
+export type UpdateLobbyRequest = z.infer<typeof UpdateLobbyRequestSchema>;
+export type AddGameRequest = z.infer<typeof AddGameRequestSchema>;
+export type UpdateGameRequest = z.infer<typeof UpdateGameRequestSchema>;
+export type ReorderGamesRequest = z.infer<typeof ReorderGamesRequestSchema>;
 export type ManagementCode = z.infer<typeof ManagementCodeSchema>;
 export type ManagementCodeHash = z.infer<typeof ManagementCodeHashSchema>;
 

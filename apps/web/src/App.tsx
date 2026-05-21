@@ -70,7 +70,7 @@ function RouteChrome({
         </a>
         <div className="v1-nav__links">
           <a href="/create">Create</a>
-          <a href={`/g/${previewLobbyId}`}>Public</a>
+          <a href={`/g/${previewLobbyId}`}>Match</a>
           <a href={`/overlay/${previewLobbyId}/top`}>Overlay</a>
         </div>
       </nav>
@@ -85,14 +85,14 @@ function LandingPage() {
       <PageShell
         eyebrow="V1 baseline"
         title="Gaming Gauntlet"
-        deck="Spin-ready match rooms for two-player game challenges, with public and overlay surfaces separated from management controls."
+        deck="Spin-ready match rooms for two-player game challenges, with one shareable match URL and passcode-gated controls."
         actions={
           <>
             <AppLink href="/create" variant="primary">
               Create lobby
             </AppLink>
-            <AppLink href={`/overlay/${previewLobbyId}/top`} variant="ghost">
-              View overlay
+            <AppLink href={`/g/${previewLobbyId}`} variant="ghost">
+              Open demo match
             </AppLink>
           </>
         }
@@ -105,7 +105,6 @@ function LandingPage() {
           >
             <div className="v1-route-list" aria-label="V1 routes">
               <AppLink href="/create">/create</AppLink>
-              <AppLink href={`/manage/${previewLobbyId}`}>/manage/:lobbyId</AppLink>
               <AppLink href={`/g/${previewLobbyId}`}>/g/:lobbyId</AppLink>
               <AppLink href={`/overlay/${previewLobbyId}/top`}>
                 /overlay/:lobbyId/top
@@ -155,8 +154,8 @@ function ManagePage({ lobbyId }: { lobbyId: string }) {
     <RouteChrome routeId="manage-v1">
       <PageShell
         eyebrow="Streamer room"
-        title="Manage lobby"
-        deck={`Lobby ${lobbyId} has a management route using only the lobby id.`}
+        title="Manage match"
+        deck={`Internal controls for ${lobbyId}. The passcode is never part of the URL.`}
         emphasis="section"
       >
         <div className="v1-grid">
@@ -179,9 +178,14 @@ function PublicGamePage({ lobbyId }: { lobbyId: string }) {
   return (
     <RouteChrome routeId="game-v1">
       <PageShell
-        eyebrow="Public lobby"
+        eyebrow="Match room"
         title="Match room"
-        deck={`Public view for ${lobbyId}.`}
+        deck={`Public view for ${lobbyId}. Use the manage action only if you have the passcode.`}
+        actions={
+          <AppLink href={`/manage/${lobbyId}`} variant="ghost">
+            Manage this match
+          </AppLink>
+        }
         emphasis="section"
       >
         <ScoreBug match={previewMatch} />
