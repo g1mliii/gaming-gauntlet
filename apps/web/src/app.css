@@ -39,7 +39,6 @@
   text-transform: uppercase;
 }
 
-.v1-nav__links,
 .v1-route-list,
 .v1-status-row {
   display: flex;
@@ -48,23 +47,193 @@
   gap: 0.55rem;
 }
 
-.v1-nav__links a {
-  color: var(--gg-text-dim);
-  font-family: var(--gg-font-display);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
 .v1-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: clamp(0.85rem, 2vw, 1.25rem);
 }
 
-.v1-placeholder-form {
+.v1-create-grid,
+.v1-form-pair {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.85rem;
+}
+
+.v1-create-form,
+.v1-create-result,
+.v1-passcode-box {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.v1-create-form textarea {
+  min-height: 8.5rem;
+  resize: vertical;
+}
+
+.v1-form-actions,
+.v1-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.v1-passcode-box {
+  padding: 1rem;
+  border: 1px solid var(--gg-border);
+  border-radius: var(--gg-radius-md);
+  background: color-mix(in oklab, var(--gg-bg) 32%, transparent);
+}
+
+.v1-passcode-box__label,
+.v1-passcode-box__value {
+  margin: 0;
+}
+
+.v1-passcode-box__label {
+  font-family: var(--gg-font-display);
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gg-text-dim);
+}
+
+.v1-passcode-box__value {
+  margin-top: 0.35rem;
+  font-family: var(--gg-font-display);
+  font-size: clamp(1.35rem, 2.8vw, 2rem);
+  letter-spacing: 0.08em;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- Create page (kit) ---------- */
+.gg-content__inner {
+  width: 100%;
+  max-width: 1100px;
+  margin: 0 auto;
+  display: grid;
+  gap: clamp(1.1rem, 2vw, 1.7rem);
+  align-content: start;
+}
+
+.gg-create-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.gg-form {
+  display: grid;
+  gap: 0.95rem;
+}
+
+.gg-form-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.gg-form textarea {
+  min-height: 8rem;
+  resize: vertical;
+}
+
+.gg-stack {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.gg-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.gg-spread {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.gg-passcode {
+  display: grid;
+  gap: 0.8rem;
+  padding: 1.1rem;
+  border: 1px solid color-mix(in oklab, var(--gg-accent) 30%, var(--gg-border));
+  border-radius: var(--gg-radius-md);
+  background: color-mix(in oklab, var(--gg-accent) 7%, transparent);
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
+}
+
+.gg-passcode__label {
+  margin: 0;
+  font-family: var(--gg-font-display);
+  font-weight: 600;
+  font-size: 0.8rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gg-text-dim);
+}
+
+.gg-passcode__value {
+  margin: 0.2rem 0 0;
+  font-family: var(--gg-font-display);
+  font-weight: 700;
+  font-size: clamp(1.4rem, 3vw, 2.1rem);
+  letter-spacing: 0.1em;
+  overflow-wrap: anywhere;
+}
+
+.gg-passcode__value.is-masked {
+  color: var(--gg-text-dim);
+  letter-spacing: 0.18em;
+}
+
+.gg-share {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  border: 1px solid var(--gg-border);
+  border-radius: var(--gg-radius-sm);
+  overflow: clip;
+  background: color-mix(in oklab, var(--gg-surface) 84%, black);
+}
+
+.gg-share input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  padding: 0.7rem 0.9rem;
+  outline: none;
+  font-family: var(--gg-font-display);
+  letter-spacing: 0.02em;
+}
+
+.gg-share button {
+  border: 0;
+  border-left: 1px solid var(--gg-border);
+  clip-path: none;
+}
+
+.gg-copyfield {
+  display: grid;
+  gap: 0.42rem;
+}
+
+.gg-copyfield__label {
+  font-family: var(--gg-font-display);
+  font-weight: 600;
+  font-size: 0.82rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--gg-text-dim);
 }
 
 @media (max-width: 760px) {
@@ -74,7 +243,10 @@
   }
 
   .v1-grid,
-  .v1-placeholder-form {
+  .v1-create-grid,
+  .v1-form-pair,
+  .gg-create-grid,
+  .gg-form-pair {
     grid-template-columns: 1fr;
   }
 }

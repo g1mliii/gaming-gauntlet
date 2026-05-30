@@ -174,10 +174,14 @@ describe("Phase 3 core lobby API", () => {
       playerTwoName: "Bob"
     });
     const response = await apiGet(`/api/lobbies/${created.lobbyId}/state`);
-    const body = (await response.json()) as { games: unknown[] };
+    const body = (await response.json()) as {
+      games: unknown[];
+      lobby: { targetScore: number | null };
+    };
 
     expect(response.status).toBe(200);
     expect(body.games).toEqual([]);
+    expect(body.lobby.targetScore).toBeNull();
   });
 
   test("POST /api/lobbies/:lobbyId/verify accepts the correct code and rejects wrong codes", async () => {

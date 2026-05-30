@@ -80,7 +80,7 @@ export const CreateLobbyRequestSchema = z
   .object({
     playerOneName: PlayerNameSchema,
     playerTwoName: PlayerNameSchema,
-    games: z.array(GameTitleSchema).max(64).default([]),
+    games: z.array(GameTitleSchema).max(64).optional().default([]),
     targetScore: z.number().int().min(1).max(99).optional()
   })
   .strict();
@@ -148,6 +148,7 @@ export type Game = z.infer<typeof GameSchema>;
 export type LobbyState = z.infer<typeof LobbyStateSchema>;
 export type PublicLobbyState = z.infer<typeof PublicLobbyStateSchema>;
 export type CreateLobbyRequest = z.infer<typeof CreateLobbyRequestSchema>;
+export type CreateLobbyRequestInput = z.input<typeof CreateLobbyRequestSchema>;
 export type CreateLobbyResponse = z.infer<typeof CreateLobbyResponseSchema>;
 export type VerifyLobbyRequest = z.infer<typeof VerifyLobbyRequestSchema>;
 export type VerifyLobbyResponse = z.infer<typeof VerifyLobbyResponseSchema>;

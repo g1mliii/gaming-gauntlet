@@ -1,15 +1,14 @@
 import { useEffect } from "react";
 import type { ReactNode } from "react";
 import {
-  KitCard,
   KitChip,
-  KitNotice,
   KitPanel,
   PageShell,
   ScoreBug
 } from "@gaming-gauntlet/ui";
 import type { GauntletMatchSurface } from "@gaming-gauntlet/ui";
 
+import CreatePage from "./CreatePage";
 import { matchRoute } from "./routes";
 
 type AppProps = {
@@ -68,11 +67,6 @@ function RouteChrome({
         <a className="v1-nav__brand" href="/">
           Gaming Gauntlet
         </a>
-        <div className="v1-nav__links">
-          <a href="/create">Create</a>
-          <a href={`/g/${previewLobbyId}`}>Match</a>
-          <a href={`/overlay/${previewLobbyId}/top`}>Overlay</a>
-        </div>
       </nav>
       {children}
     </main>
@@ -119,31 +113,6 @@ function LandingPage() {
             <ScoreBug match={previewMatch} />
           </KitPanel>
         </div>
-      </PageShell>
-    </RouteChrome>
-  );
-}
-
-function CreatePage() {
-  return (
-    <RouteChrome routeId="create-v1">
-      <PageShell
-        eyebrow="Lobby setup"
-        title="Create lobby"
-        deck="A minimal creation surface is ready for the lobby API phase."
-        emphasis="section"
-      >
-        <KitPanel title="Lobby draft" summary="Player fields and game setup land next.">
-          <div className="v1-placeholder-form" aria-label="Lobby draft">
-            <KitCard title="Players" meta="Two-player match">
-              <p>Player names will connect to the create API after the D1 schema exists.</p>
-            </KitCard>
-            <KitCard title="Games" meta="Spin pool">
-              <p>The starting game list stays local until lobby creation is implemented.</p>
-            </KitCard>
-          </div>
-          <KitNotice tone="warning">Creation is intentionally inactive in Phase 1.</KitNotice>
-        </KitPanel>
       </PageShell>
     </RouteChrome>
   );
@@ -250,7 +219,11 @@ export default function App({ initialPath }: AppProps) {
   }
 
   if (route.id === "create") {
-    return <CreatePage />;
+    return (
+      <RouteChrome routeId="create-v1">
+        <CreatePage />
+      </RouteChrome>
+    );
   }
 
   if (route.id === "manage") {

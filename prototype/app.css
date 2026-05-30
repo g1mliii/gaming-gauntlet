@@ -1,0 +1,371 @@
+/* ===========================================================================
+   GAMING GAUNTLET — prototype app layout (Phase 6–9 surfaces)
+   =========================================================================== */
+
+#root { min-height: 100vh; }
+
+/* ---------- App frame: nav rail + content ---------- */
+.gg-app { display: grid; grid-template-columns: 240px minmax(0, 1fr); min-height: 100vh; }
+
+.gg-rail {
+  position: sticky; top: 0; align-self: start; height: 100vh;
+  display: flex; flex-direction: column; gap: 0.35rem; padding: 1.4rem 1rem;
+  border-right: 1px solid var(--gg-border);
+  background: color-mix(in oklab, var(--gg-bg) 80%, black);
+  overflow-y: auto;
+}
+.gg-rail__brand { display: flex; align-items: center; gap: 0.6rem; padding: 0 0.4rem 0.4rem; margin-bottom: 0.6rem; }
+.gg-rail__mark { width: 30px; height: 30px; flex: none; display: grid; place-items: center; background: color-mix(in oklab, var(--gg-accent) 24%, var(--gg-surface)); border: 1px solid color-mix(in oklab, var(--gg-accent) 45%, transparent); clip-path: polygon(0 0, calc(100% - 7px) 0, 100% 7px, 100% 100%, 7px 100%, 0 calc(100% - 7px)); font-family: var(--gg-font-display); font-weight: 700; color: oklch(0.97 0.02 95); }
+.gg-rail__brand-name { font-family: var(--gg-font-display); font-weight: 700; font-size: 1.05rem; line-height: 0.95; text-transform: uppercase; letter-spacing: 0.04em; }
+.gg-rail__brand-sub { display: block; font-size: 0.7rem; letter-spacing: 0.22em; text-transform: uppercase; color: var(--gg-text-dim); margin-top: 0.15rem; }
+.gg-rail__group { margin-top: 0.9rem; padding: 0 0.4rem; font-family: var(--gg-font-display); font-weight: 600; font-size: 0.68rem; letter-spacing: 0.24em; text-transform: uppercase; color: color-mix(in oklab, var(--gg-text-dim) 80%, transparent); }
+.gg-rail__link {
+  display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem 0.65rem; cursor: pointer;
+  border: 1px solid transparent; border-radius: var(--gg-radius-sm);
+  font-family: var(--gg-font-display); font-weight: 500; font-size: 0.94rem; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--gg-text-dim); transition: background 0.16s ease, color 0.16s ease, border-color 0.16s ease;
+}
+.gg-rail__link:hover { color: var(--gg-text); background: color-mix(in oklab, var(--gg-surface-2) 50%, transparent); }
+.gg-rail__link.is-active { color: var(--gg-text); background: color-mix(in oklab, var(--gg-accent) 14%, transparent); border-color: color-mix(in oklab, var(--gg-accent) 40%, transparent); }
+.gg-rail__ico { width: 18px; height: 18px; flex: none; opacity: 0.85; }
+.gg-rail__path { margin-top: auto; padding: 0.7rem 0.5rem 0; font-size: 0.74rem; color: color-mix(in oklab, var(--gg-text-dim) 70%, transparent); letter-spacing: 0.04em; border-top: 1px solid var(--gg-border); }
+
+/* content area */
+.gg-content { min-width: 0; padding: clamp(1.2rem, 2.6vw, 2.6rem); display: grid; gap: clamp(1.1rem, 2vw, 1.7rem); align-content: start; }
+.gg-content--center { place-content: start center; }
+.gg-content__inner { width: 100%; max-width: 1180px; display: grid; gap: clamp(1.1rem, 2vw, 1.7rem); align-content: start; }
+
+/* fake browser url bar to communicate routes */
+.gg-urlbar { display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem 0.7rem; border: 1px solid var(--gg-border); border-radius: var(--gg-radius-sm); background: color-mix(in oklab, var(--gg-bg) 55%, black); font-family: var(--gg-font-display); }
+.gg-urlbar__dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--gg-accent-2); flex: none; }
+.gg-urlbar__url { font-size: 0.86rem; letter-spacing: 0.03em; color: var(--gg-text-dim); overflow-wrap: anywhere; }
+.gg-urlbar__url b { color: var(--gg-text); font-weight: 600; }
+
+/* ---------- generic grids ---------- */
+.gg-board-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: clamp(1rem, 2vw, 1.5rem); align-items: start; }
+.gg-grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: clamp(0.9rem, 1.8vw, 1.3rem); }
+.gg-grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: clamp(0.9rem, 1.8vw, 1.3rem); }
+.gg-stack { display: grid; gap: 0.9rem; }
+.gg-row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.gg-row--between { justify-content: space-between; }
+.gg-spread { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+
+/* ---------- Create page ---------- */
+.gg-create-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.gg-form { display: grid; gap: 0.95rem; }
+.gg-form-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.85rem; }
+.gg-form textarea { min-height: 8rem; resize: vertical; }
+.gg-passcode { display: grid; gap: 0.8rem; padding: 1.1rem; border: 1px solid color-mix(in oklab, var(--gg-accent) 30%, var(--gg-border)); border-radius: var(--gg-radius-md); background: color-mix(in oklab, var(--gg-accent) 7%, transparent); clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px)); }
+.gg-passcode__label { margin: 0; font-family: var(--gg-font-display); font-weight: 600; font-size: 0.8rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--gg-text-dim); }
+.gg-passcode__value { margin: 0.2rem 0 0; font-family: var(--gg-font-display); font-weight: 700; font-size: clamp(1.4rem, 3vw, 2.1rem); letter-spacing: 0.1em; overflow-wrap: anywhere; }
+.gg-passcode__value.is-masked { color: var(--gg-text-dim); letter-spacing: 0.18em; }
+.gg-share { display: flex; align-items: stretch; gap: 0; border: 1px solid var(--gg-border); border-radius: var(--gg-radius-sm); overflow: clip; background: color-mix(in oklab, var(--gg-surface) 84%, black); }
+.gg-share input { flex: 1; min-width: 0; border: 0; background: transparent; padding: 0.7rem 0.9rem; outline: none; font-family: var(--gg-font-display); letter-spacing: 0.02em; }
+.gg-share button { border: 0; border-left: 1px solid var(--gg-border); }
+
+/* ---------- Management command center ---------- */
+.gg-manage { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: clamp(1rem, 2vw, 1.5rem); align-items: start; }
+.gg-manage--stack { grid-template-columns: minmax(0, 1fr); }
+.gg-manage__col { display: grid; gap: clamp(1rem, 2vw, 1.5rem); min-width: 0; align-content: start; }
+
+/* score control */
+.gg-scorectl { display: grid; grid-template-columns: minmax(0,1fr) auto minmax(0,1fr); gap: 1rem; align-items: stretch; }
+.gg-scorectl__team {
+  display: grid; gap: 0.7rem; padding: 1.1rem; position: relative; overflow: clip;
+  border: 1px solid color-mix(in oklab, var(--team-color) 45%, transparent);
+  background: color-mix(in oklab, var(--team-color) 11%, var(--gg-bg));
+  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
+}
+.gg-scorectl__team::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 0.34rem; background: var(--team-color); }
+.gg-scorectl__team--alpha { --team-color: var(--gg-team-alpha); }
+.gg-scorectl__team--bravo { --team-color: var(--gg-team-bravo); }
+.gg-scorectl__name { margin: 0; font-family: var(--gg-font-display); font-weight: 700; font-size: 1.3rem; text-transform: uppercase; letter-spacing: 0.03em; line-height: 0.96; color: color-mix(in oklab, var(--team-color) 60%, white 40%); overflow-wrap: anywhere; }
+.gg-scorectl__big { font-family: var(--gg-font-display); font-weight: 700; font-variant-numeric: tabular-nums; font-size: clamp(3.4rem, 7vw, 5rem); line-height: 0.8; color: color-mix(in oklab, var(--team-color) 84%, white 16%); text-align: center; }
+.gg-scorectl__buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+.gg-stepbtn { display: grid; place-items: center; min-height: 2.9rem; cursor: pointer; border: 1px solid color-mix(in oklab, var(--team-color) 45%, var(--gg-border)); background: color-mix(in oklab, var(--team-color) 18%, var(--gg-surface)); font-family: var(--gg-font-display); font-weight: 700; font-size: 1.4rem; line-height: 1; color: color-mix(in oklab, var(--team-color) 70%, white); transition: background 0.14s ease, transform 0.1s ease; clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 8px 100%, 0 calc(100% - 8px)); }
+.gg-stepbtn:hover { background: color-mix(in oklab, var(--team-color) 28%, var(--gg-surface)); }
+.gg-stepbtn:active { transform: scale(0.96); }
+.gg-scorectl__center { display: grid; gap: 0.6rem; align-content: center; justify-items: center; text-align: center; }
+.gg-scorectl__vs { font-family: var(--gg-font-display); font-weight: 700; font-size: 1.6rem; color: var(--gg-text-dim); letter-spacing: 0.1em; }
+.gg-scorectl__target { font-family: var(--gg-font-display); font-size: 0.82rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gg-text-dim); text-align: center; }
+
+/* compact horizontal score bar */
+.gg-scorebar { display: flex; align-items: center; gap: clamp(0.6rem, 2vw, 1.4rem); }
+.gg-scorebar__team { flex: 1; min-width: 0; display: flex; align-items: center; gap: 0.7rem; padding: 0.5rem 0.7rem; position: relative; overflow: clip; border: 1px solid color-mix(in oklab, var(--team-color) 42%, transparent); background: color-mix(in oklab, var(--team-color) 10%, var(--gg-bg)); clip-path: polygon(0 0, calc(100% - 11px) 0, 100% 11px, 100% 100%, 11px 100%, 0 calc(100% - 11px)); }
+.gg-scorebar__team::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 0.3rem; background: var(--team-color); }
+.gg-scorebar__team--alpha { --team-color: var(--gg-team-alpha); }
+.gg-scorebar__team--bravo { --team-color: var(--gg-team-bravo); flex-direction: row-reverse; }
+.gg-scorebar__team--bravo::before { inset: 0 0 0 auto; }
+.gg-scorebar__name { flex: 1; min-width: 0; background: transparent; border: 1px solid transparent; border-radius: 2px; padding: 0.2rem 0.35rem; font-family: var(--gg-font-display); font-weight: 700; font-size: clamp(0.95rem, 1.6vw, 1.25rem); text-transform: uppercase; letter-spacing: 0.03em; color: color-mix(in oklab, var(--team-color) 58%, white 42%); outline: none; overflow: hidden; text-overflow: ellipsis; }
+.gg-scorebar__team--bravo .gg-scorebar__name { text-align: right; }
+.gg-scorebar__name:hover { border-color: color-mix(in oklab, var(--team-color) 35%, transparent); }
+.gg-scorebar__name:focus { border-color: color-mix(in oklab, var(--team-color) 60%, transparent); background: color-mix(in oklab, var(--gg-bg) 45%, transparent); }
+.gg-scorebar__ctrl { display: flex; align-items: center; gap: 0.35rem; flex: none; }
+.gg-scorebar__score { min-width: 1.7ch; text-align: center; font-family: var(--gg-font-display); font-weight: 700; font-variant-numeric: tabular-nums; font-size: clamp(1.7rem, 3vw, 2.4rem); line-height: 1; color: color-mix(in oklab, var(--team-color) 82%, white 18%); }
+.gg-scorebar__step { width: 1.9rem; height: 1.9rem; flex: none; display: grid; place-items: center; cursor: pointer; border: 1px solid color-mix(in oklab, var(--team-color) 45%, var(--gg-border)); background: color-mix(in oklab, var(--team-color) 16%, var(--gg-surface)); font-family: var(--gg-font-display); font-weight: 700; font-size: 1.1rem; line-height: 1; color: color-mix(in oklab, var(--team-color) 70%, white); border-radius: 2px; transition: background 0.14s ease, transform 0.1s ease; }
+.gg-scorebar__step:hover { background: color-mix(in oklab, var(--team-color) 26%, var(--gg-surface)); }
+.gg-scorebar__step:active { transform: scale(0.93); }
+.gg-scorebar__vs { display: grid; justify-items: center; gap: 0.1rem; flex: none; }
+.gg-scorebar__vs b { font-family: var(--gg-font-display); font-weight: 700; font-size: 1.1rem; color: var(--gg-text-dim); letter-spacing: 0.08em; }
+.gg-scorebar__vs span { font-family: var(--gg-font-display); font-size: 0.66rem; letter-spacing: 0.08em; text-transform: uppercase; color: color-mix(in oklab, var(--gg-text-dim) 80%, transparent); white-space: nowrap; }
+.gg-scorebar__meta { display: flex; align-items: center; flex-wrap: wrap; gap: 0.6rem; }
+.gg-scorebar__meta .gg-field { display: flex; align-items: center; gap: 0.5rem; }
+.gg-scorebar__meta .gg-field > span { white-space: nowrap; }
+.gg-scorebar__meta .gg-field input { width: 5rem; min-height: 2.1rem; }
+.gg-scorebar__meta-actions { display: flex; gap: 0.4rem; margin-left: auto; flex-wrap: wrap; }
+@media (max-width: 560px) {
+  .gg-scorebar { flex-wrap: wrap; }
+  .gg-scorebar__team { flex: 1 1 100%; }
+  .gg-scorebar__vs { order: -1; flex-direction: row; gap: 0.5rem; }
+  .gg-scorebar__meta-actions { margin-left: 0; }
+}
+
+/* game list */
+.gg-games { display: grid; gap: 0.5rem; }
+.gg-game {
+  display: grid; grid-template-columns: auto auto auto minmax(0,1fr) auto; align-items: center; gap: 0.7rem;
+  padding: 0.65rem 0.8rem; border: 1px solid var(--gg-border); border-radius: var(--gg-radius-sm);
+  background: color-mix(in oklab, var(--gg-surface) 82%, black); transition: border-color 0.14s ease, background 0.14s ease, opacity 0.14s ease, box-shadow 0.14s ease;
+  cursor: grab; touch-action: none;
+}
+.gg-game:active { cursor: grabbing; }
+.gg-game.is-disabled { opacity: 0.5; }
+.gg-game.is-dragging { opacity: 0.4; border-style: dashed; border-color: color-mix(in oklab, var(--gg-accent) 60%, transparent); }
+.gg-game.is-over { box-shadow: inset 0 3px 0 color-mix(in oklab, var(--gg-accent-2) 90%, transparent); border-color: color-mix(in oklab, var(--gg-accent-2) 55%, transparent); }
+.gg-game.is-current { border-color: color-mix(in oklab, var(--gg-accent) 55%, transparent); background: color-mix(in oklab, var(--gg-accent) 12%, var(--gg-surface)); }
+.gg-game__grip { display: grid; gap: 3px; padding: 0.3rem 0.15rem; color: var(--gg-text-dim); pointer-events: none; }
+.gg-game__grip span { display: block; width: 14px; height: 2px; background: currentColor; border-radius: 2px; }
+/* interactive children opt out of the row's grab cursor */
+.gg-game__order button, .gg-game .gg-toggle, .gg-game__actions button, .gg-game__title input { cursor: pointer; }
+.gg-game__title input { cursor: text; }
+.gg-game__order { display: grid; gap: 2px; }
+.gg-game__order button { width: 1.4rem; height: 1.1rem; display: grid; place-items: center; cursor: pointer; border: 1px solid var(--gg-border); background: color-mix(in oklab, var(--gg-surface-2) 50%, transparent); color: var(--gg-text-dim); font-size: 0.6rem; border-radius: 2px; }
+.gg-game__order button:hover { color: var(--gg-text); }
+.gg-game__title { min-width: 0; font-family: var(--gg-font-display); font-weight: 500; font-size: 1.05rem; letter-spacing: 0.02em; overflow-wrap: anywhere; }
+.gg-game__title input { width: 100%; border: 1px solid var(--gg-accent); background: var(--gg-bg); padding: 0.35rem 0.5rem; border-radius: 2px; }
+.gg-game__tags { display: flex; align-items: center; gap: 0.45rem; }
+.gg-game__actions { display: flex; align-items: center; gap: 0.3rem; }
+/* live indicator on the current game's row — flashing red dot (replaces the old "Live" pill) */
+.gg-live-dot { width: 0.62rem; height: 0.62rem; border-radius: 50%; background: oklch(0.66 0.23 25); box-shadow: 0 0 0 0 color-mix(in oklab, var(--gg-danger) 70%, transparent); animation: gg-dot-pulse 1.15s ease-in-out infinite; flex: 0 0 auto; margin-right: 0.15rem; }
+@keyframes gg-dot-pulse { 0% { opacity: 1; box-shadow: 0 0 0 0 color-mix(in oklab, var(--gg-danger) 60%, transparent); } 50% { opacity: 0.45; box-shadow: 0 0 0 0.32rem color-mix(in oklab, var(--gg-danger) 0%, transparent); } 100% { opacity: 1; box-shadow: 0 0 0 0 color-mix(in oklab, var(--gg-danger) 0%, transparent); } }
+@media (prefers-reduced-motion: reduce) { .gg-live-dot { animation: none; } }
+
+/* drag-outside-to-delete states */
+.gg-games.is-dragging-list { outline: 1px dashed color-mix(in oklab, var(--gg-border) 90%, transparent); outline-offset: 6px; border-radius: var(--gg-radius-sm); transition: outline-color 0.14s ease; }
+.gg-games.is-deleting { outline-color: color-mix(in oklab, var(--gg-danger) 70%, transparent); }
+.gg-game.is-removing { opacity: 0.55; border-style: solid; border-color: color-mix(in oklab, var(--gg-danger) 80%, transparent); background: color-mix(in oklab, var(--gg-danger) 16%, var(--gg-surface)); box-shadow: 0 0 0 1px color-mix(in oklab, var(--gg-danger) 50%, transparent); }
+.gg-field__hint--danger { color: color-mix(in oklab, var(--gg-danger) 75%, white); }
+
+/* toggle pill */
+.gg-toggle { position: relative; width: 2.7rem; height: 1.5rem; flex: none; border-radius: 999px; cursor: pointer; border: 1px solid var(--gg-border); background: color-mix(in oklab, var(--gg-bg) 50%, black); transition: background 0.16s ease, border-color 0.16s ease; }
+.gg-toggle::after { content: ""; position: absolute; top: 50%; left: 0.18rem; width: 1.05rem; height: 1.05rem; border-radius: 50%; background: var(--gg-text-dim); transform: translateY(-50%); transition: transform 0.16s ease, background 0.16s ease; }
+.gg-toggle.is-on { background: color-mix(in oklab, var(--gg-accent-2) 35%, transparent); border-color: color-mix(in oklab, var(--gg-accent-2) 55%, transparent); }
+.gg-toggle.is-on::after { transform: translate(1.18rem, -50%); background: var(--gg-accent-2); }
+
+/* current pick banner */
+.gg-pick { display: grid; gap: 0.5rem; padding: 1.2rem 1.4rem; border: 1px solid color-mix(in oklab, var(--gg-accent) 40%, var(--gg-border)); background: color-mix(in oklab, var(--gg-accent) 10%, var(--gg-surface)); position: relative; overflow: clip; clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 16px 100%, 0 calc(100% - 16px)); }
+.gg-pick__label { margin: 0; font-family: var(--gg-font-display); font-weight: 600; font-size: 0.78rem; letter-spacing: 0.22em; text-transform: uppercase; color: var(--gg-accent); }
+.gg-pick__title { margin: 0; font-family: var(--gg-font-display); font-weight: 700; font-size: clamp(1.8rem, 4vw, 2.8rem); line-height: 0.9; text-transform: uppercase; letter-spacing: 0.02em; }
+.gg-pick__title.is-empty { color: var(--gg-text-dim); }
+
+/* ---------- WHEEL ---------- */
+.gg-wheel-stage { display: grid; gap: 1.2rem; justify-items: center; }
+.gg-wheel-wrap { position: relative; width: min(100%, 360px); aspect-ratio: 1; display: grid; place-items: center; }
+.gg-wheel { width: 100%; height: 100%; border-radius: 50%; position: relative; overflow: hidden; border: 4px solid color-mix(in oklab, var(--gg-surface-2) 80%, black); box-shadow: var(--gg-shadow), inset 0 0 0 8px color-mix(in oklab, var(--gg-bg) 60%, transparent); transition: transform 4.5s cubic-bezier(0.13, 0.86, 0.18, 1); }
+.gg-wheel__label { position: absolute; left: 50%; top: 50%; transform-origin: 0 0; font-family: var(--gg-font-display); font-weight: 600; font-size: 0.8rem; letter-spacing: 0.04em; text-transform: uppercase; color: oklch(0.18 0.02 250); white-space: nowrap; }
+.gg-wheel__hub { position: absolute; width: 22%; height: 22%; border-radius: 50%; background: color-mix(in oklab, var(--gg-surface-2) 90%, black); border: 3px solid color-mix(in oklab, var(--gg-accent) 50%, transparent); display: grid; place-items: center; font-family: var(--gg-font-display); font-weight: 700; font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--gg-accent); z-index: 3; }
+.gg-wheel__pointer { position: absolute; top: -6px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 16px solid transparent; border-right: 16px solid transparent; border-top: 26px solid var(--gg-accent); z-index: 4; filter: drop-shadow(0 2px 4px oklch(0 0 0 / 0.5)); }
+
+/* horizontal reel */
+.gg-reel { width: 100%; max-width: 520px; position: relative; overflow: hidden; border: 1px solid var(--gg-border); border-radius: var(--gg-radius-md); background: color-mix(in oklab, var(--gg-bg) 55%, black); padding: 0; clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px)); }
+.gg-reel__viewport { height: 130px; position: relative; overflow: hidden; }
+.gg-reel__track { display: flex; height: 100%; will-change: transform; transition: transform 4.6s cubic-bezier(0.1, 0.82, 0.16, 1); }
+.gg-reel--vertical .gg-reel__track { flex-direction: column; }
+.gg-reel__cell { flex: 0 0 180px; height: 100%; display: grid; place-items: center; padding: 0 1rem; border-right: 1px solid color-mix(in oklab, var(--gg-border) 60%, transparent); font-family: var(--gg-font-display); font-weight: 700; font-size: 1.3rem; text-transform: uppercase; letter-spacing: 0.02em; text-align: center; text-wrap: balance; line-height: 0.95; }
+.gg-reel--vertical .gg-reel__viewport { height: 240px; }
+.gg-reel--vertical .gg-reel__cell { flex: 0 0 80px; height: 80px; border-right: 0; border-bottom: 1px solid color-mix(in oklab, var(--gg-border) 60%, transparent); }
+.gg-reel__marker { position: absolute; top: 0; bottom: 0; left: 50%; width: 3px; background: var(--gg-accent); transform: translateX(-50%); z-index: 3; box-shadow: 0 0 14px color-mix(in oklab, var(--gg-accent) 70%, transparent); }
+.gg-reel--vertical .gg-reel__marker { top: 50%; bottom: auto; left: 0; right: 0; width: auto; height: 3px; transform: translateY(-50%); }
+.gg-reel__fade { position: absolute; inset: 0; pointer-events: none; z-index: 2; background: linear-gradient(90deg, color-mix(in oklab, var(--gg-bg) 80%, black), transparent 18%, transparent 82%, color-mix(in oklab, var(--gg-bg) 80%, black)); }
+.gg-reel--vertical .gg-reel__fade { background: linear-gradient(180deg, color-mix(in oklab, var(--gg-bg) 80%, black), transparent 22%, transparent 78%, color-mix(in oklab, var(--gg-bg) 80%, black)); }
+
+.gg-wheel-empty { display: grid; place-items: center; gap: 0.6rem; min-height: 200px; width: 100%; max-width: 420px; border: 1px dashed var(--gg-border); border-radius: var(--gg-radius-md); color: var(--gg-text-dim); text-align: center; padding: 2rem; }
+
+/* ---------- OBS overlay gallery ---------- */
+.gg-checker { background-color: oklch(0.22 0.01 250); background-image: linear-gradient(45deg, oklch(0.16 0.01 250) 25%, transparent 25%), linear-gradient(-45deg, oklch(0.16 0.01 250) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, oklch(0.16 0.01 250) 75%), linear-gradient(-45deg, transparent 75%, oklch(0.16 0.01 250) 75%); background-size: 22px 22px; background-position: 0 0, 0 11px, 11px -11px, -11px 0; }
+.gg-overlay-card { display: grid; gap: 0; border: 1px solid var(--gg-border); border-radius: var(--gg-radius-md); overflow: clip; background: color-mix(in oklab, var(--gg-surface) 84%, black); }
+.gg-overlay-card__bar { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; padding: 0.7rem 0.9rem; border-bottom: 1px solid var(--gg-border); }
+.gg-overlay-card__name { font-family: var(--gg-font-display); font-weight: 600; font-size: 0.98rem; letter-spacing: 0.04em; text-transform: uppercase; }
+.gg-overlay-card__dim { font-family: var(--gg-font-display); font-size: 0.78rem; color: var(--gg-text-dim); letter-spacing: 0.04em; }
+.gg-overlay-card__stage { display: grid; place-items: center; padding: 1.2rem; min-height: 150px; }
+.gg-overlay-card__desc { padding: 0.7rem 0.9rem; border-top: 1px solid var(--gg-border); color: var(--gg-text-dim); font-size: 0.92rem; }
+.gg-overlay-card__foot { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; padding: 0.7rem 0.9rem; border-top: 1px solid var(--gg-border); }
+
+/* on-stream overlay graphic components (shared by gallery + full preview) */
+.ov-top { width: 100%; max-width: 760px; display: flex; align-items: stretch; gap: 2px; font-family: var(--gg-font-display); }
+.ov-top__team { flex: 1; display: flex; align-items: center; gap: 0.7rem; padding: 0.6rem 1rem; background: color-mix(in oklab, var(--team-color) 22%, oklch(0.16 0.02 250 / 0.9)); border-top: 3px solid var(--team-color); }
+.ov-top__team--right { flex-direction: row-reverse; text-align: right; }
+.ov-top__name { font-weight: 600; font-size: 1.1rem; text-transform: uppercase; letter-spacing: 0.03em; color: color-mix(in oklab, var(--team-color) 50%, white 50%); white-space: nowrap; }
+.ov-top__score { font-weight: 700; font-size: 2rem; line-height: 1; font-variant-numeric: tabular-nums; color: color-mix(in oklab, var(--team-color) 80%, white 20%); margin-left: auto; }
+.ov-top__team--right .ov-top__score { margin-left: 0; margin-right: auto; }
+.ov-top__center { display: grid; place-items: center; gap: 0.15rem; padding: 0.5rem 1.4rem; background: oklch(0.13 0.02 250 / 0.94); min-width: 200px; }
+.ov-top__game { font-weight: 600; font-size: 0.96rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--gg-text); text-align: center; line-height: 1.05; text-wrap: balance; }
+.ov-top__meta { font-size: 0.66rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--gg-accent); }
+
+.ov-lower { width: 100%; max-width: 560px; font-family: var(--gg-font-display); background: oklch(0.13 0.02 250 / 0.92); border-left: 4px solid var(--gg-accent); padding: 0.7rem 1.1rem; display: grid; gap: 0.3rem; clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px)); }
+.ov-lower__row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.ov-lower__eyebrow { font-size: 0.68rem; letter-spacing: 0.22em; text-transform: uppercase; color: var(--gg-accent); }
+.ov-lower__teams { display: flex; align-items: center; gap: 0.7rem; font-weight: 700; font-size: 1.5rem; text-transform: uppercase; }
+.ov-lower__t1 { color: color-mix(in oklab, var(--gg-team-alpha) 75%, white); }
+.ov-lower__t2 { color: color-mix(in oklab, var(--gg-team-bravo) 75%, white); }
+.ov-lower__vs { color: var(--gg-text-dim); font-size: 1rem; }
+.ov-lower__game { font-size: 0.9rem; color: var(--gg-text-dim); text-transform: uppercase; letter-spacing: 0.04em; }
+
+.ov-compact { width: 230px; font-family: var(--gg-font-display); background: oklch(0.13 0.02 250 / 0.92); border-radius: var(--gg-radius-sm); overflow: clip; clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px)); }
+.ov-compact__row { display: flex; align-items: center; justify-content: space-between; gap: 0.7rem; padding: 0.5rem 0.8rem; border-left: 4px solid var(--team-color); }
+.ov-compact__row + .ov-compact__row { border-top: 1px solid oklch(1 0 0 / 0.08); }
+.ov-compact__name { font-weight: 600; font-size: 0.96rem; text-transform: uppercase; color: color-mix(in oklab, var(--team-color) 55%, white 45%); white-space: nowrap; }
+.ov-compact__score { font-weight: 700; font-size: 1.5rem; line-height: 1; font-variant-numeric: tabular-nums; color: color-mix(in oklab, var(--team-color) 82%, white 18%); }
+.ov-compact__foot { padding: 0.4rem 0.8rem; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--gg-text-dim); border-top: 1px solid oklch(1 0 0 / 0.08); }
+
+/* vertical rail overlay — tall portrait strip */
+.ov-rail { width: 210px; font-family: var(--gg-font-display); background: oklch(0.13 0.02 250 / 0.92); border: 1px solid oklch(1 0 0 / 0.08); display: grid; gap: 0.55rem; padding: 0.95rem 0.85rem; text-align: center; clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px)); }
+.ov-rail__lead { display: grid; gap: 0.2rem; padding-bottom: 0.55rem; border-bottom: 1px solid oklch(1 0 0 / 0.08); }
+.ov-rail__lead-label { font-size: 0.62rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--gg-accent); }
+.ov-rail__lead-game { font-weight: 700; font-size: 1.18rem; line-height: 1; text-transform: uppercase; letter-spacing: 0.02em; color: var(--gg-text); text-wrap: balance; }
+.ov-rail__team { display: grid; gap: 0.1rem; padding: 0.6rem 0.5rem; border-left: 4px solid var(--team-color); background: color-mix(in oklab, var(--team-color) 14%, transparent); text-align: left; clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px)); }
+.ov-rail__name { font-weight: 600; font-size: 0.92rem; text-transform: uppercase; letter-spacing: 0.02em; color: color-mix(in oklab, var(--team-color) 55%, white 45%); white-space: nowrap; }
+.ov-rail__score { font-weight: 700; font-size: 2.4rem; line-height: 0.85; font-variant-numeric: tabular-nums; color: color-mix(in oklab, var(--team-color) 82%, white 18%); }
+.ov-rail__vs { font-size: 0.78rem; letter-spacing: 0.1em; color: var(--gg-text-dim); }
+.ov-rail__foot { display: grid; gap: 0.15rem; padding-top: 0.55rem; border-top: 1px solid oklch(1 0 0 / 0.08); }
+.ov-rail__foot-label { font-size: 0.62rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--gg-text-dim); }
+.ov-rail__game { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--gg-text-dim); line-height: 1.05; text-wrap: balance; }
+
+.ov-square { width: 210px; font-family: var(--gg-font-display); background: oklch(0.13 0.02 250 / 0.94); border: 1px solid oklch(1 0 0 / 0.08); display: grid; gap: 0.6rem; padding: 0.9rem; text-align: center; clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px)); }
+.ov-square__title { font-size: 0.7rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--gg-accent); }
+.ov-square__teams { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 0.4rem; }
+.ov-square__score { font-weight: 700; font-size: 2.6rem; line-height: 0.8; font-variant-numeric: tabular-nums; }
+.ov-square__nm { font-size: 0.78rem; text-transform: uppercase; }
+.ov-square__game { font-size: 0.86rem; color: var(--gg-text-dim); text-transform: uppercase; border-top: 1px solid oklch(1 0 0 / 0.08); padding-top: 0.55rem; }
+
+/* OBS panel */
+.gg-obs-item { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 0.6rem 1rem; align-items: center; padding: 0.85rem 0.95rem; border: 1px solid var(--gg-border); border-radius: var(--gg-radius-sm); background: color-mix(in oklab, var(--gg-surface) 82%, black); }
+.gg-obs-item__name { font-family: var(--gg-font-display); font-weight: 600; font-size: 1.05rem; text-transform: uppercase; letter-spacing: 0.03em; }
+.gg-obs-item__desc { color: var(--gg-text-dim); font-size: 0.9rem; }
+.gg-obs-item__size { font-family: var(--gg-font-display); font-size: 0.78rem; color: var(--gg-accent-2); letter-spacing: 0.06em; }
+.gg-obs-item__actions { display: flex; gap: 0.4rem; }
+.gg-steps { margin: 0; padding-left: 1.3rem; display: grid; gap: 0.5rem; color: var(--gg-text-dim); }
+.gg-steps li { padding-left: 0.2rem; }
+.gg-steps li::marker { color: var(--gg-accent); font-family: var(--gg-font-display); font-weight: 700; }
+
+/* segmented control (reused, esp. unlock + tabs) */
+.gg-seg { display: inline-flex; padding: 0.25rem; gap: 0.2rem; border: 1px solid var(--gg-border); border-radius: var(--gg-radius-sm); background: color-mix(in oklab, var(--gg-bg) 50%, black); }
+.gg-seg button { padding: 0.45rem 0.85rem; border: 0; background: transparent; cursor: pointer; font-family: var(--gg-font-display); font-weight: 500; font-size: 0.86rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--gg-text-dim); border-radius: 2px; }
+.gg-seg button.is-active { background: color-mix(in oklab, var(--gg-accent) 22%, var(--gg-surface)); color: var(--gg-text); }
+
+/* unlock gate */
+.gg-gate { max-width: 460px; margin: 0 auto; display: grid; gap: 1rem; }
+.gg-lock-ico { width: 48px; height: 48px; }
+
+/* toast */
+.gg-toast { position: fixed; bottom: 1.4rem; left: 50%; transform: translateX(-50%); z-index: 90; padding: 0.7rem 1.2rem; border: 1px solid color-mix(in oklab, var(--gg-accent-2) 50%, transparent); background: color-mix(in oklab, var(--gg-accent-2) 18%, oklch(0.16 0.02 250)); font-family: var(--gg-font-display); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; font-size: 0.9rem; box-shadow: var(--gg-shadow-lg); clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px)); animation: gg-toast-in 0.2s ease; }
+@keyframes gg-toast-in { from { opacity: 0; transform: translate(-50%, 10px); } to { opacity: 1; transform: translate(-50%, 0); } }
+
+/* divider label */
+.gg-divider { display: flex; align-items: center; gap: 0.8rem; color: var(--gg-text-dim); font-family: var(--gg-font-display); font-size: 0.74rem; letter-spacing: 0.22em; text-transform: uppercase; }
+.gg-divider::before, .gg-divider::after { content: ""; flex: 1; height: 1px; background: var(--gg-border); }
+
+/* match-room header (editable title, no subtitle) */
+.gg-match-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 1.5rem; flex-wrap: wrap; padding-bottom: 1.1rem; border-bottom: 1px solid var(--gg-border); }
+.gg-match-head__title { display: grid; gap: 0.5rem; min-width: 0; flex: 1 1 320px; }
+.gg-title-input { font-family: var(--gg-font-display); font-weight: 700; font-size: clamp(1.8rem, 3vw, 2.8rem); line-height: 0.94; text-transform: uppercase; letter-spacing: 0.02em; color: var(--gg-text); background: transparent; border: 1px solid transparent; border-radius: var(--gg-radius-sm); padding: 0.1rem 0.4rem; margin-left: -0.4rem; width: 100%; max-width: 100%; outline: none; transition: border-color 0.16s ease, background 0.16s ease; }
+.gg-title-input:hover { border-color: var(--gg-border); }
+.gg-title-input:focus { border-color: color-mix(in oklab, var(--gg-accent) 56%, white 8%); background: color-mix(in oklab, var(--gg-surface) 84%, black); }
+
+/* inline editable team name inside score control */
+.gg-scorectl__name-input { font-family: var(--gg-font-display); font-weight: 700; font-size: 1.3rem; text-transform: uppercase; letter-spacing: 0.03em; line-height: 0.96; color: color-mix(in oklab, var(--team-color) 60%, white 40%); background: transparent; border: 1px solid transparent; border-radius: 2px; padding: 0.1rem 0.3rem; margin-left: -0.3rem; width: 100%; min-width: 0; outline: none; }
+.gg-scorectl__name-input:hover { border-color: color-mix(in oklab, var(--team-color) 35%, transparent); }
+.gg-scorectl__name-input:focus { border-color: color-mix(in oklab, var(--team-color) 60%, transparent); background: color-mix(in oklab, var(--gg-bg) 45%, transparent); }
+
+/* settings strip inside scoreboard panel */
+.gg-settings-strip { display: grid; grid-template-columns: minmax(0, 220px) 1fr; gap: 1rem; align-items: end; }
+.gg-settings-strip .gg-row { justify-content: flex-end; }
+@media (max-width: 620px) { .gg-settings-strip { grid-template-columns: 1fr; } .gg-settings-strip .gg-row { justify-content: flex-start; } }
+
+/* locked control-room gate */
+.gg-lockscreen { min-height: 62vh; display: grid; place-items: center; }
+.gg-lockcard { width: 100%; max-width: 460px; display: grid; gap: 1rem; justify-items: center; text-align: center; padding: 2.2rem; }
+.gg-lockcard .gg-lock-ico { color: var(--gg-accent); }
+.gg-lockcard form { display: grid; gap: 0.9rem; width: 100%; text-align: left; }
+
+/* overlays: compact instruction header */
+.gg-obs-guide { display: grid; grid-template-columns: 1.1fr 1fr; gap: 1.4rem; }
+.gg-obs-guide__col { display: grid; gap: 0.55rem; align-content: start; }
+.gg-obs-guide__head { font-family: var(--gg-font-display); font-weight: 600; font-size: 0.76rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--gg-accent-2); }
+.gg-obs-guide .gg-steps { font-size: 0.92rem; gap: 0.35rem; }
+@media (max-width: 760px) { .gg-obs-guide { grid-template-columns: 1fr; } }
+
+@media (max-width: 1080px) { .gg-manage, .gg-board-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 900px) {
+  .gg-app { grid-template-columns: 1fr; }
+  .gg-rail { position: static; height: auto; flex-direction: row; flex-wrap: wrap; overflow-x: auto; }
+  .gg-rail__path { display: none; }
+  .gg-grid-3, .gg-grid-2, .gg-create-grid, .gg-form-pair { grid-template-columns: 1fr; }
+}
+@media (max-width: 620px) {
+  .gg-scorectl { grid-template-columns: 1fr; }
+  .gg-scorectl__center { order: -1; }
+}
+
+/* --- Overlay preview fitting fixes ---------------------------------------- */
+/* Each overlay graphic gets an explicit, FIXED design width (the previous
+   width:100% collapsed to min-content inside the scaled preview wrapper, jamming
+   names against scores and overlapping rows). Fixed widths give deterministic,
+   true-to-broadcast proportions; the preview scaler then shrinks the whole
+   graphic uniformly to fit its card. Names get min-width:0 + ellipsis so that
+   only genuinely long team names truncate gracefully — on BOTH sides — instead
+   of breaking the layout. Realistic names always render in full. */
+.ov-top { width: 760px; max-width: none; }
+.ov-top__team { min-width: 0; }
+.ov-top__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+.ov-lower { width: 560px; max-width: none; }
+.ov-lower__teams { min-width: 0; }
+.ov-lower__t1, .ov-lower__t2 { flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ov-lower__vs { flex: none; }
+
+.ov-compact { width: 260px; }
+.ov-compact__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+.ov-rail { width: 210px; }
+.ov-rail__team { min-width: 0; }
+.ov-rail__name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+
+.ov-square { width: 230px; }
+.ov-square__teams { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
+.ov-square__nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+
+/* keep the card header on one line so the title isn't truncated either */
+.gg-overlay-card__name { white-space: nowrap; }
+.gg-overlay-card__dim { white-space: nowrap; flex: none; }
+
+/* --- Standardize the small "header" label on every overlay graphic --------- */
+/* Each overlay had its eyebrow/title label at a slightly different size
+   (0.62 / 0.68 / 0.70rem). Unify them all to the smallest (0.62rem) so the
+   gallery reads consistently. */
+.ov-lower__eyebrow,
+.ov-square__title,
+.ov-rail__lead-label,
+.ov-rail__foot-label { font-size: 0.62rem; letter-spacing: 0.2em; }
+
+/* --- Vertical Rail: keep the lead game title fitting -----------------------
+   A long current-game title used to dominate / spill out of the rail's lead
+   block. Make it a touch smaller and cap it at three lines so it always sits
+   neatly inside the rail instead of being pushed out of view. */
+.ov-rail__lead-game {
+  font-size: 1rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}

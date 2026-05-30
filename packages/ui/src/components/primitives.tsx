@@ -1,3 +1,4 @@
+import { useId } from "react";
 import type {
   ButtonHTMLAttributes,
   HTMLAttributes,
@@ -5,6 +6,7 @@ import type {
   PropsWithChildren,
   ReactNode,
   SelectHTMLAttributes,
+  TextareaHTMLAttributes,
 } from "react";
 
 function mergeClassNames(...names: Array<string | false | null | undefined>) {
@@ -12,12 +14,16 @@ function mergeClassNames(...names: Array<string | false | null | undefined>) {
 }
 
 export type KitButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: "primary" | "ghost" | "default";
+  variant?: "primary" | "ghost" | "danger" | "default";
+  size?: "sm" | "icon";
+  block?: boolean;
 };
 
 export function KitButton({
   className,
   variant = "default",
+  size,
+  block = false,
   ...props
 }: KitButtonProps) {
   return (
@@ -25,6 +31,8 @@ export function KitButton({
       className={mergeClassNames(
         "gg-button",
         variant !== "default" && `gg-button--${variant}`,
+        size && `gg-button--${size}`,
+        block && "gg-button--block",
         className
       )}
       {...props}
@@ -33,7 +41,7 @@ export function KitButton({
 }
 
 export type KitChipProps = HTMLAttributes<HTMLSpanElement> & {
-  tone?: "default" | "soft" | "live";
+  tone?: "default" | "soft" | "live" | "alpha" | "bravo";
 };
 
 export function KitChip({
@@ -60,6 +68,7 @@ export type KitPanelProps = PropsWithChildren<
     summary?: string;
     actions?: ReactNode;
     transparent?: boolean;
+    flush?: boolean;
   }
 >;
 
@@ -71,6 +80,7 @@ export function KitPanel({
   summary,
   title,
   transparent = false,
+  flush = false,
   ...props
 }: KitPanelProps) {
   return (
@@ -78,6 +88,7 @@ export function KitPanel({
       className={mergeClassNames(
         "gg-panel",
         transparent && "gg-panel--transparent",
+        flush && "gg-panel--flush",
         className
       )}
       {...props}
@@ -133,7 +144,7 @@ export function KitCard({
 }
 
 export type KitNoticeProps = HTMLAttributes<HTMLParagraphElement> & {
-  tone?: "default" | "success" | "warning";
+  tone?: "default" | "success" | "warning" | "danger";
 };
 
 export function KitNotice({
@@ -159,19 +170,43 @@ type KitFieldBaseProps = {
 };
 
 export type KitTextFieldProps = KitFieldBaseProps &
-  InputHTMLAttributes<HTMLInputElement>;
+  InputHTMLAttributes<HTMLInputElement> & {
+    hint?: string;
+  };
 
 export function KitTextField({
   className,
   error,
+  hint,
   label,
   ...props
 }: KitTextFieldProps) {
+  const fieldId = useId();
+  const labelId = `${fieldId}-label`;
+  const hintId = `${fieldId}-hint`;
+  const errorId = `${fieldId}-error`;
+  const showHint = Boolean(hint) && !error;
+  const describedBy = error ? errorId : showHint ? hintId : undefined;
+
   return (
     <label className={mergeClassNames("gg-field", className)}>
-      <span>{label}</span>
-      <input aria-invalid={error ? "true" : undefined} {...props} />
-      {error ? <p className="gg-field__error">{error}</p> : null}
+      <span id={labelId}>{label}</span>
+      <input
+        aria-labelledby={labelId}
+        aria-describedby={describedBy}
+        aria-invalid={error ? "true" : undefined}
+        {...props}
+      />
+      {showHint ? (
+        <p className="gg-field__hint" id={hintId}>
+          {hint}
+        </p>
+      ) : null}
+      {error ? (
+        <p className="gg-field__error" id={errorId}>
+          {error}
+        </p>
+      ) : null}
     </label>
   );
 }
@@ -192,6 +227,24 @@ export function KitSelectField({
       <select aria-invalid={error ? "true" : undefined} {...props}>
         {children}
       </select>
+      {error ? <p className="gg-field__error">{error}</p> : null}
+    </label>
+  );
+}
+
+export type KitTextareaFieldProps = KitFieldBaseProps &
+  TextareaHTMLAttributes<HTMLTextAreaElement>;
+
+export function KitTextareaField({
+  className,
+  error,
+  label,
+  ...props
+}: KitTextareaFieldProps) {
+  return (
+    <label className={mergeClassNames("gg-field", className)}>
+      <span>{label}</span>
+      <textarea aria-invalid={error ? "true" : undefined} {...props} />
       {error ? <p className="gg-field__error">{error}</p> : null}
     </label>
   );

@@ -16,7 +16,7 @@ Each phase includes a clear implementation goal and required regression tests be
 You are implementing Gaming Gauntlet V1.
 
 Important rules:
-- Use the existing UI/design kit. Do not redesign the app from scratch.
+- Use the existing UI/design kit in `prototype/`. It is the canonical visual + structural reference (browser-runnable via `prototype/Prototype.html`). Mirror its components, classes, and screens; do not redesign from scratch. See `prototype/README.md` for the kit→production file map.
 - Keep V1 simple: React + Vite + TypeScript frontend, Cloudflare Worker API, Cloudflare D1.
 - Do not add Twitch OAuth, Twitch Extension support, EventSub, chat bots, accounts, billing, or WebSockets.
 - Management codes must never appear in URLs, public API responses, overlays, logs, or visible UI unless the user explicitly clicks reveal/copy inside the management UI.
@@ -27,6 +27,31 @@ Important rules:
 - Write or update regression tests at the end of every phase.
 - Do not move to the next phase unless lint, typecheck, build, and tests pass.
 ```
+
+---
+
+## UI Kit Reference
+
+The canonical design kit lives in `prototype/` (added to the repo as the source
+of truth). It is a browser-runnable prototype, not part of the build/lint/test
+pipeline. Phases 5–9 should mirror these files:
+
+| Kit file | Surface | Production target |
+| --- | --- | --- |
+| `kit.css` / `kit.jsx` | Tokens + primitives (`KitButton`, `KitChip`, `KitPanel`, `KitCard`, `KitNotice`, `KitTextField`, `KitTextareaField`, `PageShell`, `ScoreBug`, `Ico`) | `packages/ui` |
+| `app.css` | Screen/layout styles | `apps/web/src/app.css` |
+| `screens-create.jsx` | Create page (Phase 5) | `apps/web/src/CreatePage.tsx` |
+| `screens-match.jsx` | Single match room `/g/:lobbyId` — public view + inline unlock, scorebar, game-pool editor, wheel (Phase 6–7) | match room |
+| `wheel.jsx` | Spin wheel: `radial` + `reel` (Phase 7) | wheel component |
+| `overlays.jsx` | On-stream overlay graphics + metadata (Phase 8) | overlay routes |
+| `screens-obs.jsx` | "Add to OBS" overlays surface: live previews + copy-URL + instructions (Phase 9) | overlays surface |
+
+Key deviations the production app makes on purpose:
+- **Routes, not a rail.** The prototype's `app.jsx` left nav rail is demo-only.
+  Production uses real URLs; the match URL is the only shareable link.
+- **Real API + auth.** `store.jsx` is an in-memory stand-in for the Worker API.
+- **Secrets stay hidden.** The prototype prints the demo passcode; production
+  must never leak it into URLs, overlays, logs, or public API responses.
 
 ---
 
@@ -279,44 +304,48 @@ Add tests that verify:
 
 ---
 
-# Phase 6 — Match Room + Management Unlock UI
+# Phase 6 — Match Room + Inline Management Unlock
 
 ## Goal
 
-Build the main match room with an unlockable streamer control surface.
+Build the single match room at `/g/:lobbyId` — public by default, unlockable
+**inline** with the management passcode — following the kit's `screens-match.jsx`.
+There is no separate "command center"; locked and unlocked states are the same
+route.
 
 ## AI Prompt
 
 ```text
-Implement Phase 6: Match Room + Management Unlock UI.
+Implement Phase 6: Match Room + Inline Management Unlock.
+
+Use prototype/screens-match.jsx and prototype/app.css as the structural target.
 
 Tasks:
-1. Build /g/:lobbyId as the primary match room.
-2. Show public match state on /g/:lobbyId without requiring a passcode.
-3. Add a Manage this match action on /g/:lobbyId.
-4. If no local verified management passcode exists, show a passcode entry form.
-5. Verify the passcode using POST /api/lobbies/:lobbyId/verify.
-6. After verification, store passcode in localStorage.
-7. Build management UI using the existing UI/design kit:
-   - Wheel area
-   - Editable game list
-   - Add game input
-   - Rename game
-   - Delete game
-   - Enable/disable game
-   - Reorder game using drag-and-drop or up/down buttons
-   - Score controls for both players
-   - Reset scores
-   - Rename players
-   - Target score editor
-   - Current game display
-   - Clear current game
-   - Reset match
-8. All write requests must send:
-   Authorization: Bearer <managementCode>
-9. Poll public state every 1–2 seconds.
-10. Avoid rerendering if version has not changed.
-11. /manage/:lobbyId may remain as an internal direct route, but the UI must not present it as a URL users need to copy/share.
+1. Build /g/:lobbyId as the ONLY match room. It is public by default.
+2. Locked state (no verified passcode in localStorage):
+   - Render the centered lock card (gg-lockscreen / gg-lockcard) with a single
+     "Management passcode" field and an "Unlock controls" button.
+   - Explain that viewers watch via the OBS overlays, not this page.
+   - Do NOT render score/game controls while locked.
+3. Verify the passcode using POST /api/lobbies/:lobbyId/verify. On success:
+   - Store the passcode in localStorage.
+   - Unlock INLINE — no navigation, no passcode in the URL.
+   On failure show an inline "passcode didn't match" error.
+4. Unlocked control room (single page, kit layout):
+   - MatchHeader: inline-editable match title + an "Add to OBS" action that
+     routes to the overlays surface (Phase 9).
+   - ScoreboardPanel: compact horizontal ScoreBar with inline-editable player
+     names, − / ＋ score steppers, a target-score input, and Reset scores /
+     Clear pick / Reset match actions.
+   - Spin panel: wheel stage + Radial/Reel style toggle + Spin button +
+     current-pick banner (spin logic lands in Phase 7).
+   - GamePoolEditor: add-game input; each row supports pointer drag-to-reorder,
+     up/down buttons, an enable/disable toggle, double-click-to-rename, and
+     delete; dragging a row OUTSIDE the list removes it; an enabled/total chip.
+5. Every write sends: Authorization: Bearer <managementCode>.
+6. Poll public state every 1–2 seconds; skip re-render when version is unchanged.
+7. /manage/:lobbyId may remain an internal direct route, but is never surfaced
+   as a URL users copy or share.
 
 At the end, add regression tests.
 ```
@@ -326,21 +355,19 @@ At the end, add regression tests.
 ```text
 Add tests that verify:
 - /g/:lobbyId renders public match state without a passcode.
-- /g/:lobbyId Manage action asks for passcode when localStorage has no verified passcode.
-- Correct passcode unlocks management UI.
-- Wrong passcode shows invalid passcode state.
-- Add game works.
-- Rename game works.
-- Delete game works.
-- Enable/disable game works.
-- Reorder game works.
-- +1 and -1 score controls work.
-- Reset score works.
-- Player rename works.
-- Target score update works.
-- All write requests use Authorization header.
-- No write request sends code in URL or query params.
-- UI does not show a separate management URL.
+- With no verified passcode in localStorage, the room shows the lock card and no
+  score/game controls.
+- A correct passcode unlocks the controls INLINE (URL unchanged, passcode never
+  in the URL); a wrong passcode shows the invalid-passcode state.
+- A stored/verified passcode auto-unlocks without re-prompting.
+- Add / rename / delete / enable-disable / reorder game each work.
+- Dragging a game outside the list removes it.
+- − / ＋ score steppers, reset scores, target score, rename players, clear pick,
+  and reset match each work.
+- All write requests use the Authorization: Bearer header.
+- No write request sends code/token/secret in the URL or query params.
+- The UI shows no separate management URL; "Add to OBS" routes to the overlays
+  surface.
 ```
 
 ---
@@ -356,21 +383,29 @@ Make the core game mechanic work.
 ```text
 Implement Phase 7: Wheel Logic + Spin Flow.
 
+Use prototype/wheel.jsx as the structural target.
+
 Tasks:
-1. Add wheel component using the existing UI/design kit.
-2. Add POST /api/lobbies/:lobbyId/spin.
-3. Spin endpoint must:
-   - require Authorization header
-   - select from enabled games only
-   - reject spin if no enabled games exist
-   - set currentGameId
-   - increment version
-   - update updatedAt
-4. Add frontend spin button.
-5. Add spin animation.
-6. Respect prefers-reduced-motion.
-7. After spin completes, show the selected game clearly.
-8. Make sure overlays receive the selected game via public state polling.
+1. Add the wheel component from the kit with TWO styles, switchable from the
+   Spin panel toggle:
+   - "radial" — conic-gradient pie wheel with a pointer + hub.
+   - "reel" — horizontal scrolling strip with a center marker.
+2. Add POST /api/lobbies/:lobbyId/spin. It must:
+   - require the Authorization: Bearer header
+   - select from ENABLED games only
+   - reject the spin (no-enabled-games error) when none are enabled
+   - set currentGameId, increment version, update updatedAt
+3. The wheel takes the server-selected winner, then animates TO it (pick first,
+   animate second) — easeOutQuint, ~4.4–5.1s, with a safety timeout so the
+   result always resolves even if requestAnimationFrame is throttled.
+4. Add the Spin button; disable it while spinning or when no games are enabled.
+5. Respect prefers-reduced-motion: do not depend on the long animation to reveal
+   the result — when reduced motion is requested, settle on the selected game
+   immediately / with minimal motion.
+6. Empty state: show the kit "No games enabled" panel and disable Spin when the
+   pool has no enabled games.
+7. After the spin, show the selected game in the current-pick banner; overlays
+   pick it up via public-state polling.
 
 At the end, add regression tests.
 ```
@@ -379,14 +414,14 @@ At the end, add regression tests.
 
 ```text
 Add tests that verify:
-- Spin requires Authorization header.
-- Spin rejects wrong passcode.
+- Spin requires the Authorization header.
+- Spin rejects a wrong passcode.
 - Spin selects only enabled games.
 - Spin rejects when there are no enabled games.
-- Spin updates currentGameId.
-- Spin increments version.
-- Unlocked management surface shows selected game after spin.
-- Reduced-motion mode does not rely on long animation to update state.
+- Spin updates currentGameId and increments version.
+- Both wheel styles (radial and reel) render.
+- The unlocked surface shows the selected game after a spin.
+- Reduced-motion mode resolves the result without relying on the long animation.
 ```
 
 ---
@@ -402,37 +437,32 @@ Build all read-only browser-source overlays.
 ```text
 Implement Phase 8: OBS Overlay Routes.
 
+Use prototype/overlays.jsx for the graphics and prototype/app.css (ov-* classes)
+for styling. The kit's overlay set replaces the old compact-left/compact-right
+pair with a single "compact" card plus a vertical "rail".
+
 Tasks:
-1. Build these overlay routes:
-   - /overlay/:lobbyId/top
-   - /overlay/:lobbyId/lower-third
-   - /overlay/:lobbyId/compact-left
-   - /overlay/:lobbyId/compact-right
-   - /overlay/:lobbyId/square
-   - /overlay/:lobbyId/wheel
-   - /overlay/:lobbyId/full
+1. Build these overlay routes (recommended OBS size in parentheses):
+   - /overlay/:lobbyId/top          (1280 × 90)   — slim header bar
+   - /overlay/:lobbyId/lower-third  (900 × 180)   — broadcast lower third
+   - /overlay/:lobbyId/compact      (320 × 200)   — stacked score card
+   - /overlay/:lobbyId/rail         (240 × 560)   — tall vertical strip
+   - /overlay/:lobbyId/square       (360 × 360)   — square score card
+   - /overlay/:lobbyId/wheel                       — wheel + current pick
+   - /overlay/:lobbyId/full         (1920 × 1080) — fullscreen showcase
 2. Each overlay must:
    - be public and read-only
    - poll GET /api/lobbies/:lobbyId/state every 1–2 seconds
-   - use transparent background where appropriate
+   - use a transparent background
    - be readable on stream
    - show only public state
-   - never show management controls
-   - never show management code
-3. Add loading, invalid lobby, and empty state displays.
-4. Use the existing design kit styling.
-5. Add safe optional query params only:
-   - theme
-   - scale
-   - showNext
-   - brand
-   - transparent
-   - animation
+   - never show management controls or the management code
+3. Add loading, invalid-lobby, and empty-state displays.
+4. Use the kit ov-* styling.
+5. Allow safe optional query params only:
+   - theme, scale, showNext, brand, transparent, animation
 6. Reject or ignore unsafe query params:
-   - code
-   - token
-   - secret
-   - managementCode
+   - code, token, secret, managementCode
 
 At the end, add regression tests.
 ```
@@ -441,57 +471,52 @@ At the end, add regression tests.
 
 ```text
 Add tests that verify:
-- All overlay routes render.
-- Overlays call only public state endpoint.
+- All overlay routes render (top, lower-third, compact, rail, square, wheel, full).
+- Overlays call only the public state endpoint.
 - Overlays do not render management controls.
 - Overlays do not expose managementCode, code, token, secret, or managementCodeHash.
 - Overlay URLs generated by the app never include secrets.
-- Invalid lobby overlay shows safe error state.
+- Invalid lobby overlay shows a safe error state.
 - Safe query params work.
 - Unsafe query params are ignored or rejected.
 ```
 
 ---
 
-# Phase 9 — OBS URL Panel in Unlocked Management Surface
+# Phase 9 — "Add to OBS" Overlays Surface
 
 ## Goal
 
-Make it easy for streamers to copy overlay links into OBS.
+Give streamers one Overlays surface — live previews + copy-URL + instructions —
+reached from the match room's "Add to OBS" action. The kit merges the old
+preview gallery and copy-URL panel into a single screen (`screens-obs.jsx`).
 
 ## AI Prompt
 
 ```text
-Implement Phase 9: OBS Overlay URL Panel.
+Implement Phase 9: "Add to OBS" Overlays Surface.
+
+Use prototype/screens-obs.jsx as the structural target. Reach it from the match
+room's "Add to OBS" button (not a separate copyable management URL).
 
 Tasks:
-1. Add an OBS Overlays panel to the unlocked management surface.
-2. Include these overlays:
-   - Top Bar
-   - Lower Third
-   - Compact Left
-   - Compact Right
-   - Square Card
-   - Wheel
-   - Fullscreen Showcase
-3. For each overlay show:
-   - name
-   - short description
-   - recommended OBS width
-   - recommended OBS height
-   - Copy OBS URL button
-   - Preview button
-4. Add OBS instructions:
-   1. Copy the overlay URL.
-   2. In OBS, go to Sources.
-   3. Click +.
-   4. Choose Browser.
-   5. Paste the URL.
-   6. Set the recommended width and height.
-   7. Click OK.
-   8. Drag the overlay where you want it on stream.
-5. Add troubleshooting notes.
-6. Generated overlay URLs must never include management code.
+1. Build a responsive overlay gallery. Each overlay card shows:
+   - a LIVE, transparent, auto-scaled preview of the real overlay graphic
+     (rendered from public state, on a checkerboard backdrop)
+   - the overlay name
+   - the recommended OBS width × height
+   - a short description
+   - a Copy URL button
+2. Include these overlays: Top Bar, Lower Third, Compact Card, Vertical Rail,
+   Square Card, Fullscreen Showcase (and Wheel).
+3. Add a compact instructions block:
+   - Setup: copy the overlay URL → OBS Sources → + → Browser → paste the URL →
+     set the listed width & height → OK → drag into place.
+   - Troubleshooting: blank → re-copy the full link / confirm the match exists;
+     not updating → right-click the source → Refresh; not transparent → remove
+     any color source behind it.
+4. Generated overlay URLs must never include the management code or unsafe
+   params (code, token, secret, managementCode).
 
 At the end, add regression tests.
 ```
@@ -500,13 +525,12 @@ At the end, add regression tests.
 
 ```text
 Add tests that verify:
-- OBS panel renders after management unlock.
-- Every overlay has a copy URL button.
-- Every overlay has a preview button.
-- Recommended sizes are shown.
-- Copied URLs do not include management code.
-- Copied URLs do not include unsafe query params.
-- OBS instructions render.
+- The overlays surface is reached from the match room's "Add to OBS" action.
+- The gallery renders a live preview for every overlay.
+- Every overlay card has a Copy URL button.
+- Recommended OBS sizes are shown.
+- Copied URLs never include the management code or unsafe query params.
+- Setup instructions render.
 - Troubleshooting notes render.
 ```
 

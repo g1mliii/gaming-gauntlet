@@ -1,9 +1,10 @@
 @import url("https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Barlow+Condensed:wght@400;500;600&display=swap");
 
 /* ===========================================================================
-   GAMING GAUNTLET — design tokens + UI-kit components
-   Evolved kit: oklch slate bg, beveled clip-path surfaces, Rajdhani/Barlow,
-   team colors, tighter hierarchy, motion, and the surfaces V1 screens need.
+   GAMING GAUNTLET — kit tokens + components
+   Ported from packages/ui/src/styles/index.css and evolved:
+   - same DNA (oklch slate bg, beveled clip-path, Rajdhani/Barlow, team colors)
+   - tighter hierarchy, more spacing rhythm, motion, new surfaces for P6–P9
    =========================================================================== */
 
 :root {
@@ -140,9 +141,6 @@ button, input, textarea, select { font: inherit; color: inherit; }
 
 .gg-action-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
 
-/* inline icon (buttons, chips) */
-.gg-icon { width: 18px; height: 18px; flex: none; opacity: 0.85; }
-
 /* ---------- Fields ---------- */
 .gg-field { display: grid; gap: 0.42rem; min-width: 0; }
 .gg-field > span { font-family: var(--gg-font-display); font-weight: 600; font-size: 0.82rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--gg-text-dim); }
@@ -181,7 +179,6 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .gg-card__header { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
 .gg-card__eyebrow { margin: 0; font-family: var(--gg-font-display); font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--gg-accent-2); font-size: 0.74rem; }
 .gg-card__title { margin: 0; font-family: var(--gg-font-display); font-weight: 700; font-size: clamp(1.15rem, 2vw, 1.6rem); line-height: 0.96; text-transform: uppercase; letter-spacing: 0.02em; }
-.gg-card__meta, .gg-card p { margin: 0; color: var(--gg-text-dim); }
 
 /* ---------- Notice ---------- */
 .gg-notice {
@@ -223,17 +220,6 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .gg-scorebug__meta-label { color: var(--gg-text-dim); font-family: var(--gg-font-display); font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; font-size: 0.82rem; }
 .gg-scorebug__meta-label--right { text-align: right; }
 .gg-scorebug__current-game { font-family: var(--gg-font-display); font-weight: 600; font-size: clamp(1.1rem, 2vw, 1.45rem); letter-spacing: 0.03em; line-height: 1; text-transform: uppercase; overflow-wrap: anywhere; }
-
-/* ---------- Suggestion board / queue (legacy kit surfaces) ---------- */
-.gg-board, .gg-queue { margin: 0; padding: 0; list-style: none; }
-.gg-board__row, .gg-queue__item { padding: 0.95rem 0; border-bottom: 1px solid color-mix(in oklab, var(--gg-border) 55%, transparent); }
-.gg-board__row:last-child, .gg-queue__item:last-child { border-bottom: 0; }
-.gg-board__row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 1rem; }
-.gg-queue__item { display: flex; align-items: center; gap: 0.8rem; }
-.gg-board__title { margin: 0; font-family: var(--gg-font-display); font-weight: 600; font-size: clamp(1rem, 1.5vw, 1.22rem); line-height: 1; text-transform: uppercase; letter-spacing: 0.05em; overflow-wrap: anywhere; }
-.gg-board__meta { margin: 0.25rem 0 0; color: var(--gg-text-dim); font-size: 0.86rem; }
-.gg-board__votes { font-family: var(--gg-font-display); font-weight: 700; font-variant-numeric: tabular-nums; font-size: clamp(1.5rem, 2.6vw, 2.3rem); line-height: 0.9; text-align: right; }
-.gg-empty { margin: 0; color: var(--gg-text-dim); }
 
 @keyframes gg-live-pulse { 0% { opacity: 1; transform: translateY(-50%) scale(1); } 50% { opacity: 0.3; transform: translateY(-50%) scale(0.72); } 100% { opacity: 1; transform: translateY(-50%) scale(1); } }
 

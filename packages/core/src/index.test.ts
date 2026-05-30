@@ -126,6 +126,12 @@ describe("Phase 2 shared schemas", () => {
     });
     expect(
       CreateLobbyRequestSchema.safeParse({
+        playerOneName: "Alice",
+        playerTwoName: "Bob"
+      }).success
+    ).toBe(true);
+    expect(
+      CreateLobbyRequestSchema.safeParse({
         playerOneName: "",
         playerTwoName: "Bob"
       }).success

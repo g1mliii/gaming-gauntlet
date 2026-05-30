@@ -1,3 +1,4 @@
+export * from "./components/icons";
 export * from "./components/page-shell";
 export * from "./components/primitives";
 export * from "./components/queue-list";

@@ -8,7 +8,8 @@ export default [
     ignores: [
       "**/dist/**",
       "**/coverage/**",
-      "**/node_modules/**"
+      "**/node_modules/**",
+      "prototype/**"
     ]
   },
   js.configs.recommended,
