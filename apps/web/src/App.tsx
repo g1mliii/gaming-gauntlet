@@ -1,21 +1,19 @@
 import { useEffect } from "react";
 import type { ReactNode } from "react";
-import {
-  KitChip,
-  KitPanel,
-  PageShell,
-  ScoreBug
-} from "@gaming-gauntlet/ui";
+import { KitChip, KitPanel, PageShell, ScoreBug } from "@gaming-gauntlet/ui";
 import type { GauntletMatchSurface } from "@gaming-gauntlet/ui";
 
 import CreatePage from "./CreatePage";
 import { matchRoute } from "./routes";
+import type { MatchedRoute } from "./routes";
 
 type AppProps = {
   initialPath?: string;
 };
 
-const previewLobbyId = "demo-lobby";
+const siteOrigin = "https://gaming-gauntlet.com";
+const defaultDescription =
+  "Create a Gaming Gauntlet lobby, share one match URL, and keep stream controls behind a private passcode.";
 
 const previewMatch: GauntletMatchSurface = {
   title: "Demo Lobby",
@@ -23,9 +21,9 @@ const previewMatch: GauntletMatchSurface = {
   targetWins: 3,
   players: [
     { displayName: "Player One", wins: 0 },
-    { displayName: "Player Two", wins: 0 }
+    { displayName: "Player Two", wins: 0 },
   ],
-  currentGame: { title: "Waiting for first spin" }
+  currentGame: { title: "Waiting for first spin" },
 };
 
 function getCurrentPath(initialPath?: string): string {
@@ -36,10 +34,120 @@ function getCurrentPath(initialPath?: string): string {
   return `${window.location.pathname}${window.location.search}${window.location.hash}`;
 }
 
+type SeoConfig = {
+  canonicalPath: string;
+  description: string;
+  robots: "index,follow" | "noindex,nofollow";
+  title: string;
+};
+
+function getRouteSeo(route: MatchedRoute): SeoConfig {
+  if (route.id === "create") {
+    return {
+      canonicalPath: "/",
+      description: defaultDescription,
+      robots: "index,follow",
+      title: "Create lobby | Gaming Gauntlet",
+    };
+  }
+
+  if (route.id === "game") {
+    return {
+      canonicalPath: `/g/${encodeURIComponent(route.params.lobbyId ?? "")}`,
+      description:
+        "Public Gaming Gauntlet match room with scoreboard state for a shared two-player challenge.",
+      robots: "noindex,nofollow",
+      title: "Match room | Gaming Gauntlet",
+    };
+  }
+
+  if (route.id === "manage") {
+    return {
+      canonicalPath: `/manage/${encodeURIComponent(route.params.lobbyId ?? "")}`,
+      description:
+        "Private Gaming Gauntlet match controls for passcode-verified stream management.",
+      robots: "noindex,nofollow",
+      title: "Manage match | Gaming Gauntlet",
+    };
+  }
+
+  if (route.id === "overlayTop") {
+    return {
+      canonicalPath: `/overlay/${encodeURIComponent(route.params.lobbyId ?? "")}/top`,
+      description: "Gaming Gauntlet OBS overlay surface for a live match.",
+      robots: "noindex,nofollow",
+      title: "Overlay | Gaming Gauntlet",
+    };
+  }
+
+  if (route.id === "notFound") {
+    return {
+      canonicalPath: "/",
+      description: defaultDescription,
+      robots: "noindex,nofollow",
+      title: "Not found | Gaming Gauntlet",
+    };
+  }
+
+  return {
+    canonicalPath: "/",
+    description: defaultDescription,
+    robots: "index,follow",
+    title: "Create lobby | Gaming Gauntlet",
+  };
+}
+
+function setNamedMeta(
+  attributeName: "name" | "property",
+  key: string,
+  content: string
+) {
+  let element = document.head.querySelector<HTMLMetaElement>(
+    `meta[${attributeName}="${key}"]`
+  );
+
+  if (!element) {
+    element = document.createElement("meta");
+    element.setAttribute(attributeName, key);
+    document.head.append(element);
+  }
+
+  element.content = content;
+}
+
+function setCanonicalLink(href: string) {
+  let element = document.head.querySelector<HTMLLinkElement>(
+    'link[rel="canonical"]'
+  );
+
+  if (!element) {
+    element = document.createElement("link");
+    element.rel = "canonical";
+    document.head.append(element);
+  }
+
+  element.href = href;
+}
+
+function applySeo(route: MatchedRoute) {
+  const seo = getRouteSeo(route);
+  const canonicalUrl = new URL(seo.canonicalPath, siteOrigin).toString();
+
+  document.title = seo.title;
+  setCanonicalLink(canonicalUrl);
+  setNamedMeta("name", "description", seo.description);
+  setNamedMeta("name", "robots", seo.robots);
+  setNamedMeta("property", "og:title", seo.title);
+  setNamedMeta("property", "og:description", seo.description);
+  setNamedMeta("property", "og:url", canonicalUrl);
+  setNamedMeta("name", "twitter:title", seo.title);
+  setNamedMeta("name", "twitter:description", seo.description);
+}
+
 function AppLink({
   children,
   href,
-  variant = "default"
+  variant = "default",
 }: {
   children: ReactNode;
   href: string;
@@ -56,7 +164,7 @@ function AppLink({
 
 function RouteChrome({
   children,
-  routeId
+  routeId,
 }: {
   children: ReactNode;
   routeId: string;
@@ -73,51 +181,6 @@ function RouteChrome({
   );
 }
 
-function LandingPage() {
-  return (
-    <RouteChrome routeId="landing-v1">
-      <PageShell
-        eyebrow="V1 baseline"
-        title="Gaming Gauntlet"
-        deck="Spin-ready match rooms for two-player game challenges, with one shareable match URL and passcode-gated controls."
-        actions={
-          <>
-            <AppLink href="/create" variant="primary">
-              Create lobby
-            </AppLink>
-            <AppLink href={`/g/${previewLobbyId}`} variant="ghost">
-              Open demo match
-            </AppLink>
-          </>
-        }
-      >
-        <div className="v1-grid">
-          <KitPanel
-            eyebrow="Routes"
-            title="App shell"
-            summary="The V1 paths are present and public while lobby logic is still pending."
-          >
-            <div className="v1-route-list" aria-label="V1 routes">
-              <AppLink href="/create">/create</AppLink>
-              <AppLink href={`/g/${previewLobbyId}`}>/g/:lobbyId</AppLink>
-              <AppLink href={`/overlay/${previewLobbyId}/top`}>
-                /overlay/:lobbyId/top
-              </AppLink>
-            </div>
-          </KitPanel>
-          <KitPanel
-            eyebrow="Preview"
-            title="Public state"
-            summary="Only public match information appears on the baseline surfaces."
-          >
-            <ScoreBug match={previewMatch} />
-          </KitPanel>
-        </div>
-      </PageShell>
-    </RouteChrome>
-  );
-}
-
 function ManagePage({ lobbyId }: { lobbyId: string }) {
   return (
     <RouteChrome routeId="manage-v1">
@@ -128,10 +191,16 @@ function ManagePage({ lobbyId }: { lobbyId: string }) {
         emphasis="section"
       >
         <div className="v1-grid">
-          <KitPanel title="Match controls" summary="Write controls are deferred.">
+          <KitPanel
+            title="Match controls"
+            summary="Write controls are deferred."
+          >
             <ScoreBug match={previewMatch} />
           </KitPanel>
-          <KitPanel title="Room status" summary="Management unlock arrives after verify API.">
+          <KitPanel
+            title="Room status"
+            summary="Management unlock arrives after verify API."
+          >
             <div className="v1-status-row">
               <KitChip tone="soft">Clean URLs</KitChip>
               <KitChip tone="soft">No auth dependency</KitChip>
@@ -189,7 +258,7 @@ function NotFoundPage() {
       <PageShell
         eyebrow="Route"
         title="Not found"
-        deck="This path is outside the V1 baseline."
+        deck="This path is outside Gaming Gauntlet."
         emphasis="section"
       >
         <AppLink href="/" variant="primary">
@@ -203,6 +272,11 @@ function NotFoundPage() {
 export default function App({ initialPath }: AppProps) {
   const route = matchRoute(getCurrentPath(initialPath));
   const isOverlay = route.id === "overlayTop";
+  const lobbyId = route.params.lobbyId ?? "";
+
+  useEffect(() => {
+    applySeo(route);
+  }, [route.id, lobbyId]);
 
   useEffect(() => {
     document.documentElement.classList.toggle("gg-doc--overlay", isOverlay);
@@ -213,10 +287,6 @@ export default function App({ initialPath }: AppProps) {
       document.body.classList.remove("gg-body--overlay");
     };
   }, [isOverlay]);
-
-  if (route.id === "landing") {
-    return <LandingPage />;
-  }
 
   if (route.id === "create") {
     return (

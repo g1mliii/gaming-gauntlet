@@ -1,0 +1,14 @@
+name = "gaming-gauntlet-api"
+main = "apps/api/src/index.ts"
+compatibility_date = "2026-05-30"
+
+routes = [
+  { pattern = "gaming-gauntlet.com/api/*", zone_name = "gaming-gauntlet.com" },
+  { pattern = "www.gaming-gauntlet.com/api/*", zone_name = "gaming-gauntlet.com" }
+]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "gaming-gauntlet-v1"
+database_id = "c3482150-ab87-4e33-ab47-be26aa391bf6"
+migrations_dir = "migrations"

@@ -5,7 +5,7 @@ import {
   render,
   screen,
   waitFor,
-  within
+  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -24,13 +24,13 @@ beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock);
   Object.defineProperty(window, "localStorage", {
     configurable: true,
-    value: new MemoryStorage()
+    value: new MemoryStorage(),
   });
   Object.defineProperty(window.navigator, "clipboard", {
     configurable: true,
     value: {
-      writeText: clipboardWriteMock
-    }
+      writeText: clipboardWriteMock,
+    },
   });
   window.localStorage.clear();
 });
@@ -43,20 +43,22 @@ afterEach(() => {
 });
 
 describe("Phase 1 V1 routes", () => {
-  test("renders the landing page", () => {
+  test("renders the create page at the root URL", () => {
     render(<App initialPath="/" />);
 
+    expect(screen.getByTestId("create-v1")).toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { level: 1, name: "Gaming Gauntlet" })
+      screen.getByRole("heading", { name: "Create lobby" })
     ).toBeInTheDocument();
-    expect(screen.getByTestId("landing-v1")).toBeInTheDocument();
+    expect(screen.getByLabelText("Player 1 name")).toBeInTheDocument();
   });
 
   test.each([
+    ["/", "create-v1", "Create lobby"],
     ["/create", "create-v1", "Create lobby"],
     ["/manage/demo-lobby", "manage-v1", "Manage match"],
     ["/g/demo-lobby", "game-v1", "Match room"],
-    ["/overlay/demo-lobby/top", "overlay-top-v1", "demo-lobby"]
+    ["/overlay/demo-lobby/top", "overlay-top-v1", "demo-lobby"],
   ])("renders %s without a Twitch login gate", (path, routeId, heading) => {
     const { container } = render(<App initialPath={path} />);
 
@@ -83,19 +85,28 @@ describe("Phase 1 V1 routes", () => {
 
     const primaryNav = screen.getByRole("navigation", { name: "Primary" });
 
-    expect(within(primaryNav).getByRole("link", { name: "Gaming Gauntlet" })).toHaveAttribute(
-      "href",
-      "/"
-    );
-    expect(within(primaryNav).queryByRole("link", { name: "Create" })).not.toBeInTheDocument();
-    expect(within(primaryNav).queryByRole("link", { name: "Match" })).not.toBeInTheDocument();
-    expect(within(primaryNav).queryByRole("link", { name: "Overlay" })).not.toBeInTheDocument();
+    expect(
+      within(primaryNav).getByRole("link", { name: "Gaming Gauntlet" })
+    ).toHaveAttribute("href", "/");
+    expect(
+      within(primaryNav).queryByRole("link", { name: "Create" })
+    ).not.toBeInTheDocument();
+    expect(
+      within(primaryNav).queryByRole("link", { name: "Match" })
+    ).not.toBeInTheDocument();
+    expect(
+      within(primaryNav).queryByRole("link", { name: "Overlay" })
+    ).not.toBeInTheDocument();
   });
 
-  test("promotes the match URL instead of a separate management URL", () => {
+  test("does not render the retired route-shortcut landing screen", () => {
     const { container } = render(<App initialPath="/" />);
 
-    expect(screen.getByRole("link", { name: "/g/:lobbyId" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: "/g/:lobbyId" })
+    ).not.toBeInTheDocument();
+    expect(container).not.toHaveTextContent("V1 baseline");
+    expect(container).not.toHaveTextContent("App shell");
     expect(container).not.toHaveTextContent("/manage/:lobbyId");
   });
 
@@ -124,26 +135,26 @@ describe("Phase 5 create and join flow", () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse({
         lobbyId,
-        managementCode
+        managementCode,
       })
     );
 
-    const { container } = render(<App initialPath="/create" />);
+    const { container } = render(<App initialPath="/" />);
     const storageKey = getManagementPasscodeStorageKey(lobbyId);
 
     expect(window.localStorage.getItem(storageKey)).toBeNull();
 
     fireEvent.change(screen.getByLabelText("Player 1 name"), {
-      target: { value: "  Alice  " }
+      target: { value: "  Alice  " },
     });
     fireEvent.change(screen.getByLabelText("Player 2 name"), {
-      target: { value: "Bob" }
+      target: { value: "Bob" },
     });
     fireEvent.change(screen.getByLabelText("Starting games (optional)"), {
-      target: { value: " Rocket League \n\n Tetris \n Chess " }
+      target: { value: " Rocket League \n\n Tetris \n Chess " },
     });
     fireEvent.change(screen.getByLabelText("Target score (optional)"), {
-      target: { value: "5" }
+      target: { value: "5" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Create match" }));
 
@@ -157,7 +168,7 @@ describe("Phase 5 create and join flow", () => {
       playerOneName: "Alice",
       playerTwoName: "Bob",
       games: ["Rocket League", "Tetris", "Chess"],
-      targetScore: 5
+      targetScore: 5,
     });
     expect(window.localStorage.getItem(storageKey)).toBe(managementCode);
     expect(screen.getAllByDisplayValue(`/g/${lobbyId}`)).toHaveLength(1);
@@ -169,7 +180,9 @@ describe("Phase 5 create and join flow", () => {
 
     expect(openMatchLink).toHaveAttribute("href", `/g/${lobbyId}`);
     expect(manageLink).toHaveAttribute("href", `/manage/${lobbyId}`);
-    expect(cleanHref(openMatchLink)).not.toMatch(/code|token|secret|management/i);
+    expect(cleanHref(openMatchLink)).not.toMatch(
+      /code|token|secret|management/i
+    );
     expect(cleanHref(manageLink)).not.toMatch(/code|token|secret|management/i);
   });
 
@@ -177,17 +190,17 @@ describe("Phase 5 create and join flow", () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse({
         lobbyId,
-        managementCode
+        managementCode,
       })
     );
 
     render(<App initialPath="/create" />);
 
     fireEvent.change(screen.getByLabelText("Player 1 name"), {
-      target: { value: "Alice" }
+      target: { value: "Alice" },
     });
     fireEvent.change(screen.getByLabelText("Player 2 name"), {
-      target: { value: "Bob" }
+      target: { value: "Bob" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Create match" }));
 
@@ -197,28 +210,28 @@ describe("Phase 5 create and join flow", () => {
 
     expect(JSON.parse(String(options.body))).toEqual({
       playerOneName: "Alice",
-      playerTwoName: "Bob"
+      playerTwoName: "Bob",
     });
-    expect(window.localStorage.getItem(getManagementPasscodeStorageKey(lobbyId))).toBe(
-      managementCode
-    );
+    expect(
+      window.localStorage.getItem(getManagementPasscodeStorageKey(lobbyId))
+    ).toBe(managementCode);
   });
 
   test("reveals and copies the created passcode only after explicit clicks", async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse({
         lobbyId,
-        managementCode
+        managementCode,
       })
     );
 
     render(<App initialPath="/create" />);
 
     fireEvent.change(screen.getByLabelText("Player 1 name"), {
-      target: { value: "Alice" }
+      target: { value: "Alice" },
     });
     fireEvent.change(screen.getByLabelText("Player 2 name"), {
-      target: { value: "Bob" }
+      target: { value: "Bob" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Create match" }));
 
@@ -251,17 +264,17 @@ describe("Phase 5 create and join flow", () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse({
         lobbyId,
-        managementCode
+        managementCode,
       })
     );
 
     render(<App initialPath="/create" />);
 
     fireEvent.change(screen.getByLabelText("Player 1 name"), {
-      target: { value: "Alice" }
+      target: { value: "Alice" },
     });
     fireEvent.change(screen.getByLabelText("Player 2 name"), {
-      target: { value: "Bob" }
+      target: { value: "Bob" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Create match" }));
 
@@ -280,7 +293,7 @@ describe("Phase 5 create and join flow", () => {
   test.each([
     ["raw lobby id", lobbyId],
     ["relative match URL", `/g/${lobbyId}`],
-    ["full match URL", `https://gaminggauntlet.com/g/${lobbyId}?code=ignored`]
+    ["full match URL", `https://gaminggauntlet.com/g/${lobbyId}?code=ignored`],
   ])("joins an existing match from a %s", async (_label, matchReference) => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ success: true }));
 
@@ -290,10 +303,10 @@ describe("Phase 5 create and join flow", () => {
     expect(window.localStorage.getItem(storageKey)).toBeNull();
 
     fireEvent.change(screen.getByLabelText("Match URL or ID"), {
-      target: { value: matchReference }
+      target: { value: matchReference },
     });
     fireEvent.change(screen.getByLabelText("Management passcode"), {
-      target: { value: managementCode }
+      target: { value: managementCode },
     });
     fireEvent.click(screen.getByRole("button", { name: "Verify passcode" }));
 
@@ -306,31 +319,29 @@ describe("Phase 5 create and join flow", () => {
     expect(JSON.parse(String(options.body))).toEqual({ managementCode });
     expect(window.localStorage.getItem(storageKey)).toBe(managementCode);
     expect(screen.getByText("Passcode verified.")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Open match room" })).toHaveAttribute(
-      "href",
-      `/g/${lobbyId}`
-    );
-    expect(screen.getByRole("link", { name: "Manage this match" })).toHaveAttribute(
-      "href",
-      `/manage/${lobbyId}`
-    );
+    expect(
+      screen.getByRole("link", { name: "Open match room" })
+    ).toHaveAttribute("href", `/g/${lobbyId}`);
+    expect(
+      screen.getByRole("link", { name: "Manage this match" })
+    ).toHaveAttribute("href", `/manage/${lobbyId}`);
   });
 
   test("copies the clean match URL from the share field", async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse({
         lobbyId,
-        managementCode
+        managementCode,
       })
     );
 
     render(<App initialPath="/create" />);
 
     fireEvent.change(screen.getByLabelText("Player 1 name"), {
-      target: { value: "Alice" }
+      target: { value: "Alice" },
     });
     fireEvent.change(screen.getByLabelText("Player 2 name"), {
-      target: { value: "Bob" }
+      target: { value: "Bob" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Create match" }));
 
@@ -350,8 +361,8 @@ describe("Phase 5 create and join flow", () => {
         {
           error: {
             code: "invalid_management_code",
-            message: "Management passcode is invalid."
-          }
+            message: "Management passcode is invalid.",
+          },
         },
         401
       )
@@ -360,32 +371,36 @@ describe("Phase 5 create and join flow", () => {
     render(<App initialPath="/create" />);
 
     fireEvent.change(screen.getByLabelText("Match URL or ID"), {
-      target: { value: `/g/${lobbyId}` }
+      target: { value: `/g/${lobbyId}` },
     });
     fireEvent.change(screen.getByLabelText("Management passcode"), {
-      target: { value: managementCode }
+      target: { value: managementCode },
     });
     fireEvent.click(screen.getByRole("button", { name: "Verify passcode" }));
 
-    expect(await screen.findByText("Management passcode is invalid.")).toBeInTheDocument();
-    expect(window.localStorage.getItem(getManagementPasscodeStorageKey(lobbyId))).toBeNull();
+    expect(
+      await screen.findByText("Management passcode is invalid.")
+    ).toBeInTheDocument();
+    expect(
+      window.localStorage.getItem(getManagementPasscodeStorageKey(lobbyId))
+    ).toBeNull();
   });
 
   test("result links never expose the management passcode", async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse({
         lobbyId,
-        managementCode
+        managementCode,
       })
     );
 
     const { container } = render(<App initialPath="/create" />);
 
     fireEvent.change(screen.getByLabelText("Player 1 name"), {
-      target: { value: "Alice" }
+      target: { value: "Alice" },
     });
     fireEvent.change(screen.getByLabelText("Player 2 name"), {
-      target: { value: "Bob" }
+      target: { value: "Bob" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Create match" }));
 
@@ -404,8 +419,8 @@ function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
-      "content-type": "application/json"
-    }
+      "content-type": "application/json",
+    },
   });
 }
 

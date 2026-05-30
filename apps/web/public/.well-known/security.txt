@@ -1,0 +1,5 @@
+Contact: mailto:security@gaming-gauntlet.com
+Canonical: https://gaming-gauntlet.com/.well-known/security.txt
+Policy: https://gaming-gauntlet.com
+Preferred-Languages: en
+Expires: 2027-05-30T00:00:00Z

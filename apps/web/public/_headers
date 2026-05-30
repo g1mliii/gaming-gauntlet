@@ -1,0 +1,38 @@
+/*
+  Strict-Transport-Security: max-age=31536000
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()
+
+https://gaming-gauntlet.pages.dev/*
+  X-Robots-Tag: noindex
+
+https://:deployment.gaming-gauntlet.pages.dev/*
+  X-Robots-Tag: noindex
+
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/g/*
+  X-Robots-Tag: noindex, nofollow
+
+/manage/*
+  X-Robots-Tag: noindex, nofollow
+
+/overlay/*
+  X-Robots-Tag: noindex, nofollow
+
+/robots.txt
+  Cache-Control: public, max-age=3600
+
+/sitemap.xml
+  Cache-Control: public, max-age=3600
+
+/site.webmanifest
+  Cache-Control: public, max-age=3600
+
+/security.txt
+  Cache-Control: public, max-age=3600
+
+/.well-known/security.txt
+  Cache-Control: public, max-age=3600

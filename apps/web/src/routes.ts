@@ -2,10 +2,10 @@ export const FORBIDDEN_URL_PARAM_NAMES = [
   "managementCode",
   "code",
   "token",
-  "secret"
+  "secret",
 ] as const;
 
-type RouteId = "landing" | "create" | "manage" | "game" | "overlayTop" | "notFound";
+type RouteId = "create" | "manage" | "game" | "overlayTop" | "notFound";
 
 type RouteDefinition = {
   id: Exclude<RouteId, "notFound">;
@@ -19,11 +19,15 @@ export type MatchedRoute = {
 };
 
 export const V1_ROUTE_DEFINITIONS: readonly RouteDefinition[] = [
-  { id: "landing", pattern: "/", paramNames: [] },
+  { id: "create", pattern: "/", paramNames: [] },
   { id: "create", pattern: "/create", paramNames: [] },
   { id: "manage", pattern: "/manage/:lobbyId", paramNames: ["lobbyId"] },
   { id: "game", pattern: "/g/:lobbyId", paramNames: ["lobbyId"] },
-  { id: "overlayTop", pattern: "/overlay/:lobbyId/top", paramNames: ["lobbyId"] }
+  {
+    id: "overlayTop",
+    pattern: "/overlay/:lobbyId/top",
+    paramNames: ["lobbyId"],
+  },
 ];
 
 function getPathname(path: string): string {

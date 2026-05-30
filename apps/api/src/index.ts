@@ -16,13 +16,13 @@ import {
   createLobbyId,
   createManagementCode,
   hashManagementCode,
-  verifyManagementCode
+  verifyManagementCode,
 } from "@gaming-gauntlet/core";
 import type {
   CreateLobbyResponse,
   Game,
   Lobby,
-  PublicLobbyState
+  PublicLobbyState,
 } from "@gaming-gauntlet/core";
 
 type DbValue = string | number | null;
@@ -108,7 +108,7 @@ class BodyTooLargeError extends Error {}
 export default {
   fetch(request: Request, env: ApiEnv): Promise<Response> {
     return handleApiRequest(request, env);
-  }
+  },
 };
 
 export async function handleApiRequest(
@@ -151,7 +151,11 @@ export async function handleApiRequest(
     }
 
     if (route.id === "methodNotAllowed") {
-      return jsonError(405, "method_not_allowed", "Method is not allowed for this endpoint.");
+      return jsonError(
+        405,
+        "method_not_allowed",
+        "Method is not allowed for this endpoint."
+      );
     }
 
     return jsonError(404, "not_found", "API route was not found.");
@@ -170,7 +174,9 @@ function matchRoute(request: Request): ApiRoute {
   const parts = pathname.split("/").filter(Boolean);
 
   if (parts.length === 2 && parts[0] === "api" && parts[1] === "lobbies") {
-    return request.method === "POST" ? { id: "createLobby" } : { id: "methodNotAllowed" };
+    return request.method === "POST"
+      ? { id: "createLobby" }
+      : { id: "methodNotAllowed" };
   }
 
   if (parts.length === 3 && parts[0] === "api" && parts[1] === "lobbies") {
@@ -231,7 +237,10 @@ function matchRoute(request: Request): ApiRoute {
   return { id: "notFound" };
 }
 
-async function createLobby(request: Request, db: ApiDatabase): Promise<Response> {
+async function createLobby(
+  request: Request,
+  db: ApiDatabase
+): Promise<Response> {
   const payload = await readJsonBody(request);
   const parsedPayload = CreateLobbyRequestSchema.safeParse(payload);
 
@@ -255,7 +264,7 @@ async function createLobby(request: Request, db: ApiDatabase): Promise<Response>
     currentGameId: null,
     version: 1,
     createdAt: now,
-    updatedAt: now
+    updatedAt: now,
   });
   const games: Game[] = parsedPayload.data.games.map((title, position) =>
     GameSchema.parse({
@@ -265,12 +274,12 @@ async function createLobby(request: Request, db: ApiDatabase): Promise<Response>
       position,
       enabled: true,
       createdAt: now,
-      updatedAt: now
+      updatedAt: now,
     })
   );
   const gameSeedRows = games.map((game) => ({
     id: game.id,
-    title: game.title
+    title: game.title,
   }));
 
   await db.batch([
@@ -336,20 +345,23 @@ async function createLobby(request: Request, db: ApiDatabase): Promise<Response>
                 ?
               FROM json_each(?) seed`
             )
-            .bind(lobby.id, now, now, JSON.stringify(gameSeedRows))
+            .bind(lobby.id, now, now, JSON.stringify(gameSeedRows)),
         ]
-      : []) as ApiStatement[])
+      : []) as ApiStatement[]),
   ]);
 
   const responseBody: CreateLobbyResponse = CreateLobbyResponseSchema.parse({
     lobbyId,
-    managementCode
+    managementCode,
   });
 
   return jsonResponse(responseBody, { status: 201 });
 }
 
-async function getLobbyState(lobbyId: string, db: ApiDatabase): Promise<Response> {
+async function getLobbyState(
+  lobbyId: string,
+  db: ApiDatabase
+): Promise<Response> {
   const parsedLobbyId = LobbyIdSchema.safeParse(lobbyId);
 
   if (!parsedLobbyId.success) {
@@ -395,7 +407,11 @@ async function verifyLobby(
   );
 
   if (!isVerified) {
-    return jsonError(401, "invalid_management_code", "Management code is invalid.");
+    return jsonError(
+      401,
+      "invalid_management_code",
+      "Management code is invalid."
+    );
   }
 
   return jsonResponse(VerifyLobbyResponseSchema.parse({ success: true }));
@@ -412,7 +428,11 @@ async function updateLobby(
     return validationError(parsedLobbyId.error.issues);
   }
 
-  const authError = await requireLobbyManagement(request, parsedLobbyId.data, db);
+  const authError = await requireLobbyManagement(
+    request,
+    parsedLobbyId.data,
+    db
+  );
 
   if (authError) {
     return authError;
@@ -434,9 +454,15 @@ async function updateLobby(
   if (
     parsedPayload.data.currentGameId !== undefined &&
     parsedPayload.data.currentGameId !== null &&
-    !existingState.games.some((game) => game.id === parsedPayload.data.currentGameId)
+    !existingState.games.some(
+      (game) => game.id === parsedPayload.data.currentGameId
+    )
   ) {
-    return jsonError(400, "bad_request", "Current game must belong to the lobby.");
+    return jsonError(
+      400,
+      "bad_request",
+      "Current game must belong to the lobby."
+    );
   }
 
   const now = new Date().toISOString();
@@ -467,7 +493,12 @@ async function updateLobby(
     "player_two_score",
     parsedPayload.data.playerTwoScore
   );
-  addOptionalUpdate(updates, values, "target_score", parsedPayload.data.targetScore);
+  addOptionalUpdate(
+    updates,
+    values,
+    "target_score",
+    parsedPayload.data.targetScore
+  );
   addOptionalUpdate(
     updates,
     values,
@@ -498,7 +529,11 @@ async function addGame(
     return validationError(parsedLobbyId.error.issues);
   }
 
-  const authError = await requireLobbyManagement(request, parsedLobbyId.data, db);
+  const authError = await requireLobbyManagement(
+    request,
+    parsedLobbyId.data,
+    db
+  );
 
   if (authError) {
     return authError;
@@ -511,7 +546,11 @@ async function addGame(
   }
 
   if (existingState.games.length >= 64) {
-    return jsonError(400, "bad_request", "Lobby cannot have more than 64 games.");
+    return jsonError(
+      400,
+      "bad_request",
+      "Lobby cannot have more than 64 games."
+    );
   }
 
   const payload = await readJsonBody(request);
@@ -534,7 +573,7 @@ async function addGame(
     position,
     enabled: parsedPayload.data.enabled,
     createdAt: now,
-    updatedAt: now
+    updatedAt: now,
   });
 
   await db.batch([
@@ -559,7 +598,7 @@ async function addGame(
         game.createdAt,
         game.updatedAt
       ),
-    updateLobbyVersionStatement(db, parsedLobbyId.data, now)
+    updateLobbyVersionStatement(db, parsedLobbyId.data, now),
   ]);
 
   return publicLobbyStateResponse(db, parsedLobbyId.data);
@@ -582,7 +621,11 @@ async function updateGame(
     return validationError(parsedGameId.error.issues);
   }
 
-  const authError = await requireLobbyManagement(request, parsedLobbyId.data, db);
+  const authError = await requireLobbyManagement(
+    request,
+    parsedLobbyId.data,
+    db
+  );
 
   if (authError) {
     return authError;
@@ -621,9 +664,11 @@ async function updateGame(
 
   await db.batch([
     db
-      .prepare(`UPDATE games SET ${updates.join(", ")} WHERE id = ? AND lobby_id = ?`)
+      .prepare(
+        `UPDATE games SET ${updates.join(", ")} WHERE id = ? AND lobby_id = ?`
+      )
       .bind(...values),
-    updateLobbyVersionStatement(db, parsedLobbyId.data, now)
+    updateLobbyVersionStatement(db, parsedLobbyId.data, now),
   ]);
 
   return publicLobbyStateResponse(db, parsedLobbyId.data);
@@ -646,7 +691,11 @@ async function deleteGame(
     return validationError(parsedGameId.error.issues);
   }
 
-  const authError = await requireLobbyManagement(request, parsedLobbyId.data, db);
+  const authError = await requireLobbyManagement(
+    request,
+    parsedLobbyId.data,
+    db
+  );
 
   if (authError) {
     return authError;
@@ -658,7 +707,9 @@ async function deleteGame(
     return jsonError(404, "not_found", "Lobby was not found.");
   }
 
-  const existingGame = existingState.games.find((game) => game.id === parsedGameId.data);
+  const existingGame = existingState.games.find(
+    (game) => game.id === parsedGameId.data
+  );
 
   if (!existingGame) {
     return jsonError(404, "not_found", "Game was not found.");
@@ -705,7 +756,7 @@ async function deleteGame(
           updated_at = ?
         WHERE id = ?`
       )
-      .bind(parsedGameId.data, now, parsedLobbyId.data)
+      .bind(parsedGameId.data, now, parsedLobbyId.data),
   ]);
 
   return publicLobbyStateResponse(db, parsedLobbyId.data);
@@ -722,7 +773,11 @@ async function reorderGames(
     return validationError(parsedLobbyId.error.issues);
   }
 
-  const authError = await requireLobbyManagement(request, parsedLobbyId.data, db);
+  const authError = await requireLobbyManagement(
+    request,
+    parsedLobbyId.data,
+    db
+  );
 
   if (authError) {
     return authError;
@@ -750,7 +805,11 @@ async function reorderGames(
     requestedIds.every((id) => existingIds.has(id));
 
   if (!hasExactGameSet) {
-    return jsonError(400, "bad_request", "Reorder must include each lobby game exactly once.");
+    return jsonError(
+      400,
+      "bad_request",
+      "Reorder must include each lobby game exactly once."
+    );
   }
 
   const now = new Date().toISOString();
@@ -787,7 +846,7 @@ async function reorderGames(
           )`
       )
       .bind(requestedIdsJson, now, parsedLobbyId.data),
-    updateLobbyVersionStatement(db, parsedLobbyId.data, now)
+    updateLobbyVersionStatement(db, parsedLobbyId.data, now),
   ]);
 
   return publicLobbyStateResponse(db, parsedLobbyId.data);
@@ -842,7 +901,7 @@ async function loadPublicLobbyState(
     currentGameId: firstRow.currentGameId,
     version: firstRow.version,
     createdAt: firstRow.createdAt,
-    updatedAt: firstRow.updatedAt
+    updatedAt: firstRow.updatedAt,
   });
   const games = rows
     .filter((row) => row.gameId !== null)
@@ -854,7 +913,7 @@ async function loadPublicLobbyState(
         position: row.gamePosition,
         enabled: row.gameEnabled === 1,
         createdAt: row.gameCreatedAt,
-        updatedAt: row.gameUpdatedAt
+        updatedAt: row.gameUpdatedAt,
       })
     );
 
@@ -862,7 +921,7 @@ async function loadPublicLobbyState(
     lobby,
     games,
     version: lobby.version,
-    updatedAt: lobby.updatedAt
+    updatedAt: lobby.updatedAt,
   });
 }
 
@@ -887,13 +946,21 @@ async function requireLobbyManagement(
   db: ApiDatabase
 ): Promise<Response | null> {
   if (hasQuerySecret(request)) {
-    return jsonError(400, "bad_request", "Management codes must be sent in Authorization.");
+    return jsonError(
+      400,
+      "bad_request",
+      "Management codes must be sent in Authorization."
+    );
   }
 
   const managementCode = readBearerManagementCode(request);
 
   if (!managementCode) {
-    return jsonError(401, "unauthorized", "Authorization bearer token is required.");
+    return jsonError(
+      401,
+      "unauthorized",
+      "Authorization bearer token is required."
+    );
   }
 
   const secret = await loadLobbySecret(db, lobbyId);
@@ -902,16 +969,26 @@ async function requireLobbyManagement(
     return jsonError(404, "not_found", "Lobby was not found.");
   }
 
-  const isVerified = await verifyManagementCode(managementCode, secret.managementCodeHash);
+  const isVerified = await verifyManagementCode(
+    managementCode,
+    secret.managementCodeHash
+  );
 
   if (!isVerified) {
-    return jsonError(401, "invalid_management_code", "Management code is invalid.");
+    return jsonError(
+      401,
+      "invalid_management_code",
+      "Management code is invalid."
+    );
   }
 
   return null;
 }
 
-async function publicLobbyStateResponse(db: ApiDatabase, lobbyId: string): Promise<Response> {
+async function publicLobbyStateResponse(
+  db: ApiDatabase,
+  lobbyId: string
+): Promise<Response> {
   const state = await loadPublicLobbyState(db, lobbyId);
 
   if (!state) {
@@ -958,7 +1035,7 @@ function hasQuerySecret(request: Request): boolean {
     "managementcode",
     "management_code",
     "secret",
-    "token"
+    "token",
   ]);
 
   return Array.from(url.searchParams.keys()).some((param) =>
@@ -998,7 +1075,9 @@ async function readJsonBody(request: Request): Promise<unknown> {
       throw error;
     }
 
-    throw jsonHandledError(jsonError(400, "invalid_json", "Request body must be valid JSON."));
+    throw jsonHandledError(
+      jsonError(400, "invalid_json", "Request body must be valid JSON.")
+    );
   }
 }
 
@@ -1049,20 +1128,24 @@ async function readLimitedText(request: Request): Promise<string> {
 
 function validationError(issues: SchemaIssue[]): Response {
   return jsonError(400, "validation_error", "Request validation failed.", {
-    issues: issues.map((issue): ValidationIssue => ({
-      path: issue.path.map(String).join("."),
-      message: issue.message
-    }))
+    issues: issues.map(
+      (issue): ValidationIssue => ({
+        path: issue.path.map(String).join("."),
+        message: issue.message,
+      })
+    ),
   });
 }
 
 function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
   const headers = new Headers(init.headers);
   headers.set("content-type", JSON_CONTENT_TYPE);
+  headers.set("cache-control", "no-store");
+  headers.set("x-content-type-options", "nosniff");
 
   return new Response(JSON.stringify(body), {
     ...init,
-    headers
+    headers,
   });
 }
 
@@ -1077,8 +1160,8 @@ function jsonError(
       error: {
         code,
         message,
-        ...extra
-      }
+        ...extra,
+      },
     },
     { status }
   );
@@ -1088,6 +1171,12 @@ function jsonHandledError(response: Response): Error {
   return Object.assign(new Error("Handled JSON response"), { response });
 }
 
-function isHandledJsonError(error: unknown): error is Error & { response: Response } {
-  return error instanceof Error && "response" in error && error.response instanceof Response;
+function isHandledJsonError(
+  error: unknown
+): error is Error & { response: Response } {
+  return (
+    error instanceof Error &&
+    "response" in error &&
+    error.response instanceof Response
+  );
 }

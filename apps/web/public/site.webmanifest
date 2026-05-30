@@ -1,0 +1,9 @@
+{
+  "name": "Gaming Gauntlet",
+  "short_name": "Gauntlet",
+  "description": "Create shareable two-player match rooms for stream-ready game challenges.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#101827",
+  "theme_color": "#1d2636"
+}
