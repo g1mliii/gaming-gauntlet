@@ -31,6 +31,10 @@ export function buildManageUrl(lobbyId: string): string {
   return `/manage/${encodeURIComponent(lobbyId)}`;
 }
 
+export function buildOverlaysUrl(lobbyId: string): string {
+  return `/g/${encodeURIComponent(lobbyId)}/obs`;
+}
+
 export function extractLobbyIdFromMatchReference(reference: string): string | null {
   const trimmedReference = reference.trim();
 

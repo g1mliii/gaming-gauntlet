@@ -10,6 +10,7 @@ import {
   LobbySchema,
   LobbyStateSchema,
   PublicLobbyStateSchema,
+  UpdateLobbyRequestSchema,
   createGameId,
   createLobbyId,
   createManagementCode,
@@ -27,6 +28,7 @@ const managementCodeHash =
 
 const lobby = {
   id: lobbyId,
+  title: "Friday Night Gauntlet",
   playerOneName: "Player One",
   playerTwoName: "Player Two",
   playerOneScore: 0,
@@ -52,7 +54,9 @@ const game = {
 describe("Phase 2 shared schemas", () => {
   test("Lobby requires the V1 polling and scoreboard fields", () => {
     expect(LobbySchema.parse(lobby)).toEqual(lobby);
-    expect(LobbySchema.safeParse({ ...lobby, id: undefined }).success).toBe(false);
+      expect(LobbySchema.safeParse({ ...lobby, id: undefined }).success).toBe(false);
+    expect(LobbySchema.safeParse({ ...lobby, title: "x".repeat(61) }).success).toBe(false);
+    expect(LobbySchema.safeParse({ ...lobby, title: "" }).success).toBe(true);
     expect(LobbySchema.safeParse({ ...lobby, playerOneName: "" }).success).toBe(false);
     expect(LobbySchema.safeParse({ ...lobby, playerOneScore: -1 }).success).toBe(false);
     expect(LobbySchema.safeParse({ ...lobby, status: "oauth-required" }).success).toBe(
@@ -105,12 +109,14 @@ describe("Phase 2 shared schemas", () => {
       parseCreateLobbyRequest({
         playerOneName: "Alice",
         playerTwoName: "Bob",
+        title: "Friday Finals",
         games: ["Chess", "Tetris"],
         targetScore: 5
       })
     ).toEqual({
       playerOneName: "Alice",
       playerTwoName: "Bob",
+      title: "Friday Finals",
       games: ["Chess", "Tetris"],
       targetScore: 5
     });
@@ -128,6 +134,13 @@ describe("Phase 2 shared schemas", () => {
       CreateLobbyRequestSchema.safeParse({
         playerOneName: "Alice",
         playerTwoName: "Bob"
+      }).success
+    ).toBe(true);
+    expect(
+      CreateLobbyRequestSchema.safeParse({
+        playerOneName: "Alice",
+        playerTwoName: "Bob",
+        title: "  Trimmed title  "
       }).success
     ).toBe(true);
     expect(
@@ -158,6 +171,16 @@ describe("Phase 2 shared schemas", () => {
     ).toBe(false);
   });
 
+  test("update lobby request validation accepts title edits but rejects blank titles", () => {
+    expect(UpdateLobbyRequestSchema.parse({ title: "Final table" })).toEqual({
+      title: "Final table"
+    });
+    expect(UpdateLobbyRequestSchema.safeParse({ title: "" }).success).toBe(false);
+    expect(
+      UpdateLobbyRequestSchema.safeParse({ title: "x".repeat(61) }).success
+    ).toBe(false);
+  });
+
   test("generated ids and management codes match the shared schemas", () => {
     expect(LobbySchema.shape.id.safeParse(createLobbyId()).success).toBe(true);
     expect(GameSchema.shape.id.safeParse(createGameId()).success).toBe(true);
@@ -185,6 +208,12 @@ describe("Phase 2 D1 migration", () => {
 
     try {
       database.exec(migration);
+      database.exec(
+        readFileSync(
+          resolve(__dirname, "../../../migrations/0002_add_lobby_title.sql"),
+          "utf8"
+        )
+      );
 
       const tables = database
         .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
@@ -194,10 +223,15 @@ describe("Phase 2 D1 migration", () => {
         .prepare("PRAGMA table_info(lobby_secrets)")
         .all()
         .map((row) => String(row.name));
+      const lobbyColumns = database
+        .prepare("PRAGMA table_info(lobbies)")
+        .all()
+        .map((row) => String(row.name));
 
       expect(tables).toContain("lobbies");
       expect(tables).toContain("games");
       expect(tables).toContain("lobby_secrets");
+      expect(lobbyColumns).toContain("title");
       expect(lobbySecretColumns).toContain("management_code_hash");
       expect(lobbySecretColumns).not.toContain("management_code");
       expect(lobbySecretColumns).not.toContain("managementCode");

@@ -1,11 +1,19 @@
 export const FORBIDDEN_URL_PARAM_NAMES = [
+  "authorization",
   "managementCode",
+  "management_code",
   "code",
   "token",
   "secret",
 ] as const;
 
-type RouteId = "create" | "manage" | "game" | "overlayTop" | "notFound";
+type RouteId =
+  | "create"
+  | "manage"
+  | "game"
+  | "overlayHub"
+  | "overlayTop"
+  | "notFound";
 
 type RouteDefinition = {
   id: Exclude<RouteId, "notFound">;
@@ -23,6 +31,7 @@ export const V1_ROUTE_DEFINITIONS: readonly RouteDefinition[] = [
   { id: "create", pattern: "/create", paramNames: [] },
   { id: "manage", pattern: "/manage/:lobbyId", paramNames: ["lobbyId"] },
   { id: "game", pattern: "/g/:lobbyId", paramNames: ["lobbyId"] },
+  { id: "overlayHub", pattern: "/g/:lobbyId/obs", paramNames: ["lobbyId"] },
   {
     id: "overlayTop",
     pattern: "/overlay/:lobbyId/top",

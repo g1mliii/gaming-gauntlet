@@ -13,7 +13,6 @@ import type { CreateLobbyRequestInput } from "@gaming-gauntlet/core";
 
 import { createLobby, verifyLobbyPasscode } from "./lobby-api";
 import {
-  buildManageUrl,
   buildMatchUrl,
   extractLobbyIdFromMatchReference,
   storeManagementPasscode
@@ -326,7 +325,7 @@ export default function CreatePage() {
               <a className="gg-button gg-button--primary" href={matchUrl}>
                 Open match room
               </a>
-              <a className="gg-button gg-button--ghost" href={buildManageUrl(result.lobbyId)}>
+              <a className="gg-button gg-button--ghost" href={matchUrl}>
                 Manage this match
               </a>
             </>

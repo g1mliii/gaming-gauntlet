@@ -14,7 +14,10 @@ import { getManagementPasscodeStorageKey } from "./management-passcodes";
 import { FORBIDDEN_URL_PARAM_NAMES, V1_ROUTE_DEFINITIONS } from "./routes";
 
 const lobbyId = "lob_abc234def567";
+const gameId = "game_abc234def567";
+const secondGameId = "game_def567abc234";
 const managementCode = "GG-AAAA-BBBB-CCCC";
+const now = "2026-05-30T12:00:00.000Z";
 let fetchMock: ReturnType<typeof vi.fn>;
 let clipboardWriteMock: ReturnType<typeof vi.fn>;
 
@@ -56,14 +59,19 @@ describe("Phase 1 V1 routes", () => {
   test.each([
     ["/", "create-v1", "Create lobby"],
     ["/create", "create-v1", "Create lobby"],
-    ["/manage/demo-lobby", "manage-v1", "Manage match"],
-    ["/g/demo-lobby", "game-v1", "Match room"],
-    ["/overlay/demo-lobby/top", "overlay-top-v1", "demo-lobby"],
-  ])("renders %s without a Twitch login gate", (path, routeId, heading) => {
+    [`/manage/${lobbyId}`, "manage-v1", "Locked"],
+    [`/g/${lobbyId}`, "game-v1", "Locked"],
+    [`/g/${lobbyId}/obs`, "overlay-hub-v1", "Add to OBS"],
+    [`/overlay/${lobbyId}/top`, "overlay-top-v1", lobbyId],
+  ])("renders %s without a Twitch login gate", async (path, routeId, heading) => {
+    fetchMock.mockResolvedValue(jsonResponse(publicLobbyState()));
+
     const { container } = render(<App initialPath={path} />);
 
     expect(screen.getByTestId(routeId)).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: heading })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: heading })
+    ).toBeInTheDocument();
     expect(container).not.toHaveTextContent(/twitch|oauth|login/i);
   });
 
@@ -110,23 +118,49 @@ describe("Phase 1 V1 routes", () => {
     expect(container).not.toHaveTextContent("/manage/:lobbyId");
   });
 
-  test("match room offers management without exposing a passcode in the URL", () => {
-    render(<App initialPath="/g/demo-lobby" />);
+  test("match room does not surface a separate management URL", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(publicLobbyState()));
 
-    const manageLink = screen.getByRole("link", { name: "Manage this match" });
+    const { container } = render(<App initialPath={`/g/${lobbyId}`} />);
 
-    expect(manageLink).toHaveAttribute("href", "/manage/demo-lobby");
-    expect(manageLink.getAttribute("href")).not.toMatch(/code|token|secret/i);
+    expect(await screen.findByRole("heading", { name: "Locked" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: "Manage this match" })
+    ).not.toBeInTheDocument();
+
+    for (const link of Array.from(container.querySelectorAll("a"))) {
+      expect(link.getAttribute("href") ?? "").not.toMatch(/\/manage\//);
+      expect(link.getAttribute("href") ?? "").not.toMatch(/code|token|secret/i);
+    }
   });
 
-  test("ignores unsafe query parameters in route rendering", () => {
+  test("ignores unsafe query parameters in route rendering", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(publicLobbyState()));
+
     const { container } = render(
-      <App initialPath="/manage/demo-lobby?managementCode=abc123&token=secret456" />
+      <App initialPath={`/manage/${lobbyId}?managementCode=abc123&token=secret456`} />
     );
 
     expect(screen.getByTestId("manage-v1")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Locked" })).toBeInTheDocument();
     expect(container).not.toHaveTextContent("abc123");
     expect(container).not.toHaveTextContent("secret456");
+  });
+
+  test("scrubs unsafe query parameters from the live browser URL", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(publicLobbyState()));
+    window.history.pushState(
+      null,
+      "",
+      `/g/${lobbyId}?managementCode=abc123&token=secret456&view=mod#room`
+    );
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Locked" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe(`/g/${lobbyId}`);
+    expect(window.location.search).toBe("?view=mod");
+    expect(window.location.hash).toBe("#room");
   });
 });
 
@@ -179,7 +213,7 @@ describe("Phase 5 create and join flow", () => {
     const manageLink = screen.getByRole("link", { name: "Manage this match" });
 
     expect(openMatchLink).toHaveAttribute("href", `/g/${lobbyId}`);
-    expect(manageLink).toHaveAttribute("href", `/manage/${lobbyId}`);
+    expect(manageLink).toHaveAttribute("href", `/g/${lobbyId}`);
     expect(cleanHref(openMatchLink)).not.toMatch(
       /code|token|secret|management/i
     );
@@ -324,7 +358,7 @@ describe("Phase 5 create and join flow", () => {
     ).toHaveAttribute("href", `/g/${lobbyId}`);
     expect(
       screen.getByRole("link", { name: "Manage this match" })
-    ).toHaveAttribute("href", `/manage/${lobbyId}`);
+    ).toHaveAttribute("href", `/g/${lobbyId}`);
   });
 
   test("copies the clean match URL from the share field", async () => {
@@ -426,6 +460,47 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 function cleanHref(link: HTMLElement): string {
   return link.getAttribute("href") ?? "";
+}
+
+function publicLobbyState() {
+  return {
+    lobby: {
+      id: lobbyId,
+      title: "Friday Night Gauntlet",
+      playerOneName: "NOVA",
+      playerTwoName: "RIPTIDE",
+      playerOneScore: 2,
+      playerTwoScore: 1,
+      targetScore: 5,
+      status: "ready",
+      currentGameId: gameId,
+      version: 1,
+      createdAt: now,
+      updatedAt: now,
+    },
+    games: [
+      {
+        id: gameId,
+        lobbyId,
+        title: "Rocket League",
+        position: 0,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: secondGameId,
+        lobbyId,
+        title: "Tetris",
+        position: 1,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ],
+    version: 1,
+    updatedAt: now,
+  };
 }
 
 class MemoryStorage implements Storage {

@@ -34,7 +34,7 @@
 
 .v1-nav__brand {
   font-family: var(--gg-font-display);
-  font-size: clamp(1.1rem, 2.4vw, 1.55rem);
+  font-size: 1.35rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
@@ -104,7 +104,7 @@
 .v1-passcode-box__value {
   margin-top: 0.35rem;
   font-family: var(--gg-font-display);
-  font-size: clamp(1.35rem, 2.8vw, 2rem);
+  font-size: 1.65rem;
   letter-spacing: 0.08em;
   overflow-wrap: anywhere;
 }
@@ -185,7 +185,7 @@
   margin: 0.2rem 0 0;
   font-family: var(--gg-font-display);
   font-weight: 700;
-  font-size: clamp(1.4rem, 3vw, 2.1rem);
+  font-size: 1.75rem;
   letter-spacing: 0.1em;
   overflow-wrap: anywhere;
 }
@@ -236,6 +236,609 @@
   color: var(--gg-text-dim);
 }
 
+/* ---------- Match room (kit port) ---------- */
+.gg-board-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: clamp(1rem, 2vw, 1.5rem);
+  align-items: start;
+}
+
+.gg-match-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  padding-bottom: 1.1rem;
+  border-bottom: 1px solid var(--gg-border);
+}
+
+.gg-match-head__title {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+  flex: 1 1 320px;
+}
+
+.gg-title-input {
+  width: 100%;
+  max-width: 100%;
+  margin-left: -0.4rem;
+  padding: 0.1rem 0.4rem;
+  border: 1px solid transparent;
+  border-radius: var(--gg-radius-sm);
+  background: transparent;
+  color: var(--gg-text);
+  font-family: var(--gg-font-display);
+  font-weight: 700;
+  font-size: 2.25rem;
+  line-height: 0.94;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  outline: none;
+  transition:
+    border-color 0.16s ease,
+    background 0.16s ease;
+}
+
+.gg-title-input:hover {
+  border-color: var(--gg-border);
+}
+
+.gg-title-input:focus {
+  border-color: color-mix(in oklab, var(--gg-accent) 56%, white 8%);
+  background: color-mix(in oklab, var(--gg-surface) 84%, black);
+}
+
+.gg-scorebar {
+  display: flex;
+  align-items: center;
+  gap: clamp(0.6rem, 2vw, 1.4rem);
+}
+
+.gg-scorebar__team {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.5rem 0.7rem;
+  overflow: clip;
+  border: 1px solid color-mix(in oklab, var(--team-color) 42%, transparent);
+  background: color-mix(in oklab, var(--team-color) 10%, var(--gg-bg));
+  clip-path: polygon(0 0, calc(100% - 11px) 0, 100% 11px, 100% 100%, 11px 100%, 0 calc(100% - 11px));
+}
+
+.gg-scorebar__team::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0.3rem;
+  background: var(--team-color);
+}
+
+.gg-scorebar__team--alpha {
+  --team-color: var(--gg-team-alpha);
+}
+
+.gg-scorebar__team--bravo {
+  --team-color: var(--gg-team-bravo);
+  flex-direction: row-reverse;
+}
+
+.gg-scorebar__team--bravo::before {
+  inset: 0 0 0 auto;
+}
+
+.gg-scorebar__name {
+  flex: 1;
+  min-width: 0;
+  padding: 0.2rem 0.35rem;
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  background: transparent;
+  color: color-mix(in oklab, var(--team-color) 58%, white 42%);
+  font-family: var(--gg-font-display);
+  font-weight: 700;
+  font-size: 1.05rem;
+  line-height: 1;
+  letter-spacing: 0.03em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  outline: none;
+}
+
+.gg-scorebar__team--bravo .gg-scorebar__name {
+  text-align: right;
+}
+
+.gg-scorebar__name:hover {
+  border-color: color-mix(in oklab, var(--team-color) 35%, transparent);
+}
+
+.gg-scorebar__name:focus {
+  border-color: color-mix(in oklab, var(--team-color) 60%, transparent);
+  background: color-mix(in oklab, var(--gg-bg) 45%, transparent);
+}
+
+.gg-scorebar__ctrl {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: none;
+}
+
+.gg-scorebar__score {
+  min-width: 1.7ch;
+  color: color-mix(in oklab, var(--team-color) 82%, white 18%);
+  font-family: var(--gg-font-display);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  font-size: 2.1rem;
+  line-height: 1;
+  text-align: center;
+}
+
+.gg-scorebar__step {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 1.9rem;
+  height: 1.9rem;
+  border: 1px solid color-mix(in oklab, var(--team-color) 45%, var(--gg-border));
+  border-radius: 2px;
+  background: color-mix(in oklab, var(--team-color) 16%, var(--gg-surface));
+  color: color-mix(in oklab, var(--team-color) 70%, white);
+  font-family: var(--gg-font-display);
+  font-weight: 700;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background 0.14s ease,
+    transform 0.1s ease;
+}
+
+.gg-scorebar__step:hover {
+  background: color-mix(in oklab, var(--team-color) 26%, var(--gg-surface));
+}
+
+.gg-scorebar__step:active {
+  transform: scale(0.93);
+}
+
+.gg-scorebar__vs {
+  display: grid;
+  justify-items: center;
+  gap: 0.1rem;
+  flex: none;
+}
+
+.gg-scorebar__vs b {
+  color: var(--gg-text-dim);
+  font-family: var(--gg-font-display);
+  font-weight: 700;
+  font-size: 1.1rem;
+  letter-spacing: 0.08em;
+}
+
+.gg-scorebar__vs span {
+  color: color-mix(in oklab, var(--gg-text-dim) 80%, transparent);
+  font-family: var(--gg-font-display);
+  font-size: 0.66rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.gg-scorebar__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.gg-scorebar__meta .gg-field {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.gg-scorebar__meta .gg-field > span {
+  white-space: nowrap;
+}
+
+.gg-scorebar__meta .gg-field input {
+  width: 5rem;
+  min-height: 2.1rem;
+}
+
+.gg-scorebar__meta-actions {
+  display: flex;
+  gap: 0.4rem;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+
+.gg-wheel-stage {
+  display: grid;
+  gap: 1.2rem;
+  justify-items: center;
+}
+
+.gg-wheel-empty {
+  display: grid;
+  place-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  max-width: 420px;
+  min-height: 200px;
+  padding: 2rem;
+  border: 1px dashed var(--gg-border);
+  border-radius: var(--gg-radius-md);
+  color: var(--gg-text-dim);
+  text-align: center;
+}
+
+.gg-wheel-empty p {
+  margin: 0;
+}
+
+.gg-games {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.gg-game {
+  display: grid;
+  grid-template-columns: auto auto auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid var(--gg-border);
+  border-radius: var(--gg-radius-sm);
+  background: color-mix(in oklab, var(--gg-surface) 82%, black);
+  cursor: grab;
+  touch-action: none;
+  transition:
+    border-color 0.14s ease,
+    background 0.14s ease,
+    opacity 0.14s ease,
+    box-shadow 0.14s ease;
+}
+
+.gg-game:active {
+  cursor: grabbing;
+}
+
+.gg-game.is-disabled {
+  opacity: 0.5;
+}
+
+.gg-game.is-dragging {
+  opacity: 0.4;
+  border-style: dashed;
+  border-color: color-mix(in oklab, var(--gg-accent) 60%, transparent);
+}
+
+.gg-game.is-over {
+  border-color: color-mix(in oklab, var(--gg-accent-2) 55%, transparent);
+  box-shadow: inset 0 3px 0 color-mix(in oklab, var(--gg-accent-2) 90%, transparent);
+}
+
+.gg-game.is-current {
+  border-color: color-mix(in oklab, var(--gg-accent) 55%, transparent);
+  background: color-mix(in oklab, var(--gg-accent) 12%, var(--gg-surface));
+}
+
+.gg-game__grip {
+  display: grid;
+  gap: 3px;
+  padding: 0.3rem 0.15rem;
+  color: var(--gg-text-dim);
+  pointer-events: none;
+}
+
+.gg-game__grip span {
+  display: block;
+  width: 14px;
+  height: 2px;
+  border-radius: 2px;
+  background: currentColor;
+}
+
+.gg-game__order {
+  display: grid;
+  gap: 2px;
+}
+
+.gg-game__order button {
+  display: grid;
+  place-items: center;
+  width: 1.4rem;
+  height: 1.1rem;
+  border: 1px solid var(--gg-border);
+  border-radius: 2px;
+  background: color-mix(in oklab, var(--gg-surface-2) 50%, transparent);
+  color: var(--gg-text-dim);
+  font-size: 0.6rem;
+  cursor: pointer;
+}
+
+.gg-game__order button:hover {
+  color: var(--gg-text);
+}
+
+.gg-game__order button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.gg-game__title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--gg-font-display);
+  font-weight: 500;
+  font-size: 1.05rem;
+  letter-spacing: 0.02em;
+}
+
+.gg-game__title input {
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--gg-accent);
+  border-radius: 2px;
+  background: var(--gg-bg);
+}
+
+.gg-game__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.gg-live-dot {
+  flex: 0 0 auto;
+  width: 0.62rem;
+  height: 0.62rem;
+  margin-right: 0.15rem;
+  border-radius: 50%;
+  background: oklch(0.66 0.23 25);
+  box-shadow: 0 0 0 0 color-mix(in oklab, var(--gg-danger) 70%, transparent);
+  animation: gg-dot-pulse 1.15s ease-in-out infinite;
+}
+
+.gg-games.is-dragging-list {
+  border-radius: var(--gg-radius-sm);
+  outline: 1px dashed color-mix(in oklab, var(--gg-border) 90%, transparent);
+  outline-offset: 6px;
+  transition: outline-color 0.14s ease;
+}
+
+.gg-games.is-deleting {
+  outline-color: color-mix(in oklab, var(--gg-danger) 70%, transparent);
+}
+
+.gg-game.is-removing {
+  opacity: 0.55;
+  border-style: solid;
+  border-color: color-mix(in oklab, var(--gg-danger) 80%, transparent);
+  background: color-mix(in oklab, var(--gg-danger) 16%, var(--gg-surface));
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--gg-danger) 50%, transparent);
+}
+
+.gg-field__hint--danger {
+  color: color-mix(in oklab, var(--gg-danger) 75%, white);
+}
+
+.gg-toggle {
+  position: relative;
+  flex: none;
+  width: 2.7rem;
+  height: 1.5rem;
+  border: 1px solid var(--gg-border);
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--gg-bg) 50%, black);
+  cursor: pointer;
+  transition:
+    background 0.16s ease,
+    border-color 0.16s ease;
+}
+
+.gg-toggle::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0.18rem;
+  width: 1.05rem;
+  height: 1.05rem;
+  border-radius: 50%;
+  background: var(--gg-text-dim);
+  transform: translateY(-50%);
+  transition:
+    transform 0.16s ease,
+    background 0.16s ease;
+}
+
+.gg-toggle.is-on {
+  border-color: color-mix(in oklab, var(--gg-accent-2) 55%, transparent);
+  background: color-mix(in oklab, var(--gg-accent-2) 35%, transparent);
+}
+
+.gg-toggle.is-on::after {
+  background: var(--gg-accent-2);
+  transform: translate(1.18rem, -50%);
+}
+
+.gg-pick {
+  position: relative;
+  display: grid;
+  gap: 0.5rem;
+  overflow: clip;
+  padding: 1.2rem 1.4rem;
+  border: 1px solid color-mix(in oklab, var(--gg-accent) 40%, var(--gg-border));
+  background: color-mix(in oklab, var(--gg-accent) 10%, var(--gg-surface));
+  clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 16px 100%, 0 calc(100% - 16px));
+}
+
+.gg-pick__label {
+  margin: 0;
+  color: var(--gg-accent);
+  font-family: var(--gg-font-display);
+  font-weight: 600;
+  font-size: 0.78rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+.gg-pick__title {
+  margin: 0;
+  font-family: var(--gg-font-display);
+  font-weight: 700;
+  font-size: 2.25rem;
+  line-height: 0.9;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.gg-pick__title.is-empty {
+  color: var(--gg-text-dim);
+}
+
+.gg-seg {
+  display: inline-flex;
+  gap: 0.2rem;
+  padding: 0.25rem;
+  border: 1px solid var(--gg-border);
+  border-radius: var(--gg-radius-sm);
+  background: color-mix(in oklab, var(--gg-bg) 50%, black);
+}
+
+.gg-seg button {
+  padding: 0.45rem 0.85rem;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--gg-text-dim);
+  font-family: var(--gg-font-display);
+  font-weight: 500;
+  font-size: 0.86rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.gg-seg button.is-active {
+  background: color-mix(in oklab, var(--gg-accent) 22%, var(--gg-surface));
+  color: var(--gg-text);
+}
+
+.gg-lockscreen {
+  display: grid;
+  min-height: 62vh;
+  place-items: center;
+}
+
+.gg-lockcard {
+  display: grid;
+  justify-items: center;
+  gap: 1rem;
+  width: 100%;
+  max-width: 460px;
+  padding: 2.2rem;
+  text-align: center;
+}
+
+.gg-lockcard .gg-lock-ico {
+  color: var(--gg-accent);
+}
+
+.gg-lockcard form {
+  display: grid;
+  gap: 0.9rem;
+  width: 100%;
+  text-align: left;
+}
+
+.gg-lock-ico {
+  width: 48px;
+  height: 48px;
+}
+
+.gg-lockcard__score {
+  display: grid;
+  gap: 0.45rem;
+}
+
+@keyframes gg-dot-pulse {
+  0% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--gg-danger) 60%, transparent);
+  }
+
+  50% {
+    opacity: 0.45;
+    box-shadow: 0 0 0 0.32rem color-mix(in oklab, var(--gg-danger) 0%, transparent);
+  }
+
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--gg-danger) 0%, transparent);
+  }
+}
+
+@media (max-width: 1080px) {
+  .gg-board-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 560px) {
+  .v1-passcode-box__value,
+  .gg-passcode__value {
+    font-size: 1.35rem;
+  }
+
+  .gg-title-input,
+  .gg-pick__title {
+    font-size: 1.8rem;
+  }
+
+  .gg-scorebar {
+    flex-wrap: wrap;
+  }
+
+  .gg-scorebar__team {
+    flex: 1 1 100%;
+  }
+
+  .gg-scorebar__vs {
+    order: -1;
+    flex-direction: row;
+    gap: 0.5rem;
+  }
+
+  .gg-scorebar__meta-actions {
+    margin-left: 0;
+  }
+
+  .gg-game {
+    grid-template-columns: auto auto minmax(0, 1fr);
+  }
+
+  .gg-game__order,
+  .gg-game__actions {
+    grid-column: span 3;
+  }
+
+  .gg-game__actions {
+    justify-content: flex-end;
+  }
+}
+
 @media (max-width: 760px) {
   .v1-nav {
     align-items: flex-start;
@@ -248,5 +851,11 @@
   .gg-create-grid,
   .gg-form-pair {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gg-live-dot {
+    animation: none;
   }
 }

@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 import { handleApiRequest } from ".";
-import type { ApiDatabase, ApiEnv, ApiStatement } from ".";
+import type { ApiD1Result, ApiDatabase, ApiEnv, ApiStatement } from ".";
 
 type SqliteValue = string | number | null;
 
@@ -24,21 +24,32 @@ class SqliteD1Statement implements ApiStatement {
   }
 
   async first<T = unknown>(): Promise<T | null> {
-    const row = this.database.prepare(this.query).get(...this.values) as T | undefined;
+    const row = this.database.prepare(this.query).get(...this.values) as
+      | T
+      | undefined;
 
     return row ?? null;
   }
 
-  async all<T = unknown>(): Promise<{ results?: T[] }> {
+  async all<T = unknown>(): Promise<ApiD1Result<T>> {
     const rows = this.database.prepare(this.query).all(...this.values) as T[];
 
-    return { results: rows };
+    return d1Result(rows);
   }
 
-  async run(): Promise<unknown> {
-    this.database.prepare(this.query).run(...this.values);
+  async run<T = unknown>(): Promise<ApiD1Result<T>> {
+    const result = this.database.prepare(this.query).run(...this.values) as {
+      changes?: bigint | number;
+      lastInsertRowid?: bigint | number;
+    };
+    const changes = toNumber(result.changes);
 
-    return { success: true };
+    return d1Result<T>([], {
+      changes,
+      changed_db: changes > 0,
+      last_row_id: toNumber(result.lastInsertRowid),
+      rows_written: changes,
+    });
   }
 }
 
@@ -51,15 +62,17 @@ class SqliteD1Database implements ApiDatabase {
     return new SqliteD1Statement(this.database, query);
   }
 
-  async batch(statements: ApiStatement[]): Promise<unknown[]> {
-    const results: unknown[] = [];
+  async batch<T = unknown>(
+    statements: ApiStatement[]
+  ): Promise<ApiD1Result<T>[]> {
+    const results: ApiD1Result<T>[] = [];
 
     this.batchSizes.push(statements.length);
     this.database.exec("BEGIN IMMEDIATE");
 
     try {
       for (const statement of statements) {
-        results.push(await statement.run());
+        results.push(await statement.run<T>());
       }
 
       this.database.exec("COMMIT");
@@ -71,6 +84,28 @@ class SqliteD1Database implements ApiDatabase {
   }
 }
 
+function d1Result<T = unknown>(
+  results: T[],
+  meta: Partial<NonNullable<ApiD1Result["meta"]>> = {}
+): ApiD1Result<T> {
+  return {
+    results,
+    success: true,
+    meta: {
+      changes: meta.changes ?? 0,
+      rows_written: meta.rows_written ?? 0,
+    },
+  };
+}
+
+function toNumber(value: bigint | number | undefined): number {
+  if (typeof value === "bigint") {
+    return Number(value);
+  }
+
+  return value ?? 0;
+}
+
 describe("Phase 3 core lobby API", () => {
   let sqlite: DatabaseSync;
   let database: SqliteD1Database;
@@ -78,9 +113,17 @@ describe("Phase 3 core lobby API", () => {
 
   beforeEach(() => {
     sqlite = new DatabaseSync(":memory:");
-    sqlite.exec(
-      readFileSync(resolve(__dirname, "../../../migrations/0001_v1_lobby_foundation.sql"), "utf8")
-    );
+    for (const migrationName of [
+      "0001_v1_lobby_foundation.sql",
+      "0002_add_lobby_title.sql",
+    ]) {
+      sqlite.exec(
+        readFileSync(
+          resolve(__dirname, `../../../migrations/${migrationName}`),
+          "utf8"
+        )
+      );
+    }
     database = new SqliteD1Database(sqlite);
     env = { DB: database };
   });
@@ -94,7 +137,7 @@ describe("Phase 3 core lobby API", () => {
       playerOneName: "Alice",
       playerTwoName: "Bob",
       games: ["Rocket League", "Tetris"],
-      targetScore: 5
+      targetScore: 5,
     });
     const body = (await response.json()) as {
       lobbyId: string;
@@ -108,20 +151,26 @@ describe("Phase 3 core lobby API", () => {
     );
 
     const lobbyRow = sqlite
-      .prepare("SELECT player_one_name, player_two_name, target_score FROM lobbies WHERE id = ?")
+      .prepare(
+        "SELECT title, player_one_name, player_two_name, target_score FROM lobbies WHERE id = ?"
+      )
       .get(body.lobbyId) as {
+      title: string;
       player_one_name: string;
       player_two_name: string;
       target_score: number;
     };
     const secretRow = sqlite
-      .prepare("SELECT management_code_hash FROM lobby_secrets WHERE lobby_id = ?")
+      .prepare(
+        "SELECT management_code_hash FROM lobby_secrets WHERE lobby_id = ?"
+      )
       .get(body.lobbyId) as { management_code_hash: string };
 
     expect(lobbyRow).toEqual({
+      title: "Alice vs Bob",
       player_one_name: "Alice",
       player_two_name: "Bob",
-      target_score: 5
+      target_score: 5,
     });
     expect(secretRow.management_code_hash).toMatch(/^sha256:[a-f0-9]{64}$/);
     expect(JSON.stringify(secretRow)).not.toContain(body.managementCode);
@@ -131,12 +180,13 @@ describe("Phase 3 core lobby API", () => {
     const created = await createLobby({
       playerOneName: "Alice",
       playerTwoName: "Bob",
-      games: ["Rocket League", "Tetris"]
+      games: ["Rocket League", "Tetris"],
     });
     const response = await apiGet(`/api/lobbies/${created.lobbyId}/state`);
     const body = (await response.json()) as {
       lobby: {
         id: string;
+        title: string;
         playerOneName: string;
         playerTwoName: string;
         version: number;
@@ -150,6 +200,7 @@ describe("Phase 3 core lobby API", () => {
 
     expect(response.status).toBe(200);
     expect(body.lobby.id).toBe(created.lobbyId);
+    expect(body.lobby.title).toBe("Alice vs Bob");
     expect(body.lobby.playerOneName).toBe("Alice");
     expect(body.lobby.playerTwoName).toBe("Bob");
     expect(body.version).toBe(1);
@@ -158,20 +209,22 @@ describe("Phase 3 core lobby API", () => {
       body.games.map((game) => ({
         title: game.title,
         enabled: game.enabled,
-        position: game.position
+        position: game.position,
       }))
     ).toEqual([
       { title: "Rocket League", enabled: true, position: 0 },
-      { title: "Tetris", enabled: true, position: 1 }
+      { title: "Tetris", enabled: true, position: 1 },
     ]);
     expect(serialized).not.toContain(created.managementCode);
-    expect(serialized).not.toMatch(/managementCode|managementCodeHash|secret|token|authorization/i);
+    expect(serialized).not.toMatch(
+      /managementCode|managementCodeHash|secret|token|authorization/i
+    );
   });
 
   test("GET /api/lobbies/:lobbyId/state handles lobbies with no starting games", async () => {
     const created = await createLobby({
       playerOneName: "Alice",
-      playerTwoName: "Bob"
+      playerTwoName: "Bob",
     });
     const response = await apiGet(`/api/lobbies/${created.lobbyId}/state`);
     const body = (await response.json()) as {
@@ -187,11 +240,11 @@ describe("Phase 3 core lobby API", () => {
   test("POST /api/lobbies/:lobbyId/verify accepts the correct code and rejects wrong codes", async () => {
     const created = await createLobby({
       playerOneName: "Alice",
-      playerTwoName: "Bob"
+      playerTwoName: "Bob",
     });
 
     const accepted = await apiJson(`/api/lobbies/${created.lobbyId}/verify`, {
-      managementCode: created.managementCode
+      managementCode: created.managementCode,
     });
     const acceptedBody = (await accepted.json()) as { success: boolean };
 
@@ -199,7 +252,7 @@ describe("Phase 3 core lobby API", () => {
     expect(acceptedBody).toEqual({ success: true });
 
     const rejected = await apiJson(`/api/lobbies/${created.lobbyId}/verify`, {
-      managementCode: "GG-AAAA-BBBB-CCCC"
+      managementCode: "GG-AAAA-BBBB-CCCC",
     });
     const rejectedBody = (await rejected.json()) as {
       error: { code: string; message: string };
@@ -222,7 +275,7 @@ describe("Phase 3 core lobby API", () => {
     const response = await apiJson("/api/lobbies", {
       playerOneName: "",
       playerTwoName: "Bob",
-      managementCode: "GG-AAAA-BBBB-CCCC"
+      managementCode: "GG-AAAA-BBBB-CCCC",
     });
     const body = (await response.json()) as {
       error: { code: string; issues: Array<{ path: string }> };
@@ -238,13 +291,13 @@ describe("Phase 3 core lobby API", () => {
       new Request("https://api.test/api/lobbies", {
         method: "POST",
         headers: {
-          "content-type": "application/json"
+          "content-type": "application/json",
         },
         body: JSON.stringify({
           playerOneName: "Alice",
           playerTwoName: "Bob",
-          games: ["x".repeat(20_000)]
-        })
+          games: ["x".repeat(20_000)],
+        }),
       }),
       env
     );
@@ -257,7 +310,7 @@ describe("Phase 3 core lobby API", () => {
   test("write endpoints require the correct Authorization bearer code", async () => {
     const created = await createLobby({
       playerOneName: "Alice",
-      playerTwoName: "Bob"
+      playerTwoName: "Bob",
     });
 
     const missingAuth = await apiJson(
@@ -277,7 +330,7 @@ describe("Phase 3 core lobby API", () => {
       { playerOneScore: 1 },
       {
         method: "PATCH",
-        headers: { authorization: "Bearer GG-AAAA-BBBB-CCCC" }
+        headers: { authorization: "Bearer GG-AAAA-BBBB-CCCC" },
       }
     );
     const wrongAuthBody = (await wrongAuth.json()) as {
@@ -292,7 +345,7 @@ describe("Phase 3 core lobby API", () => {
       { playerOneScore: 1 },
       {
         method: "PATCH",
-        headers: authHeader(created.managementCode)
+        headers: authHeader(created.managementCode),
       }
     );
     const acceptedBody = (await accepted.json()) as {
@@ -312,7 +365,7 @@ describe("Phase 3 core lobby API", () => {
   test("query param management codes are rejected and do not authorize writes", async () => {
     const created = await createLobby({
       playerOneName: "Alice",
-      playerTwoName: "Bob"
+      playerTwoName: "Bob",
     });
     const response = await apiJson(
       `/api/lobbies/${created.lobbyId}?code=${encodeURIComponent(created.managementCode)}`,
@@ -337,11 +390,15 @@ describe("Phase 3 core lobby API", () => {
       { playerOneScore: 9 },
       {
         method: "PATCH",
-        headers: authHeader(created.managementCode)
+        headers: authHeader(created.managementCode),
       }
     );
-    const mixedCaseBody = (await mixedCaseResponse.json()) as { error: { code: string } };
-    const unchangedStateResponse = await apiGet(`/api/lobbies/${created.lobbyId}/state`);
+    const mixedCaseBody = (await mixedCaseResponse.json()) as {
+      error: { code: string };
+    };
+    const unchangedStateResponse = await apiGet(
+      `/api/lobbies/${created.lobbyId}/state`
+    );
     const unchangedState = (await unchangedStateResponse.json()) as {
       lobby: { playerOneScore: number; version: number };
     };
@@ -356,9 +413,11 @@ describe("Phase 3 core lobby API", () => {
     const created = await createLobby({
       playerOneName: "Alice",
       playerTwoName: "Bob",
-      games: ["Rocket League"]
+      games: ["Rocket League"],
     });
-    const initialStateResponse = await apiGet(`/api/lobbies/${created.lobbyId}/state`);
+    const initialStateResponse = await apiGet(
+      `/api/lobbies/${created.lobbyId}/state`
+    );
     const initialState = (await initialStateResponse.json()) as {
       games: Array<{ id: string }>;
     };
@@ -368,21 +427,23 @@ describe("Phase 3 core lobby API", () => {
       {
         playerOneName: "Alicia",
         playerTwoName: "Bobby",
+        title: "Championship Set",
         playerOneScore: 3,
         playerTwoScore: 2,
         targetScore: 7,
         currentGameId: initialState.games[0]?.id,
-        status: "playing"
+        status: "playing",
       },
       {
         method: "PATCH",
-        headers: authHeader(created.managementCode)
+        headers: authHeader(created.managementCode),
       }
     );
     const body = (await response.json()) as {
       lobby: {
         playerOneName: string;
         playerTwoName: string;
+        title: string;
         playerOneScore: number;
         playerTwoScore: number;
         targetScore: number;
@@ -399,12 +460,13 @@ describe("Phase 3 core lobby API", () => {
     expect(body.lobby).toMatchObject({
       playerOneName: "Alicia",
       playerTwoName: "Bobby",
+      title: "Championship Set",
       playerOneScore: 3,
       playerTwoScore: 2,
       targetScore: 7,
       currentGameId: initialState.games[0]?.id,
       status: "playing",
-      version: 2
+      version: 2,
     });
     expect(body.version).toBe(2);
     expect(body.updatedAt).toBe(body.lobby.updatedAt);
@@ -417,7 +479,7 @@ describe("Phase 3 core lobby API", () => {
     const created = await createLobby({
       playerOneName: "Alice",
       playerTwoName: "Bob",
-      games: ["Rocket League", "Tetris"]
+      games: ["Rocket League", "Tetris"],
     });
     const headers = authHeader(created.managementCode);
     const addedResponse = await apiJson(
@@ -426,7 +488,12 @@ describe("Phase 3 core lobby API", () => {
       { headers }
     );
     const addedBody = (await addedResponse.json()) as {
-      games: Array<{ id: string; title: string; enabled: boolean; position: number }>;
+      games: Array<{
+        id: string;
+        title: string;
+        enabled: boolean;
+        position: number;
+      }>;
       version: number;
     };
     const addedGame = addedBody.games.find((game) => game.title === "Chess");
@@ -437,26 +504,37 @@ describe("Phase 3 core lobby API", () => {
     if (!addedGame) {
       throw new Error("Expected Chess game to exist after add.");
     }
-    expect(addedGame).toMatchObject({ title: "Chess", enabled: true, position: 2 });
+    expect(addedGame).toMatchObject({
+      title: "Chess",
+      enabled: true,
+      position: 2,
+    });
 
     const editedResponse = await apiJson(
       `/api/lobbies/${created.lobbyId}/games/${addedGame.id}`,
       { title: "Speed Chess", enabled: false },
       {
         method: "PATCH",
-        headers
+        headers,
       }
     );
     const editedBody = (await editedResponse.json()) as {
-      games: Array<{ id: string; title: string; enabled: boolean; position: number }>;
+      games: Array<{
+        id: string;
+        title: string;
+        enabled: boolean;
+        position: number;
+      }>;
       version: number;
     };
 
     expect(editedResponse.status).toBe(200);
     expect(editedBody.version).toBe(3);
-    expect(editedBody.games.find((game) => game.id === addedGame.id)).toMatchObject({
+    expect(
+      editedBody.games.find((game) => game.id === addedGame.id)
+    ).toMatchObject({
       title: "Speed Chess",
-      enabled: false
+      enabled: false,
     });
 
     const reorderedIds = [...editedBody.games].reverse().map((game) => game.id);
@@ -486,18 +564,88 @@ describe("Phase 3 core lobby API", () => {
 
     expect(deletedResponse.status).toBe(200);
     expect(deletedBody.version).toBe(5);
-    expect(deletedBody.games.some((game) => game.id === addedGame.id)).toBe(false);
+    expect(deletedBody.games.some((game) => game.id === addedGame.id)).toBe(
+      false
+    );
     expect(deletedBody.games.map((game) => game.position)).toEqual([0, 1]);
-    expect(JSON.stringify([addedBody, editedBody, reorderedBody, deletedBody])).not.toMatch(
+    expect(
+      JSON.stringify([addedBody, editedBody, reorderedBody, deletedBody])
+    ).not.toMatch(
       /managementCode|managementCodeHash|secret|token|authorization/i
     );
+  });
+
+  test("no-op lobby, game, and reorder writes return current state without bumping version", async () => {
+    const created = await createLobby({
+      playerOneName: "Alice",
+      playerTwoName: "Bob",
+      games: ["Rocket League", "Tetris"],
+    });
+    const headers = authHeader(created.managementCode);
+    const initialResponse = await apiGet(
+      `/api/lobbies/${created.lobbyId}/state`
+    );
+    const initialState = (await initialResponse.json()) as {
+      games: Array<{ enabled: boolean; id: string; title: string }>;
+      lobby: { playerOneName: string; title: string };
+      version: number;
+    };
+    const firstGame = initialState.games[0];
+
+    if (!firstGame) {
+      throw new Error("Expected a seeded game.");
+    }
+
+    const lobbyNoopResponse = await apiJson(
+      `/api/lobbies/${created.lobbyId}`,
+      {
+        playerOneName: initialState.lobby.playerOneName,
+        title: initialState.lobby.title,
+      },
+      {
+        method: "PATCH",
+        headers,
+      }
+    );
+    const gameNoopResponse = await apiJson(
+      `/api/lobbies/${created.lobbyId}/games/${firstGame.id}`,
+      {
+        enabled: firstGame.enabled,
+        title: firstGame.title,
+      },
+      {
+        method: "PATCH",
+        headers,
+      }
+    );
+    const reorderNoopResponse = await apiJson(
+      `/api/lobbies/${created.lobbyId}/games/reorder`,
+      { gameIds: initialState.games.map((game) => game.id) },
+      { headers }
+    );
+
+    expect(
+      (await lobbyNoopResponse.json()) as { version: number }
+    ).toMatchObject({
+      version: initialState.version,
+    });
+    expect(
+      (await gameNoopResponse.json()) as { version: number }
+    ).toMatchObject({
+      version: initialState.version,
+    });
+    expect(
+      (await reorderNoopResponse.json()) as { version: number }
+    ).toMatchObject({
+      version: initialState.version,
+    });
   });
 
   test("max-size game create, reorder, and delete keep D1 batches bounded", async () => {
     const created = await createLobby({
       playerOneName: "Alice",
       playerTwoName: "Bob",
-      games: Array.from({ length: 64 }, (_, index) => `Game ${index + 1}`)
+      games: Array.from({ length: 64 }, (_, index) => `Game ${index + 1}`),
     });
     const headers = authHeader(created.managementCode);
     const stateResponse = await apiGet(`/api/lobbies/${created.lobbyId}/state`);
@@ -530,7 +678,10 @@ describe("Phase 3 core lobby API", () => {
     const response = await apiJson("/api/lobbies", payload);
 
     expect(response.status).toBe(201);
-    return (await response.json()) as { lobbyId: string; managementCode: string };
+    return (await response.json()) as {
+      lobbyId: string;
+      managementCode: string;
+    };
   }
 
   function apiGet(path: string): Promise<Response> {
@@ -553,7 +704,7 @@ describe("Phase 3 core lobby API", () => {
       new Request(`https://api.test${path}`, {
         method: options.method ?? "POST",
         headers,
-        body: JSON.stringify(body)
+        body: JSON.stringify(body),
       }),
       env
     );
@@ -563,7 +714,7 @@ describe("Phase 3 core lobby API", () => {
     return handleApiRequest(
       new Request(`https://api.test${path}`, {
         method: "DELETE",
-        headers
+        headers,
       }),
       env
     );

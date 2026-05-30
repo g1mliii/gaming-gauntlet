@@ -1,5 +1,6 @@
 import { useId } from "react";
 import type {
+  AnchorHTMLAttributes,
   ButtonHTMLAttributes,
   HTMLAttributes,
   InputHTMLAttributes,
@@ -9,7 +10,9 @@ import type {
   TextareaHTMLAttributes,
 } from "react";
 
-function mergeClassNames(...names: Array<string | false | null | undefined>) {
+export function mergeClassNames(
+  ...names: Array<string | false | null | undefined>
+) {
   return names.filter(Boolean).join(" ");
 }
 
@@ -28,6 +31,33 @@ export function KitButton({
 }: KitButtonProps) {
   return (
     <button
+      className={mergeClassNames(
+        "gg-button",
+        variant !== "default" && `gg-button--${variant}`,
+        size && `gg-button--${size}`,
+        block && "gg-button--block",
+        className
+      )}
+      {...props}
+    />
+  );
+}
+
+export type KitButtonLinkProps = AnchorHTMLAttributes<HTMLAnchorElement> & {
+  variant?: "primary" | "ghost" | "danger" | "default";
+  size?: "sm" | "icon";
+  block?: boolean;
+};
+
+export function KitButtonLink({
+  className,
+  variant = "default",
+  size,
+  block = false,
+  ...props
+}: KitButtonLinkProps) {
+  return (
+    <a
       className={mergeClassNames(
         "gg-button",
         variant !== "default" && `gg-button--${variant}`,

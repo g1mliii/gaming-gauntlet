@@ -1,0 +1,2 @@
+ALTER TABLE lobbies
+ADD COLUMN title TEXT NOT NULL DEFAULT '' CHECK (length(title) <= 60);

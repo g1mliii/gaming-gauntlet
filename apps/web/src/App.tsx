@@ -1,10 +1,11 @@
 import { useEffect } from "react";
 import type { ReactNode } from "react";
-import { KitChip, KitPanel, PageShell, ScoreBug } from "@gaming-gauntlet/ui";
+import { KitButtonLink, KitChip, PageShell, ScoreBug } from "@gaming-gauntlet/ui";
 import type { GauntletMatchSurface } from "@gaming-gauntlet/ui";
 
 import CreatePage from "./CreatePage";
-import { matchRoute } from "./routes";
+import MatchRoom from "./match/MatchRoom";
+import { FORBIDDEN_URL_PARAM_NAMES, matchRoute } from "./routes";
 import type { MatchedRoute } from "./routes";
 
 type AppProps = {
@@ -63,11 +64,20 @@ function getRouteSeo(route: MatchedRoute): SeoConfig {
 
   if (route.id === "manage") {
     return {
-      canonicalPath: `/manage/${encodeURIComponent(route.params.lobbyId ?? "")}`,
+      canonicalPath: `/g/${encodeURIComponent(route.params.lobbyId ?? "")}`,
       description:
-        "Private Gaming Gauntlet match controls for passcode-verified stream management.",
+        "Gaming Gauntlet match controls for passcode-verified stream management.",
       robots: "noindex,nofollow",
-      title: "Manage match | Gaming Gauntlet",
+      title: "Match room | Gaming Gauntlet",
+    };
+  }
+
+  if (route.id === "overlayHub") {
+    return {
+      canonicalPath: `/g/${encodeURIComponent(route.params.lobbyId ?? "")}/obs`,
+      description: "Gaming Gauntlet OBS overlay setup surface.",
+      robots: "noindex,nofollow",
+      title: "Add to OBS | Gaming Gauntlet",
     };
   }
 
@@ -144,24 +154,6 @@ function applySeo(route: MatchedRoute) {
   setNamedMeta("name", "twitter:description", seo.description);
 }
 
-function AppLink({
-  children,
-  href,
-  variant = "default",
-}: {
-  children: ReactNode;
-  href: string;
-  variant?: "primary" | "ghost" | "default";
-}) {
-  const variantClass = variant === "default" ? "" : ` gg-button--${variant}`;
-
-  return (
-    <a className={`gg-button${variantClass}`} href={href}>
-      {children}
-    </a>
-  );
-}
-
 function RouteChrome({
   children,
   routeId,
@@ -178,57 +170,6 @@ function RouteChrome({
       </nav>
       {children}
     </main>
-  );
-}
-
-function ManagePage({ lobbyId }: { lobbyId: string }) {
-  return (
-    <RouteChrome routeId="manage-v1">
-      <PageShell
-        eyebrow="Streamer room"
-        title="Manage match"
-        deck={`Internal controls for ${lobbyId}. The passcode is never part of the URL.`}
-        emphasis="section"
-      >
-        <div className="v1-grid">
-          <KitPanel
-            title="Match controls"
-            summary="Write controls are deferred."
-          >
-            <ScoreBug match={previewMatch} />
-          </KitPanel>
-          <KitPanel
-            title="Room status"
-            summary="Management unlock arrives after verify API."
-          >
-            <div className="v1-status-row">
-              <KitChip tone="soft">Clean URLs</KitChip>
-              <KitChip tone="soft">No auth dependency</KitChip>
-            </div>
-          </KitPanel>
-        </div>
-      </PageShell>
-    </RouteChrome>
-  );
-}
-
-function PublicGamePage({ lobbyId }: { lobbyId: string }) {
-  return (
-    <RouteChrome routeId="game-v1">
-      <PageShell
-        eyebrow="Match room"
-        title="Match room"
-        deck={`Public view for ${lobbyId}. Use the manage action only if you have the passcode.`}
-        actions={
-          <AppLink href={`/manage/${lobbyId}`} variant="ghost">
-            Manage this match
-          </AppLink>
-        }
-        emphasis="section"
-      >
-        <ScoreBug match={previewMatch} />
-      </PageShell>
-    </RouteChrome>
   );
 }
 
@@ -252,6 +193,24 @@ function OverlayTopPage({ lobbyId }: { lobbyId: string }) {
   );
 }
 
+function OverlayHubPage({ lobbyId }: { lobbyId: string }) {
+  return (
+    <RouteChrome routeId="overlay-hub-v1">
+      <PageShell
+        deck="Overlays surface arrives in Phase 9. This placeholder keeps the OBS action live without carrying a passcode."
+        emphasis="section"
+        eyebrow="OBS"
+        title="Add to OBS"
+      >
+        <div className="v1-status-row">
+          <KitChip tone="soft">{lobbyId}</KitChip>
+          <KitChip tone="soft">No passcode in URL</KitChip>
+        </div>
+      </PageShell>
+    </RouteChrome>
+  );
+}
+
 function NotFoundPage() {
   return (
     <RouteChrome routeId="not-found-v1">
@@ -261,9 +220,9 @@ function NotFoundPage() {
         deck="This path is outside Gaming Gauntlet."
         emphasis="section"
       >
-        <AppLink href="/" variant="primary">
+        <KitButtonLink href="/" variant="primary">
           Return home
-        </AppLink>
+        </KitButtonLink>
       </PageShell>
     </RouteChrome>
   );
@@ -273,6 +232,33 @@ export default function App({ initialPath }: AppProps) {
   const route = matchRoute(getCurrentPath(initialPath));
   const isOverlay = route.id === "overlayTop";
   const lobbyId = route.params.lobbyId ?? "";
+
+  useEffect(() => {
+    if (initialPath) {
+      return;
+    }
+
+    const forbiddenNames = new Set(
+      FORBIDDEN_URL_PARAM_NAMES.map((name) => name.toLowerCase())
+    );
+    const url = new URL(window.location.href);
+    let changed = false;
+
+    for (const paramName of Array.from(url.searchParams.keys())) {
+      if (forbiddenNames.has(paramName.toLowerCase())) {
+        url.searchParams.delete(paramName);
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      window.history.replaceState(
+        window.history.state,
+        "",
+        `${url.pathname}${url.search}${url.hash}`
+      );
+    }
+  }, [initialPath]);
 
   useEffect(() => {
     applySeo(route);
@@ -297,11 +283,23 @@ export default function App({ initialPath }: AppProps) {
   }
 
   if (route.id === "manage") {
-    return <ManagePage lobbyId={route.params.lobbyId ?? ""} />;
+    return (
+      <RouteChrome routeId="manage-v1">
+        <MatchRoom lobbyId={route.params.lobbyId ?? ""} />
+      </RouteChrome>
+    );
   }
 
   if (route.id === "game") {
-    return <PublicGamePage lobbyId={route.params.lobbyId ?? ""} />;
+    return (
+      <RouteChrome routeId="game-v1">
+        <MatchRoom lobbyId={route.params.lobbyId ?? ""} />
+      </RouteChrome>
+    );
+  }
+
+  if (route.id === "overlayHub") {
+    return <OverlayHubPage lobbyId={route.params.lobbyId ?? ""} />;
   }
 
   if (route.id === "overlayTop") {

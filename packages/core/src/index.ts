@@ -17,9 +17,15 @@ export const GameIdSchema = z
   .string()
   .regex(/^game_[a-z2-9]{12}$/, "Expected a generated game id.");
 
+export const MATCH_TITLE_MAX_LENGTH = 60;
+export const SCORE_MIN = 0;
+export const SCORE_MAX = 999;
+
 export const PlayerNameSchema = z.string().trim().min(1).max(40);
+export const MatchTitleSchema = z.string().trim().max(MATCH_TITLE_MAX_LENGTH);
 export const GameTitleSchema = z.string().trim().min(1).max(80);
-export const ScoreSchema = z.number().int().min(0).max(999);
+export const ScoreSchema = z.number().int().min(SCORE_MIN).max(SCORE_MAX);
+export const TargetScoreSchema = z.number().int().min(1).max(99);
 export const VersionSchema = z.number().int().min(1);
 export const TimestampSchema = z.string().datetime({ offset: true });
 export const LobbyStatusSchema = z.enum(LOBBY_STATUSES);
@@ -37,11 +43,12 @@ export const ManagementCodeHashSchema = z
 export const LobbySchema = z
   .object({
     id: LobbyIdSchema,
+    title: MatchTitleSchema,
     playerOneName: PlayerNameSchema,
     playerTwoName: PlayerNameSchema,
     playerOneScore: ScoreSchema,
     playerTwoScore: ScoreSchema,
-    targetScore: z.number().int().min(1).max(99).nullable(),
+    targetScore: TargetScoreSchema.nullable(),
     status: LobbyStatusSchema,
     currentGameId: GameIdSchema.nullable(),
     version: VersionSchema,
@@ -80,8 +87,9 @@ export const CreateLobbyRequestSchema = z
   .object({
     playerOneName: PlayerNameSchema,
     playerTwoName: PlayerNameSchema,
+    title: MatchTitleSchema.optional(),
     games: z.array(GameTitleSchema).max(64).optional().default([]),
-    targetScore: z.number().int().min(1).max(99).optional()
+    targetScore: TargetScoreSchema.optional()
   })
   .strict();
 
@@ -108,9 +116,10 @@ export const UpdateLobbyRequestSchema = z
   .object({
     playerOneName: PlayerNameSchema.optional(),
     playerTwoName: PlayerNameSchema.optional(),
+    title: MatchTitleSchema.min(1).optional(),
     playerOneScore: ScoreSchema.optional(),
     playerTwoScore: ScoreSchema.optional(),
-    targetScore: z.number().int().min(1).max(99).nullable().optional(),
+    targetScore: TargetScoreSchema.nullable().optional(),
     currentGameId: GameIdSchema.nullable().optional(),
     status: LobbyStatusSchema.optional()
   })
@@ -158,6 +167,17 @@ export type UpdateGameRequest = z.infer<typeof UpdateGameRequestSchema>;
 export type ReorderGamesRequest = z.infer<typeof ReorderGamesRequestSchema>;
 export type ManagementCode = z.infer<typeof ManagementCodeSchema>;
 export type ManagementCodeHash = z.infer<typeof ManagementCodeHashSchema>;
+
+export function deriveLobbyTitle(
+  playerOneName: string,
+  playerTwoName: string
+): string {
+  return `${playerOneName} vs ${playerTwoName}`.slice(0, MATCH_TITLE_MAX_LENGTH);
+}
+
+export function clampScore(score: number): number {
+  return Math.min(SCORE_MAX, Math.max(SCORE_MIN, score));
+}
 
 export function parseCreateLobbyRequest(payload: unknown): CreateLobbyRequest {
   return CreateLobbyRequestSchema.parse(payload);

@@ -1,6 +1,7 @@
 name = "gaming-gauntlet-api"
 main = "apps/api/src/index.ts"
 compatibility_date = "2026-05-30"
+compatibility_flags = ["nodejs_compat"]
 
 routes = [
   { pattern = "gaming-gauntlet.com/api/*", zone_name = "gaming-gauntlet.com" },
@@ -12,3 +13,7 @@ binding = "DB"
 database_name = "gaming-gauntlet-v1"
 database_id = "c3482150-ab87-4e33-ab47-be26aa391bf6"
 migrations_dir = "migrations"
+
+[observability]
+enabled = true
+head_sampling_rate = 1
