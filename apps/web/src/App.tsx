@@ -1,10 +1,11 @@
 import { useEffect } from "react";
 import type { ReactNode } from "react";
-import { KitButtonLink, KitChip, PageShell } from "@gaming-gauntlet/ui";
+import { KitButtonLink, PageShell } from "@gaming-gauntlet/ui";
 
 import CreatePage from "./CreatePage";
 import MatchRoom from "./match/MatchRoom";
 import OverlayPage from "./overlay/OverlayPage";
+import OverlaysSurface from "./overlay/OverlaysSurface";
 import { FORBIDDEN_URL_PARAM_NAMES, matchRoute } from "./routes";
 import type { MatchedRoute } from "./routes";
 
@@ -171,17 +172,7 @@ function RouteChrome({
 function OverlayHubPage({ lobbyId }: { lobbyId: string }) {
   return (
     <RouteChrome routeId="overlay-hub-v1">
-      <PageShell
-        deck="Overlays surface arrives in Phase 9. This placeholder keeps the OBS action live without carrying a passcode."
-        emphasis="section"
-        eyebrow="OBS"
-        title="Add to OBS"
-      >
-        <div className="v1-status-row">
-          <KitChip tone="soft">{lobbyId}</KitChip>
-          <KitChip tone="soft">No passcode in URL</KitChip>
-        </div>
-      </PageShell>
+      <OverlaysSurface lobbyId={lobbyId} />
     </RouteChrome>
   );
 }

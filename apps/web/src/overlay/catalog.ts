@@ -3,6 +3,11 @@
 // is the URL segment in /overlay/:lobbyId/:variant and the recommended OBS
 // browser-source size is `w` × `h`.
 
+// Gallery sections for the Phase 9 "Add to OBS" surface. The catalog carries
+// the group so new overlays appear under the right heading automatically — the
+// surface never hardcodes the overlay list.
+export type OverlayGroupId = "top-bars" | "score-cards" | "fullscreen";
+
 export type OverlayDefinition = {
   id: string;
   name: string;
@@ -10,6 +15,7 @@ export type OverlayDefinition = {
   w: number;
   h: number;
   slug: string;
+  group: OverlayGroupId;
 };
 
 export const OVERLAYS = [
@@ -20,6 +26,7 @@ export const OVERLAYS = [
     w: 1280,
     h: 90,
     slug: "top",
+    group: "top-bars",
   },
   {
     id: "arena-bar",
@@ -28,6 +35,7 @@ export const OVERLAYS = [
     w: 960,
     h: 96,
     slug: "arena-bar",
+    group: "top-bars",
   },
   {
     id: "shield-bar",
@@ -36,6 +44,7 @@ export const OVERLAYS = [
     w: 1000,
     h: 96,
     slug: "shield-bar",
+    group: "top-bars",
   },
   {
     id: "broadcast",
@@ -44,6 +53,7 @@ export const OVERLAYS = [
     w: 1040,
     h: 150,
     slug: "broadcast",
+    group: "top-bars",
   },
   {
     id: "series-bar",
@@ -52,6 +62,7 @@ export const OVERLAYS = [
     w: 1080,
     h: 120,
     slug: "series-bar",
+    group: "top-bars",
   },
   {
     id: "lower-third",
@@ -60,6 +71,7 @@ export const OVERLAYS = [
     w: 900,
     h: 180,
     slug: "lower-third",
+    group: "score-cards",
   },
   {
     id: "compact",
@@ -68,6 +80,7 @@ export const OVERLAYS = [
     w: 320,
     h: 200,
     slug: "compact",
+    group: "score-cards",
   },
   {
     id: "rail",
@@ -76,6 +89,7 @@ export const OVERLAYS = [
     w: 240,
     h: 560,
     slug: "rail",
+    group: "score-cards",
   },
   {
     id: "square",
@@ -84,6 +98,7 @@ export const OVERLAYS = [
     w: 360,
     h: 360,
     slug: "square",
+    group: "score-cards",
   },
   {
     id: "full",
@@ -92,6 +107,7 @@ export const OVERLAYS = [
     w: 1920,
     h: 1080,
     slug: "full",
+    group: "fullscreen",
   },
   {
     id: "vs-intro",
@@ -100,6 +116,7 @@ export const OVERLAYS = [
     w: 1920,
     h: 1080,
     slug: "vs-intro",
+    group: "fullscreen",
   },
   {
     id: "ticker",
@@ -108,6 +125,7 @@ export const OVERLAYS = [
     w: 1920,
     h: 70,
     slug: "ticker",
+    group: "top-bars",
   },
   {
     id: "corner",
@@ -116,6 +134,7 @@ export const OVERLAYS = [
     w: 220,
     h: 64,
     slug: "corner",
+    group: "score-cards",
   },
   {
     id: "banner",
@@ -124,6 +143,7 @@ export const OVERLAYS = [
     w: 1280,
     h: 300,
     slug: "banner",
+    group: "fullscreen",
   },
 ] as const satisfies readonly OverlayDefinition[];
 
@@ -167,3 +187,33 @@ export const THEME_OPTIONS: ReadonlyArray<{
   { value: "pgl", label: "Sunset" },
   { value: "arena", label: "Arena" },
 ];
+
+// Ordered gallery sections for the "Add to OBS" surface. The order here drives
+// the heading order; cards are pulled from OVERLAYS by matching `group`.
+export const OVERLAY_GROUPS: ReadonlyArray<{
+  id: OverlayGroupId;
+  label: string;
+}> = [
+  { id: "top-bars", label: "Top bars" },
+  { id: "score-cards", label: "Score cards" },
+  { id: "fullscreen", label: "Fullscreen" },
+];
+
+// The shareable overlay URL for an OBS browser source. Path segments are
+// encoded, and ?theme= is appended only for a non-default theme so default
+// links stay clean. No management passcode or other forbidden param is ever
+// added — OBS browser sources cannot be sized from the URL, so size lives in
+// the UI, not the link.
+export function buildOverlayShareUrl(
+  origin: string,
+  lobbyId: string,
+  slug: string,
+  theme: OverlayTheme
+): string {
+  const path = `/overlay/${encodeURIComponent(lobbyId)}/${encodeURIComponent(slug)}`;
+  const base = `${origin}${path}`;
+
+  return theme === "default"
+    ? base
+    : `${base}?theme=${encodeURIComponent(theme)}`;
+}

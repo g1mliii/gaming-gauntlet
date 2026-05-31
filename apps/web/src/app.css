@@ -4,6 +4,18 @@
   min-height: 100vh;
 }
 
+.gg-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .v1-app {
   display: grid;
   gap: clamp(1.25rem, 3vw, 2.4rem);
@@ -1138,6 +1150,170 @@
 }
 
 /* ===========================================================================
+   ADD TO OBS GALLERY (Phase 9)
+   Streamer-facing overlay gallery: grouped cards, each with a live themed
+   preview, recommended OBS size, and a Copy URL button, plus setup +
+   troubleshooting. Ported from prototype/app.css.
+   =========================================================================== */
+.gg-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(0.9rem, 1.8vw, 1.3rem);
+}
+
+.gg-ov-section {
+  display: grid;
+  gap: 0.9rem;
+  margin-top: 1.4rem;
+}
+.gg-ov-section__head {
+  margin: 0;
+  font-family: var(--gg-font-display);
+  font-weight: 600;
+  font-size: 0.8rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--gg-accent-2);
+}
+
+.gg-checker {
+  background-color: oklch(0.22 0.01 250);
+  background-image: linear-gradient(45deg, oklch(0.16 0.01 250) 25%, transparent 25%),
+    linear-gradient(-45deg, oklch(0.16 0.01 250) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, oklch(0.16 0.01 250) 75%),
+    linear-gradient(-45deg, transparent 75%, oklch(0.16 0.01 250) 75%);
+  background-size: 22px 22px;
+  background-position: 0 0, 0 11px, 11px -11px, -11px 0;
+}
+
+.gg-overlay-card {
+  display: grid;
+  gap: 0;
+  border: 1px solid var(--gg-border);
+  border-radius: var(--gg-radius-md);
+  overflow: clip;
+  background: color-mix(in oklab, var(--gg-surface) 84%, black);
+}
+.gg-overlay-card__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.7rem 0.9rem;
+  border-bottom: 1px solid var(--gg-border);
+}
+.gg-overlay-card__name {
+  font-family: var(--gg-font-display);
+  font-weight: 600;
+  font-size: 0.98rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.gg-overlay-card__dim {
+  font-family: var(--gg-font-display);
+  font-size: 0.78rem;
+  color: var(--gg-text-dim);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  flex: none;
+}
+.gg-overlay-card__stage {
+  display: grid;
+  place-items: center;
+  padding: 1.2rem;
+  min-height: 150px;
+}
+.gg-overlay-card__desc {
+  padding: 0.7rem 0.9rem;
+  border-top: 1px solid var(--gg-border);
+  color: var(--gg-text-dim);
+  font-size: 0.92rem;
+}
+.gg-overlay-card__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding: 0.7rem 0.9rem;
+  border-top: 1px solid var(--gg-border);
+}
+.gg-obs-item__actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+/* The preview reuses the live overlay root (.gg-ov--X) for its team-color
+   variables, but inside a card it must not claim the full viewport — neutralize
+   the layout-only rules from .gg-ov while keeping the palette swap. */
+.gg-overlay-card__stage .gg-ov {
+  min-height: 0;
+  display: block;
+  padding: 0;
+  background: transparent;
+}
+
+.gg-overlay-card__placeholder {
+  display: grid;
+  place-items: center;
+  text-align: center;
+  padding: 0.6rem;
+  font-family: var(--gg-font-display);
+  font-size: 0.82rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--gg-text-dim);
+}
+
+.gg-obs-guide {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: 1.4rem;
+}
+.gg-obs-guide__col {
+  display: grid;
+  gap: 0.55rem;
+  align-content: start;
+}
+.gg-obs-guide__head {
+  font-family: var(--gg-font-display);
+  font-weight: 600;
+  font-size: 0.76rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--gg-accent-2);
+}
+.gg-obs-guide .gg-steps {
+  font-size: 0.92rem;
+  gap: 0.35rem;
+}
+
+.gg-steps {
+  margin: 0;
+  padding-left: 1.3rem;
+  display: grid;
+  gap: 0.5rem;
+  color: var(--gg-text-dim);
+}
+.gg-steps li {
+  padding-left: 0.2rem;
+}
+.gg-steps li::marker {
+  color: var(--gg-accent);
+  font-family: var(--gg-font-display);
+  font-weight: 700;
+}
+
+@media (max-width: 760px) {
+  .gg-grid-2 {
+    grid-template-columns: 1fr;
+  }
+  .gg-obs-guide {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ===========================================================================
    OBS OVERLAYS (Phase 8)
    Transparent, read-only browser-source graphics. The ov-* rules are ported
    from prototype/app.css; the four new layouts (ov-vs/ov-ticker/ov-corner/
@@ -1388,6 +1564,7 @@ body.gg-body--overlay {
   color: var(--gg-text);
   text-wrap: balance;
   display: -webkit-box;
+  line-clamp: 3;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;

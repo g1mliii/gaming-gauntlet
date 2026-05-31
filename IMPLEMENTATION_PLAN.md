@@ -708,13 +708,3 @@ Before finishing this phase:
    - which commands passed
    - any known limitations
 ```
-
----
-
-# Best First Command To Give The AI
-
-```text
-Start Phase 1 only.
-
-Use the existing UI/design kit. Do not build new major features yet. Clean up the V1 scope, confirm local app startup, add placeholder routes, and add regression tests proving the simplified V1 routes exist and do not require Twitch or expose secrets.
-```
