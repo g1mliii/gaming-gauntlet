@@ -40,6 +40,12 @@ namespace_id = "100104"
   limit = 120
   period = 60
 
+# Daily retention sweep (04:00 UTC). Deletes lobbies — and their games +
+# secrets — that have gone untouched past the retention window, keeping D1 from
+# growing without bound. See LOBBY_RETENTION_DAYS in apps/api/src/index.ts.
+[triggers]
+crons = ["0 4 * * *"]
+
 [[d1_databases]]
 binding = "DB"
 database_name = "gaming-gauntlet-v1"

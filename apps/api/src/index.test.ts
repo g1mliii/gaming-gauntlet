@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
-import { handleApiRequest } from ".";
+import { handleApiRequest, runLobbyRetentionSweep } from ".";
 import type {
   ApiD1Result,
   ApiDatabase,
@@ -1022,5 +1022,107 @@ describe("Phase 3 core lobby API", () => {
 
   function lobbyIdFixture(): string {
     return "lob_abc234def567";
+  }
+});
+
+describe("lobby retention sweep", () => {
+  let sqlite: DatabaseSync;
+  let database: SqliteD1Database;
+  let env: ApiEnv;
+
+  // Retention is 30 days of inactivity; cutoff for this clock is 2026-05-01.
+  const now = new Date("2026-05-31T00:00:00.000Z");
+  const recent = "2026-05-30T00:00:00.000Z"; // 1 day ago — keep
+  const insideWindow = "2026-05-20T00:00:00.000Z"; // 11 days ago — keep
+  const stale = "2026-03-01T00:00:00.000Z"; // ~91 days ago — purge
+
+  beforeEach(() => {
+    sqlite = new DatabaseSync(":memory:");
+    for (const migrationName of [
+      "0001_v1_lobby_foundation.sql",
+      "0002_add_lobby_title.sql",
+    ]) {
+      sqlite.exec(
+        readFileSync(
+          resolve(__dirname, `../../../migrations/${migrationName}`),
+          "utf8"
+        )
+      );
+    }
+    database = new SqliteD1Database(sqlite);
+    env = { DB: database };
+  });
+
+  afterEach(() => {
+    sqlite.close();
+  });
+
+  test("purges lobbies inactive past the window and their games + secrets", async () => {
+    seedLobby("lob_keepaaaaaaaa", insideWindow);
+    seedLobby("lob_dropbbbbbbbb", stale);
+
+    const deleted = await runLobbyRetentionSweep(env, now);
+
+    expect(deleted).toBe(1);
+    expect(idExists("lobbies", "lob_keepaaaaaaaa")).toBe(true);
+    expect(idExists("lobbies", "lob_dropbbbbbbbb")).toBe(false);
+    // Children of the purged lobby are gone; the surviving lobby keeps its game.
+    expect(childCount("games", "lob_dropbbbbbbbb")).toBe(0);
+    expect(childCount("lobby_secrets", "lob_dropbbbbbbbb")).toBe(0);
+    expect(childCount("games", "lob_keepaaaaaaaa")).toBe(1);
+    expect(childCount("lobby_secrets", "lob_keepaaaaaaaa")).toBe(1);
+  });
+
+  test("never touches a match scored within the window", async () => {
+    seedLobby("lob_recentaaaaa", recent);
+    seedLobby("lob_edgeaaaaaaaa", insideWindow);
+
+    const deleted = await runLobbyRetentionSweep(env, now);
+
+    expect(deleted).toBe(0);
+    expect(rowCount("lobbies")).toBe(2);
+  });
+
+  function seedLobby(id: string, updatedAt: string): void {
+    sqlite
+      .prepare(
+        `INSERT INTO lobbies (id, title, player_one_name, player_two_name, created_at, updated_at)
+         VALUES (?, '', 'A', 'B', ?, ?)`
+      )
+      .run(id, updatedAt, updatedAt);
+    sqlite
+      .prepare(
+        `INSERT INTO games (id, lobby_id, title, position, created_at, updated_at)
+         VALUES (?, ?, 'Rocket League', 0, ?, ?)`
+      )
+      .run(`game_${id}`, id, updatedAt, updatedAt);
+    sqlite
+      .prepare(
+        `INSERT INTO lobby_secrets (lobby_id, management_code_hash, created_at, updated_at)
+         VALUES (?, ?, ?, ?)`
+      )
+      .run(id, `sha256:${"a".repeat(64)}`, updatedAt, updatedAt);
+  }
+
+  function rowCount(table: string): number {
+    const row = sqlite.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as {
+      n: number;
+    };
+
+    return row.n;
+  }
+
+  function idExists(table: string, id: string): boolean {
+    return Boolean(
+      sqlite.prepare(`SELECT 1 FROM ${table} WHERE id = ?`).get(id)
+    );
+  }
+
+  function childCount(table: string, lobbyId: string): number {
+    const row = sqlite
+      .prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE lobby_id = ?`)
+      .get(lobbyId) as { n: number };
+
+    return row.n;
   }
 });

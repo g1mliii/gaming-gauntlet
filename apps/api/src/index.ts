@@ -134,11 +134,66 @@ const MAX_JSON_BODY_BYTES = 16 * 1024;
 
 class BodyTooLargeError extends Error {}
 
+// Retention: a lobby is purged once it has gone this many days without any
+// update (updated_at bumps on every mutation, so this reaps inactivity, not
+// age — an actively scored match is never touched). The daily cron caps how
+// many it clears per run so a backlog can't exceed D1 limits or the scheduled
+// CPU budget; the next run drains the remainder.
+const LOBBY_RETENTION_DAYS = 30;
+const LOBBY_CLEANUP_BATCH_LIMIT = 500;
+
 export default {
   fetch(request: Request, env: Env): Promise<Response> {
     return handleApiRequest(request, env);
   },
+  async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
+    await runLobbyRetentionSweep(env, new Date());
+  },
 };
+
+// Exported for tests and reuse. Returns the number of lobbies deleted this run.
+export async function runLobbyRetentionSweep(
+  env: ApiEnv,
+  now: Date
+): Promise<number> {
+  const cutoff = new Date(
+    now.getTime() - LOBBY_RETENTION_DAYS * 24 * 60 * 60 * 1000
+  ).toISOString();
+
+  return deleteExpiredLobbies(env.DB, cutoff, LOBBY_CLEANUP_BATCH_LIMIT);
+}
+
+async function deleteExpiredLobbies(
+  db: ApiDatabase,
+  cutoff: string,
+  limit: number
+): Promise<number> {
+  // One deterministic selector reused by all three deletes so games, secrets,
+  // and lobbies target the same bounded set within the transaction. Children
+  // are deleted before the parent rather than relying on D1 honoring
+  // ON DELETE CASCADE / PRAGMA foreign_keys across connections.
+  const expiredSelector = `
+    SELECT id FROM lobbies
+    WHERE updated_at < ?
+    ORDER BY updated_at ASC
+    LIMIT ?`;
+
+  const results = await db.batch([
+    db
+      .prepare(`DELETE FROM games WHERE lobby_id IN (${expiredSelector})`)
+      .bind(cutoff, limit),
+    db
+      .prepare(`DELETE FROM lobby_secrets WHERE lobby_id IN (${expiredSelector})`)
+      .bind(cutoff, limit),
+    db
+      .prepare(`DELETE FROM lobbies WHERE id IN (${expiredSelector})`)
+      .bind(cutoff, limit),
+  ]);
+
+  // The final statement removes the lobby rows themselves; its changed-row
+  // count is the number of matches purged.
+  return getChangedRows(results[results.length - 1]) ?? 0;
+}
 
 export async function handleApiRequest(
   request: Request,
