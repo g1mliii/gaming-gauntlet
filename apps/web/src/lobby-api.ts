@@ -121,6 +121,16 @@ export async function updateLobby(
   });
 }
 
+export async function spinLobby(
+  lobbyId: string,
+  managementCode: string
+): Promise<PublicLobbyState> {
+  return writeLobbyState(`/api/lobbies/${encodeURIComponent(lobbyId)}/spin`, {
+    method: "POST",
+    managementCode
+  });
+}
+
 export async function addGame(
   lobbyId: string,
   managementCode: string,

@@ -24,6 +24,7 @@ let fetchMock: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   fetchMock = vi.fn();
   vi.stubGlobal("fetch", fetchMock);
+  setMatchMedia(false);
   Object.defineProperty(window, "localStorage", {
     configurable: true,
     value: new MemoryStorage()
@@ -31,6 +32,19 @@ beforeEach(() => {
   window.localStorage.clear();
   window.history.pushState(null, "", "/");
 });
+
+function setMatchMedia(reduce: boolean) {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: reduce && query.includes("prefers-reduced-motion"),
+    media: query,
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => false
+  }));
+}
 
 afterEach(() => {
   cleanup();
@@ -226,9 +240,10 @@ describe("Phase 6 match room", () => {
 
     releaseAddResponse();
 
-    expect(await screen.findByText("Chess Blitz")).toBeInTheDocument();
+    // The title now also renders as a wheel label, so await its appearance via
+    // the unique per-row delete control rather than the (non-unique) text.
     expect(
-      screen.getByRole("button", { name: /Delete Chess Blitz/i })
+      await screen.findByRole("button", { name: /Delete Chess Blitz/i })
     ).toBeInTheDocument();
   });
 
@@ -292,10 +307,116 @@ describe("Phase 6 match room", () => {
   });
 });
 
+describe("Phase 7 wheel + spin", () => {
+  test("renders the radial wheel and switches to the reel style", async () => {
+    window.localStorage.setItem(
+      getManagementPasscodeStorageKey(lobbyId),
+      managementCode
+    );
+    mockApiRouter();
+
+    render(<App initialPath={`/g/${lobbyId}`} />);
+    await screen.findByRole("heading", { name: "Spin to pick" });
+
+    expect(document.querySelector(".gg-wheel")).toBeInTheDocument();
+    expect(document.querySelector(".gg-reel")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Reel" }));
+
+    expect(document.querySelector(".gg-reel")).toBeInTheDocument();
+    expect(document.querySelector(".gg-reel__marker")).toBeInTheDocument();
+    expect(document.querySelector(".gg-wheel")).not.toBeInTheDocument();
+  });
+
+  test("clicking Spin lands on the server-selected game in the pick banner", async () => {
+    setMatchMedia(true);
+    window.localStorage.setItem(
+      getManagementPasscodeStorageKey(lobbyId),
+      managementCode
+    );
+    mockApiRouter();
+
+    render(<App initialPath={`/g/${lobbyId}`} />);
+    await screen.findByRole("heading", { name: "Spin to pick" });
+
+    expect(document.querySelector(".gg-pick__title")).toHaveTextContent(
+      "Rocket League"
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Spin the gauntlet/i }));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/lobbies/${lobbyId}/spin`,
+        expect.objectContaining({ method: "POST" })
+      )
+    );
+    await waitFor(() =>
+      expect(document.querySelector(".gg-pick__title")).toHaveTextContent(
+        "Tetris"
+      )
+    );
+
+    expectWriteRequestsAreSafe();
+  });
+
+  test("reduced motion resolves the pick without waiting on the long animation", async () => {
+    setMatchMedia(true);
+    window.localStorage.setItem(
+      getManagementPasscodeStorageKey(lobbyId),
+      managementCode
+    );
+    mockApiRouter();
+
+    render(<App initialPath={`/g/${lobbyId}`} />);
+    await screen.findByRole("heading", { name: "Spin to pick" });
+
+    fireEvent.click(screen.getByRole("button", { name: /Spin the gauntlet/i }));
+
+    // No fake-timer advancement: under reduced motion the result must resolve
+    // promptly and the button must return to its idle label.
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /Spin the gauntlet/i })
+      ).toBeEnabled()
+    );
+    expect(document.querySelector(".gg-pick__title")).toHaveTextContent(
+      "Tetris"
+    );
+  });
+
+  test("the Spin button is disabled when no games are enabled", async () => {
+    window.localStorage.setItem(
+      getManagementPasscodeStorageKey(lobbyId),
+      managementCode
+    );
+    mockApiRouter({ disableAllGames: true });
+
+    render(<App initialPath={`/g/${lobbyId}`} />);
+    await screen.findByRole("heading", { name: "Spin to pick" });
+
+    expect(
+      screen.getByRole("button", { name: /Spin the gauntlet/i })
+    ).toBeDisabled();
+    expect(screen.getByText("No games enabled")).toBeInTheDocument();
+  });
+});
+
 function mockApiRouter(
-  options: { delayAddGame?: () => Promise<void> | void } = {}
+  options: {
+    delayAddGame?: () => Promise<void> | void;
+    disableAllGames?: boolean;
+  } = {}
 ) {
   let state: PublicState = publicLobbyState();
+
+  if (options.disableAllGames) {
+    state = {
+      ...state,
+      lobby: { ...state.lobby, currentGameId: null },
+      games: state.games.map((game) => ({ ...game, enabled: false }))
+    };
+  }
 
   fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), "https://gaming-gauntlet.local");
@@ -331,6 +452,32 @@ function mockApiRouter(
       state = bumpState({
         ...state,
         lobby: { ...state.lobby, ...parseBody(init) } as PublicState["lobby"]
+      });
+      return jsonResponse(state);
+    }
+
+    if (method === "POST" && url.pathname === `/api/lobbies/${lobbyId}/spin`) {
+      const enabledGames = state.games.filter((game) => game.enabled);
+
+      if (enabledGames.length === 0) {
+        return jsonResponse(
+          {
+            error: {
+              code: "no_enabled_games",
+              message: "Enable at least one game before spinning."
+            }
+          },
+          400
+        );
+      }
+
+      // Deterministic pick (last enabled game) so the test can assert a winner
+      // distinct from the lobby's starting pick.
+      const winner = enabledGames[enabledGames.length - 1];
+
+      state = bumpState({
+        ...state,
+        lobby: { ...state.lobby, currentGameId: winner.id }
       });
       return jsonResponse(state);
     }

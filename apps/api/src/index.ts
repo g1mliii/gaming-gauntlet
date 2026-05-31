@@ -62,6 +62,7 @@ type ApiRoute =
   | { id: "getLobbyState"; lobbyId: string }
   | { id: "verifyLobby"; lobbyId: string }
   | { id: "updateLobby"; lobbyId: string }
+  | { id: "spinLobby"; lobbyId: string }
   | { id: "addGame"; lobbyId: string }
   | { id: "updateGame"; lobbyId: string; gameId: string }
   | { id: "deleteGame"; lobbyId: string; gameId: string }
@@ -74,6 +75,7 @@ type JsonErrorCode =
   | "invalid_json"
   | "invalid_management_code"
   | "method_not_allowed"
+  | "no_enabled_games"
   | "not_found"
   | "payload_too_large"
   | "unauthorized"
@@ -152,6 +154,10 @@ export async function handleApiRequest(
       return await updateLobby(request, route.lobbyId, env.DB);
     }
 
+    if (route.id === "spinLobby") {
+      return await spinLobby(request, route.lobbyId, env.DB);
+    }
+
     if (route.id === "addGame") {
       return await addGame(request, route.lobbyId, env.DB);
     }
@@ -216,6 +222,12 @@ function matchRoute(request: Request): ApiRoute {
     if (action === "verify") {
       return request.method === "POST"
         ? { id: "verifyLobby", lobbyId }
+        : { id: "methodNotAllowed" };
+    }
+
+    if (action === "spin") {
+      return request.method === "POST"
+        ? { id: "spinLobby", lobbyId }
         : { id: "methodNotAllowed" };
     }
 
@@ -547,6 +559,67 @@ async function updateLobby(
   }
 
   return jsonResponse(applyLobbyPatch(existingState, parsedPayload.data, now));
+}
+
+async function spinLobby(
+  request: Request,
+  lobbyId: string,
+  db: ApiDatabase
+): Promise<Response> {
+  const parsedLobbyId = LobbyIdSchema.safeParse(lobbyId);
+
+  if (!parsedLobbyId.success) {
+    return validationError(parsedLobbyId.error.issues);
+  }
+
+  const authorization = await authorizeLobbyWrite(
+    request,
+    parsedLobbyId.data,
+    db
+  );
+
+  if (authorization.error) {
+    return authorization.error;
+  }
+
+  const existingState = authorization.state;
+  const enabledGames = existingState.games.filter((game) => game.enabled);
+
+  if (enabledGames.length === 0) {
+    return jsonError(
+      400,
+      "no_enabled_games",
+      "Enable at least one game before spinning."
+    );
+  }
+
+  // `enabledGames` is non-empty (checked above) and `randomIndex` returns an
+  // in-range index, so this guard only narrows the type for the compiler.
+  const winner = enabledGames[randomIndex(enabledGames.length)];
+
+  if (!winner) {
+    return jsonError(500, "internal_error", "Could not select a game.");
+  }
+
+  const now = new Date().toISOString();
+  const updateResult = await db
+    .prepare(
+      `UPDATE lobbies
+      SET current_game_id = ?,
+        version = version + 1,
+        updated_at = ?
+      WHERE id = ?`
+    )
+    .bind(winner.id, now, parsedLobbyId.data)
+    .run();
+
+  if (getChangedRows(updateResult) === 0) {
+    return jsonError(404, "not_found", "Lobby was not found.");
+  }
+
+  return jsonResponse(
+    applyLobbyPatch(existingState, { currentGameId: winner.id }, now)
+  );
 }
 
 async function addGame(
@@ -1133,6 +1206,27 @@ function hasGameChanges(game: Game, patch: UpdateGameRequest): boolean {
 
 function changed<T>(nextValue: T | undefined, currentValue: T): boolean {
   return nextValue !== undefined && nextValue !== currentValue;
+}
+
+function randomIndex(length: number): number {
+  if (length <= 1) {
+    return 0;
+  }
+
+  // Rejection sampling keeps the selection uniform: discard the high tail of
+  // the uint32 range that wouldn't divide evenly by `length` so no game gets a
+  // slightly higher chance of winning.
+  const limit = Math.floor(0xffffffff / length) * length;
+  const buffer = new Uint32Array(1);
+
+  let value: number;
+
+  do {
+    crypto.getRandomValues(buffer);
+    value = buffer[0] ?? 0;
+  } while (value >= limit);
+
+  return value % length;
 }
 
 function getChangedRows(result: ApiD1Result | undefined): number | null {

@@ -12,6 +12,7 @@ import {
   KitNotice,
   KitPanel,
   KitTextField,
+  Wheel,
   mergeClassNames,
 } from "@gaming-gauntlet/ui";
 import type { GauntletMatchSurface } from "@gaming-gauntlet/ui";
@@ -60,6 +61,7 @@ export default function MatchRoom({ lobbyId }: MatchRoomProps) {
     isUnlocked,
     isWriting,
     lobby,
+    spin,
     surface,
     unlock,
     unlockError,
@@ -106,6 +108,7 @@ export default function MatchRoom({ lobbyId }: MatchRoomProps) {
         <SpinPanel
           lobby={lobby}
           onWheelStyleChange={setWheelStyle}
+          spin={spin}
           surface={surface}
           wheelStyle={wheelStyle}
         />
@@ -134,8 +137,12 @@ function LockedRoom({
   const currentGameTitle = getCurrentGameTitle(surface);
 
   useEffect(
-    () => () => {
-      isMountedRef.current = false;
+    () => {
+      isMountedRef.current = true;
+
+      return () => {
+        isMountedRef.current = false;
+      };
     },
     []
   );
@@ -443,16 +450,50 @@ function ScoreTeam({
 function SpinPanel({
   lobby,
   onWheelStyleChange,
+  spin,
   surface,
   wheelStyle,
 }: {
   lobby: MatchRoomLobby;
   onWheelStyleChange: (style: "radial" | "reel") => void;
+  spin: () => Promise<string | null>;
   surface: GauntletMatchSurface;
   wheelStyle: "radial" | "reel";
 }) {
+  const [spinSignal, setSpinSignal] = useState(0);
+  const [winnerGameId, setWinnerGameId] = useState<string | null>(null);
+  const [spinning, setSpinning] = useState(false);
+  const isMountedRef = useRef(true);
   const enabledGames = lobby.games.filter((game) => game.enabled);
   const currentGameTitle = getCurrentGameTitle(surface);
+
+  useEffect(
+    () => () => {
+      isMountedRef.current = false;
+    },
+    []
+  );
+
+  async function handleSpin() {
+    if (spinning || enabledGames.length === 0) {
+      return;
+    }
+
+    setSpinning(true);
+
+    const winner = await spin();
+
+    if (!isMountedRef.current) {
+      return;
+    }
+
+    if (winner) {
+      setWinnerGameId(winner);
+      setSpinSignal((signal) => signal + 1);
+    } else {
+      setSpinning(false);
+    }
+  }
 
   return (
     <KitPanel
@@ -480,26 +521,36 @@ function SpinPanel({
       eyebrow="The gauntlet"
       title="Spin to pick"
     >
-      <div className="gg-wheel-stage">
-        <div className="gg-wheel-empty" data-testid="wheel-shell">
-          <Ico name="wheel" />
-          <p>
-            {wheelStyle === "radial" ? "Radial" : "Reel"} wheel lands in Phase
-            7.
-          </p>
-        </div>
+      <div className="gg-wheel-stage" data-testid="wheel-shell">
+        <Wheel
+          games={lobby.games}
+          onResult={() => setSpinning(false)}
+          spinSignal={spinSignal}
+          style={wheelStyle}
+          winnerGameId={winnerGameId}
+        />
         <div className="gg-row" style={{ justifyContent: "center" }}>
-          <KitButton disabled type="button" variant="primary">
-            Spinning lands in Phase 7
+          <KitButton
+            disabled={spinning || enabledGames.length === 0}
+            onClick={handleSpin}
+            type="button"
+            variant="primary"
+          >
+            {spinning ? "Spinning…" : "Spin the gauntlet"}
           </KitButton>
         </div>
       </div>
       <div className="gg-pick">
         <p className="gg-pick__label">
-          {lobby.currentGameId ? "Now playing" : "No pick yet"}
+          {spinning ? "Spinning…" : lobby.currentGameId ? "Now playing" : "No pick yet"}
         </p>
-        <p className={mergeClassNames("gg-pick__title", !lobby.currentGameId && "is-empty")}>
-          {currentGameTitle}
+        <p
+          className={mergeClassNames(
+            "gg-pick__title",
+            (spinning || !lobby.currentGameId) && "is-empty"
+          )}
+        >
+          {spinning ? "—" : currentGameTitle}
         </p>
       </div>
     </KitPanel>

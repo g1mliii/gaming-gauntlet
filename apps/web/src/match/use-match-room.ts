@@ -13,6 +13,7 @@ import {
   deleteGame as apiDeleteGame,
   fetchPublicLobbyState,
   reorderGames as apiReorderGames,
+  spinLobby as apiSpinLobby,
   updateGame as apiUpdateGame,
   updateLobby as apiUpdateLobby,
   verifyLobbyPasscode,
@@ -63,6 +64,7 @@ export type MatchRoomModel = {
   error: string | null;
   unlockError: string | null;
   unlock: (managementCode: string) => Promise<void>;
+  spin: () => Promise<string | null>;
 };
 
 const CONTROL_POLL_INTERVAL_MS = 1500;
@@ -572,6 +574,37 @@ export function useMatchRoom(lobbyId: string): MatchRoomModel {
     [isCurrentGeneration, lobbyId]
   );
 
+  const spin = useCallback(async (): Promise<string | null> => {
+    if (!managementCode) {
+      return null;
+    }
+
+    const generation = lifecycleGenerationRef.current;
+
+    try {
+      const nextState = await apiSpinLobby(lobbyId, managementCode);
+
+      if (!isCurrentGeneration(generation)) {
+        return null;
+      }
+
+      // Server already chose and persisted the winner; force-accept the
+      // authoritative state so currentGameId + version update at once.
+      acceptState(nextState, { force: true });
+      return nextState.lobby.currentGameId;
+    } catch (spinError) {
+      if (isCurrentGeneration(generation)) {
+        setError(
+          spinError instanceof Error
+            ? spinError.message
+            : "Spin failed. Try again."
+        );
+      }
+
+      return null;
+    }
+  }, [acceptState, isCurrentGeneration, lobbyId, managementCode]);
+
   const lobby = useMemo(
     () => (state ? toMatchRoomLobby(state) : null),
     [state]
@@ -589,6 +622,7 @@ export function useMatchRoom(lobbyId: string): MatchRoomModel {
     error,
     unlockError,
     unlock,
+    spin,
   };
 }
 

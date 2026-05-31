@@ -669,6 +669,169 @@ describe("Phase 3 core lobby API", () => {
     expect(Math.max(...database.batchSizes)).toBeLessThanOrEqual(4);
   });
 
+  test("POST /api/lobbies/:lobbyId/spin requires the correct Authorization bearer code", async () => {
+    const created = await createLobby({
+      playerOneName: "Alice",
+      playerTwoName: "Bob",
+      games: ["Rocket League", "Tetris"],
+    });
+
+    const missingAuth = await apiJson(
+      `/api/lobbies/${created.lobbyId}/spin`,
+      {}
+    );
+    const missingAuthBody = (await missingAuth.json()) as {
+      error: { code: string };
+    };
+
+    expect(missingAuth.status).toBe(401);
+    expect(missingAuthBody.error.code).toBe("unauthorized");
+
+    const wrongAuth = await apiJson(
+      `/api/lobbies/${created.lobbyId}/spin`,
+      {},
+      { headers: { authorization: "Bearer GG-AAAA-BBBB-CCCC" } }
+    );
+    const wrongAuthBody = (await wrongAuth.json()) as {
+      error: { code: string };
+    };
+
+    expect(wrongAuth.status).toBe(401);
+    expect(wrongAuthBody.error.code).toBe("invalid_management_code");
+  });
+
+  test("POST /api/lobbies/:lobbyId/spin rejects query-param management codes", async () => {
+    const created = await createLobby({
+      playerOneName: "Alice",
+      playerTwoName: "Bob",
+      games: ["Rocket League", "Tetris"],
+    });
+    const response = await apiJson(
+      `/api/lobbies/${created.lobbyId}/spin?code=${encodeURIComponent(
+        created.managementCode
+      )}`,
+      {}
+    );
+    const body = (await response.json()) as { error: { code: string } };
+    const stateResponse = await apiGet(`/api/lobbies/${created.lobbyId}/state`);
+    const state = (await stateResponse.json()) as {
+      lobby: { currentGameId: string | null; version: number };
+    };
+
+    expect(response.status).toBe(400);
+    expect(body.error.code).toBe("bad_request");
+    expect(state.lobby.currentGameId).toBeNull();
+    expect(state.lobby.version).toBe(1);
+  });
+
+  test("POST /api/lobbies/:lobbyId/spin returns 400 when no games are enabled", async () => {
+    const created = await createLobby({
+      playerOneName: "Alice",
+      playerTwoName: "Bob",
+      games: ["Rocket League", "Tetris"],
+    });
+    const headers = authHeader(created.managementCode);
+    const stateResponse = await apiGet(`/api/lobbies/${created.lobbyId}/state`);
+    const state = (await stateResponse.json()) as {
+      games: Array<{ id: string }>;
+    };
+
+    for (const game of state.games) {
+      await apiJson(
+        `/api/lobbies/${created.lobbyId}/games/${game.id}`,
+        { enabled: false },
+        { method: "PATCH", headers }
+      );
+    }
+
+    const response = await apiJson(
+      `/api/lobbies/${created.lobbyId}/spin`,
+      {},
+      { headers }
+    );
+    const body = (await response.json()) as { error: { code: string } };
+
+    expect(response.status).toBe(400);
+    expect(body.error.code).toBe("no_enabled_games");
+  });
+
+  test("POST /api/lobbies/:lobbyId/spin only ever selects an enabled game", async () => {
+    const created = await createLobby({
+      playerOneName: "Alice",
+      playerTwoName: "Bob",
+      games: ["Rocket League", "Tetris", "Chess", "Pong"],
+    });
+    const headers = authHeader(created.managementCode);
+    const stateResponse = await apiGet(`/api/lobbies/${created.lobbyId}/state`);
+    const state = (await stateResponse.json()) as {
+      games: Array<{ id: string; title: string }>;
+    };
+    const allowed = state.games.find((game) => game.title === "Chess");
+
+    if (!allowed) {
+      throw new Error("expected the Chess game to exist");
+    }
+
+    for (const game of state.games) {
+      if (game.id !== allowed.id) {
+        await apiJson(
+          `/api/lobbies/${created.lobbyId}/games/${game.id}`,
+          { enabled: false },
+          { method: "PATCH", headers }
+        );
+      }
+    }
+
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const response = await apiJson(
+        `/api/lobbies/${created.lobbyId}/spin`,
+        {},
+        { headers }
+      );
+      const body = (await response.json()) as {
+        lobby: { currentGameId: string | null };
+      };
+
+      expect(response.status).toBe(200);
+      expect(body.lobby.currentGameId).toBe(allowed.id);
+    }
+  });
+
+  test("POST /api/lobbies/:lobbyId/spin sets currentGameId, bumps version, and leaks no secrets", async () => {
+    const created = await createLobby({
+      playerOneName: "Alice",
+      playerTwoName: "Bob",
+      games: ["Rocket League", "Tetris"],
+    });
+    const headers = authHeader(created.managementCode);
+    const stateResponse = await apiGet(`/api/lobbies/${created.lobbyId}/state`);
+    const state = (await stateResponse.json()) as {
+      games: Array<{ id: string }>;
+    };
+    const enabledIds = state.games.map((game) => game.id);
+
+    const response = await apiJson(
+      `/api/lobbies/${created.lobbyId}/spin`,
+      {},
+      { headers }
+    );
+    const body = (await response.json()) as {
+      lobby: { currentGameId: string | null; version: number };
+      version: number;
+    };
+    const serialized = JSON.stringify(body);
+
+    expect(response.status).toBe(200);
+    expect(body.lobby.currentGameId).not.toBeNull();
+    expect(enabledIds).toContain(body.lobby.currentGameId);
+    expect(body.lobby.version).toBe(2);
+    expect(body.version).toBe(2);
+    expect(serialized).not.toContain(created.managementCode);
+    expect(serialized).not.toMatch(
+      /managementCode|managementCodeHash|secret|token|authorization/i
+    );
+  });
+
   async function createLobby(payload: {
     playerOneName: string;
     playerTwoName: string;
