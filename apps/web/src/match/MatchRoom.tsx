@@ -417,7 +417,7 @@ function ShareBar({
           </KitButton>
         )}
         <KitButton
-          disabled={!isRevealed || !managementCode}
+          disabled={!managementCode}
           onClick={() => managementCode && copy(managementCode, "Passcode")}
           size="sm"
           type="button"

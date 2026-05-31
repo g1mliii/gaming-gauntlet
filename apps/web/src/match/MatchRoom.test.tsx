@@ -131,10 +131,10 @@ describe("Phase 6 match room", () => {
     ).toBeInTheDocument();
     expect(window.location.pathname).toBe(`/g/${lobbyId}`);
     expect(
-      window.sessionStorage.getItem(getManagementPasscodeStorageKey(lobbyId))
+      window.localStorage.getItem(getManagementPasscodeStorageKey(lobbyId))
     ).toBe(managementCode);
     expect(
-      window.localStorage.getItem(getManagementPasscodeStorageKey(lobbyId))
+      window.sessionStorage.getItem(getManagementPasscodeStorageKey(lobbyId))
     ).toBeNull();
     expect(
       window.localStorage.getItem(getManagementPasscodeStorageKey(oldLobbyId))
@@ -144,7 +144,7 @@ describe("Phase 6 match room", () => {
   });
 
   test("stored passcode auto-unlocks without re-prompting", async () => {
-    window.sessionStorage.setItem(
+    window.localStorage.setItem(
       getManagementPasscodeStorageKey(lobbyId),
       managementCode
     );
@@ -161,8 +161,8 @@ describe("Phase 6 match room", () => {
     expect(requestUrls()).not.toContain("/verify");
   });
 
-  test("legacy localStorage passcodes are migrated for the session and scrubbed", async () => {
-    window.localStorage.setItem(
+  test("legacy sessionStorage passcodes are migrated to persistent storage", async () => {
+    window.sessionStorage.setItem(
       getManagementPasscodeStorageKey(lobbyId),
       managementCode
     );
@@ -174,16 +174,16 @@ describe("Phase 6 match room", () => {
       await screen.findByRole("heading", { name: "Scoreboard" })
     ).toBeInTheDocument();
     expect(
-      window.sessionStorage.getItem(getManagementPasscodeStorageKey(lobbyId))
+      window.localStorage.getItem(getManagementPasscodeStorageKey(lobbyId))
     ).toBe(managementCode);
     expect(
-      window.localStorage.getItem(getManagementPasscodeStorageKey(lobbyId))
+      window.sessionStorage.getItem(getManagementPasscodeStorageKey(lobbyId))
     ).toBeNull();
     expect(requestUrls()).not.toContain("/verify");
   });
 
   test("share bar copies the match URL without exposing the passcode", async () => {
-    window.sessionStorage.setItem(
+    window.localStorage.setItem(
       getManagementPasscodeStorageKey(lobbyId),
       managementCode
     );
@@ -203,8 +203,30 @@ describe("Phase 6 match room", () => {
     expect(clipboardWriteMock).not.toHaveBeenCalledWith(managementCode);
   });
 
+  test("copies the passcode to the clipboard while it stays masked on screen", async () => {
+    window.localStorage.setItem(
+      getManagementPasscodeStorageKey(lobbyId),
+      managementCode
+    );
+    mockApiRouter();
+
+    render(<App initialPath={`/g/${lobbyId}`} />);
+    await screen.findByRole("heading", { name: "Scoreboard" });
+
+    // Copy works without revealing — the clipboard never forces the code onto
+    // the visible page (and so onto the stream).
+    fireEvent.click(
+      within(field("Passcode")).getByRole("button", { name: /Copy/i })
+    );
+
+    await waitFor(() =>
+      expect(clipboardWriteMock).toHaveBeenCalledWith(managementCode)
+    );
+    expect(screen.queryByText(managementCode)).not.toBeInTheDocument();
+  });
+
   test("passcode stays masked until the reveal is confirmed, then copies", async () => {
-    window.sessionStorage.setItem(
+    window.localStorage.setItem(
       getManagementPasscodeStorageKey(lobbyId),
       managementCode
     );
@@ -248,7 +270,7 @@ describe("Phase 6 match room", () => {
       configurable: true,
       value: shareMock,
     });
-    window.sessionStorage.setItem(
+    window.localStorage.setItem(
       getManagementPasscodeStorageKey(lobbyId),
       managementCode
     );
@@ -269,7 +291,7 @@ describe("Phase 6 match room", () => {
   });
 
   test("theme picker recolors the room and persists the choice locally", async () => {
-    window.sessionStorage.setItem(
+    window.localStorage.setItem(
       getManagementPasscodeStorageKey(lobbyId),
       managementCode
     );
@@ -293,7 +315,7 @@ describe("Phase 6 match room", () => {
   });
 
   test("game add, rename, toggle, reorder, delete, and drag-outside delete use authenticated writes", async () => {
-    window.sessionStorage.setItem(
+    window.localStorage.setItem(
       getManagementPasscodeStorageKey(lobbyId),
       managementCode
     );
@@ -392,7 +414,7 @@ describe("Phase 6 match room", () => {
       releaseAddResponse = resolve;
     });
 
-    window.sessionStorage.setItem(
+    window.localStorage.setItem(
       getManagementPasscodeStorageKey(lobbyId),
       managementCode
     );
@@ -427,7 +449,7 @@ describe("Phase 6 match room", () => {
   });
 
   test("scoreboard controls send authenticated lobby patches", async () => {
-    window.sessionStorage.setItem(
+    window.localStorage.setItem(
       getManagementPasscodeStorageKey(lobbyId),
       managementCode
     );
@@ -483,7 +505,7 @@ describe("Phase 6 match room", () => {
   });
 
   test("Add to OBS routes to the clean overlays surface", async () => {
-    window.sessionStorage.setItem(
+    window.localStorage.setItem(
       getManagementPasscodeStorageKey(lobbyId),
       managementCode
     );
@@ -502,7 +524,7 @@ describe("Phase 6 match room", () => {
 
 describe("Phase 7 wheel + spin", () => {
   test("renders the radial wheel and switches to the reel style", async () => {
-    window.sessionStorage.setItem(
+    window.localStorage.setItem(
       getManagementPasscodeStorageKey(lobbyId),
       managementCode
     );
@@ -523,7 +545,7 @@ describe("Phase 7 wheel + spin", () => {
 
   test("clicking Spin lands on the server-selected game in the pick banner", async () => {
     setMatchMedia(true);
-    window.sessionStorage.setItem(
+    window.localStorage.setItem(
       getManagementPasscodeStorageKey(lobbyId),
       managementCode
     );
@@ -555,7 +577,7 @@ describe("Phase 7 wheel + spin", () => {
 
   test("reduced motion resolves the pick without waiting on the long animation", async () => {
     setMatchMedia(true);
-    window.sessionStorage.setItem(
+    window.localStorage.setItem(
       getManagementPasscodeStorageKey(lobbyId),
       managementCode
     );
@@ -579,7 +601,7 @@ describe("Phase 7 wheel + spin", () => {
   });
 
   test("the Spin button is disabled when no games are enabled", async () => {
-    window.sessionStorage.setItem(
+    window.localStorage.setItem(
       getManagementPasscodeStorageKey(lobbyId),
       managementCode
     );

@@ -13,6 +13,7 @@ import {
   deleteGame as apiDeleteGame,
   fetchPublicLobbyState,
   isAbortError,
+  LobbyApiError,
   reorderGames as apiReorderGames,
   spinLobby as apiSpinLobby,
   updateGame as apiUpdateGame,
@@ -20,6 +21,7 @@ import {
   verifyLobbyPasscode,
 } from "../lobby-api";
 import {
+  forgetManagementPasscode,
   readStoredManagementPasscode,
   storeManagementPasscode,
 } from "../management-passcodes";
@@ -164,6 +166,22 @@ export function useMatchRoom(lobbyId: string): MatchRoomModel {
         acceptState(result.state, options);
       } catch (refreshError) {
         if (isAbortError(refreshError) || !isActive()) {
+          return;
+        }
+
+        // A 404 means the match is genuinely gone — drop the saved passcode so
+        // the streamer isn't auto-routed back to a dead match and the resume
+        // banner stops offering it.
+        if (
+          refreshError instanceof LobbyApiError &&
+          refreshError.status === 404
+        ) {
+          forgetManagementPasscode(lobbyId);
+          managementCodeRef.current = null;
+          setManagementCode(null);
+          stateRef.current = null;
+          setState(null);
+          setError("This match no longer exists.");
           return;
         }
 

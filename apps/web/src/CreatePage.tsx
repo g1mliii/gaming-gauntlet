@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { FormEvent } from "react";
 import {
   KitButton,
+  KitButtonLink,
   KitNotice,
   KitPanel,
   KitTextField,
@@ -14,6 +15,7 @@ import { createLobby, verifyLobbyPasscode } from "./lobby-api";
 import {
   buildMatchUrl,
   extractLobbyIdFromMatchReference,
+  readActiveManagedLobbyId,
   storeManagementPasscode,
 } from "./management-passcodes";
 import { navigateTo } from "./navigation";
@@ -31,6 +33,12 @@ export default function CreatePage() {
   const [isVerifying, setIsVerifying] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [joinError, setJoinError] = useState<string | null>(null);
+  // The passcode for an in-progress match persists locally, so a streamer who
+  // landed back here (e.g. closed the match tab by accident) can jump straight
+  // back in. A dead match self-clears once its room hits a 404.
+  const [activeLobbyId] = useState<string | null>(() =>
+    readActiveManagedLobbyId()
+  );
 
   async function handleCreateSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -124,6 +132,21 @@ export default function CreatePage() {
       deck="Spin up a two-player gauntlet, then share one match URL. The management passcode is yours alone — it never lands in a link."
       emphasis="section"
     >
+      {activeLobbyId ? (
+        <div className="gg-resume" role="status">
+          <div className="gg-resume__copy">
+            <p className="gg-resume__title">You have an active match</p>
+            <p className="gg-resume__sub">
+              Your passcode is saved on this device — jump straight back into
+              the match room you were managing.
+            </p>
+          </div>
+          <KitButtonLink href={buildMatchUrl(activeLobbyId)} variant="primary">
+            Resume match
+          </KitButtonLink>
+        </div>
+      ) : null}
+
       <div className="gg-create-grid">
         <KitPanel eyebrow="New match" title="Create">
           <form className="gg-form" onSubmit={handleCreateSubmit}>

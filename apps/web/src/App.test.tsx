@@ -240,8 +240,8 @@ describe("Phase 5 create and join flow", () => {
       games: ["Rocket League", "Tetris", "Chess"],
       targetScore: 5,
     });
-    expect(window.sessionStorage.getItem(storageKey)).toBe(managementCode);
-    expect(window.localStorage.getItem(storageKey)).toBeNull();
+    expect(window.localStorage.getItem(storageKey)).toBe(managementCode);
+    expect(window.sessionStorage.getItem(storageKey)).toBeNull();
     expect(window.localStorage.getItem(oldStorageKey)).toBeNull();
     // No interstitial — the create page hands off straight to the match room
     // and never paints the passcode itself.
@@ -278,7 +278,7 @@ describe("Phase 5 create and join flow", () => {
       playerTwoName: "Bob",
     });
     expect(
-      window.sessionStorage.getItem(getManagementPasscodeStorageKey(lobbyId))
+      window.localStorage.getItem(getManagementPasscodeStorageKey(lobbyId))
     ).toBe(managementCode);
     await waitFor(() =>
       expect(navigateTo).toHaveBeenCalledWith(`/g/${lobbyId}`)
@@ -314,8 +314,8 @@ describe("Phase 5 create and join flow", () => {
     expect(url).toBe(`/api/lobbies/${lobbyId}/verify`);
     expect(url).not.toMatch(/[?&].*(code|token|secret|management)/i);
     expect(JSON.parse(String(options.body))).toEqual({ managementCode });
-    expect(window.sessionStorage.getItem(storageKey)).toBe(managementCode);
-    expect(window.localStorage.getItem(storageKey)).toBeNull();
+    expect(window.localStorage.getItem(storageKey)).toBe(managementCode);
+    expect(window.sessionStorage.getItem(storageKey)).toBeNull();
     expect(window.localStorage.getItem(oldStorageKey)).toBeNull();
     await waitFor(() =>
       expect(navigateTo).toHaveBeenCalledWith(`/g/${lobbyId}`)
@@ -349,9 +349,33 @@ describe("Phase 5 create and join flow", () => {
       await screen.findByText("Management passcode is invalid.")
     ).toBeInTheDocument();
     expect(
-      window.sessionStorage.getItem(getManagementPasscodeStorageKey(lobbyId))
+      window.localStorage.getItem(getManagementPasscodeStorageKey(lobbyId))
     ).toBeNull();
     expect(navigateTo).not.toHaveBeenCalled();
+  });
+
+  test("shows a resume banner linking to the active match when a passcode is stored", () => {
+    window.localStorage.setItem(
+      getManagementPasscodeStorageKey(lobbyId),
+      managementCode
+    );
+
+    render(<App initialPath="/" />);
+
+    const resumeLink = screen.getByRole("link", { name: "Resume match" });
+
+    expect(resumeLink).toHaveAttribute("href", `/g/${lobbyId}`);
+    expect(resumeLink.getAttribute("href")).not.toMatch(
+      /code|token|secret|management/i
+    );
+  });
+
+  test("shows no resume banner when no passcode is stored", () => {
+    render(<App initialPath="/" />);
+
+    expect(
+      screen.queryByRole("link", { name: "Resume match" })
+    ).not.toBeInTheDocument();
   });
 });
 

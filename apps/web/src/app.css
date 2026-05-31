@@ -125,6 +125,41 @@
   gap: 1rem;
 }
 
+.gg-resume {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.85rem 1.25rem;
+  margin-bottom: 1.1rem;
+  padding: 0.9rem 1.1rem;
+  border: 1px solid color-mix(in oklab, var(--gg-accent) 45%, var(--gg-border));
+  border-radius: var(--gg-radius-sm);
+  background: color-mix(in oklab, var(--gg-accent) 12%, var(--gg-surface));
+}
+
+.gg-resume__copy {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.gg-resume__title {
+  margin: 0;
+  font-family: var(--gg-font-display);
+  font-weight: 700;
+  font-size: 1rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--gg-text);
+}
+
+.gg-resume__sub {
+  margin: 0;
+  font-size: 0.86rem;
+  color: var(--gg-text-dim);
+}
+
 .gg-form {
   display: grid;
   gap: 0.95rem;

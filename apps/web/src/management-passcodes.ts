@@ -5,29 +5,50 @@ const MANAGEMENT_PASSCODE_STORAGE_PREFIX =
 const URL_BASE = "https://gaming-gauntlet.local";
 type StorageKind = "localStorage" | "sessionStorage";
 
+// Passcodes persist in localStorage so a streamer who reopens the match URL (or
+// returns to the site after accidentally closing the tab) is auto-unlocked
+// instead of re-prompted. sessionStorage is only read as a one-time migration
+// source from the earlier session-scoped build.
+const PRIMARY_STORAGE: StorageKind = "localStorage";
+const LEGACY_STORAGE: StorageKind = "sessionStorage";
+
 export function getManagementPasscodeStorageKey(lobbyId: string): string {
   return `${MANAGEMENT_PASSCODE_STORAGE_PREFIX}${lobbyId}`;
 }
 
 export function readStoredManagementPasscode(lobbyId: string): string | null {
   const storageKey = getManagementPasscodeStorageKey(lobbyId);
-  const sessionValue = readStorageValue("sessionStorage", storageKey);
+  const value = readStorageValue(PRIMARY_STORAGE, storageKey);
 
-  if (sessionValue) {
-    return sessionValue;
+  if (value) {
+    return value;
   }
 
-  const legacyValue = readStorageValue("localStorage", storageKey);
+  // Migrate forward from the short-lived sessionStorage scheme so passcodes
+  // saved by an earlier build keep working across tabs and restarts.
+  const legacyValue = readStorageValue(LEGACY_STORAGE, storageKey);
 
   if (legacyValue) {
-    // Migrate only this lobby's legacy passcode into the session and scrub its
-    // localStorage copy. Leave other lobbies' legacy entries alone — they get
-    // cleared lazily when each is read, or in bulk on the next store.
-    removeStorageValue("localStorage", storageKey);
-    writeStorageValue("sessionStorage", storageKey, legacyValue);
+    removeStorageValue(LEGACY_STORAGE, storageKey);
+    writeStorageValue(PRIMARY_STORAGE, storageKey, legacyValue);
   }
 
   return legacyValue;
+}
+
+// Single-active model: at most one match is "yours" at a time, so the lone
+// stored passcode key identifies the lobby to resume when the streamer lands
+// back on the site. Returns null when nothing is stored.
+export function readActiveManagedLobbyId(): string | null {
+  for (const kind of [PRIMARY_STORAGE, LEGACY_STORAGE] as const) {
+    const lobbyId = findManagedLobbyId(kind);
+
+    if (lobbyId) {
+      return lobbyId;
+    }
+  }
+
+  return null;
 }
 
 export function storeManagementPasscode(
@@ -37,7 +58,7 @@ export function storeManagementPasscode(
   clearStoredManagementPasscodes();
 
   return writeStorageValue(
-    "sessionStorage",
+    PRIMARY_STORAGE,
     getManagementPasscodeStorageKey(lobbyId),
     managementCode
   );
@@ -46,13 +67,38 @@ export function storeManagementPasscode(
 export function forgetManagementPasscode(lobbyId: string): void {
   const storageKey = getManagementPasscodeStorageKey(lobbyId);
 
-  removeStorageValue("sessionStorage", storageKey);
   removeStorageValue("localStorage", storageKey);
+  removeStorageValue("sessionStorage", storageKey);
 }
 
 export function clearStoredManagementPasscodes(): void {
-  clearManagementPasscodesFrom("sessionStorage");
   clearManagementPasscodesFrom("localStorage");
+  clearManagementPasscodesFrom("sessionStorage");
+}
+
+function findManagedLobbyId(kind: StorageKind): string | null {
+  try {
+    const storage = window[kind];
+
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
+
+      if (!key?.startsWith(MANAGEMENT_PASSCODE_STORAGE_PREFIX)) {
+        continue;
+      }
+
+      const candidate = key.slice(MANAGEMENT_PASSCODE_STORAGE_PREFIX.length);
+      const parsed = LobbyIdSchema.safeParse(candidate);
+
+      if (parsed.success) {
+        return parsed.data;
+      }
+    }
+  } catch {
+    // Storage can be unavailable in private or locked-down browser contexts.
+  }
+
+  return null;
 }
 
 function readStorageValue(kind: StorageKind, key: string): string | null {
