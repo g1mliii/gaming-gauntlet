@@ -8,6 +8,38 @@ routes = [
   { pattern = "www.gaming-gauntlet.com/api/*", zone_name = "gaming-gauntlet.com" }
 ]
 
+[[ratelimits]]
+name = "CREATE_RATE_LIMITER"
+namespace_id = "100101"
+  [ratelimits.simple]
+  limit = 20
+  period = 60
+
+# Keyed per lobby+IP. A single streamer legitimately drives many concurrent
+# state polls from one IP (the control room plus every OBS browser source they
+# add, each polling ~every 1.5s), so this ceiling must clear several sources at
+# once — not just one viewer. 600/min ≈ 10/s leaves room for ~10 sources.
+[[ratelimits]]
+name = "STATE_RATE_LIMITER"
+namespace_id = "100102"
+  [ratelimits.simple]
+  limit = 600
+  period = 60
+
+[[ratelimits]]
+name = "VERIFY_RATE_LIMITER"
+namespace_id = "100103"
+  [ratelimits.simple]
+  limit = 30
+  period = 60
+
+[[ratelimits]]
+name = "WRITE_RATE_LIMITER"
+namespace_id = "100104"
+  [ratelimits.simple]
+  limit = 120
+  period = 60
+
 [[d1_databases]]
 binding = "DB"
 database_name = "gaming-gauntlet-v1"

@@ -11,12 +11,17 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import App from "./App";
 import { getManagementPasscodeStorageKey } from "./management-passcodes";
+import { navigateTo } from "./navigation";
 import { FORBIDDEN_URL_PARAM_NAMES, V1_ROUTE_DEFINITIONS } from "./routes";
 
+vi.mock("./navigation", () => ({ navigateTo: vi.fn() }));
+
 const lobbyId = "lob_abc234def567";
+const oldLobbyId = "lob_old234def567";
 const gameId = "game_abc234def567";
 const secondGameId = "game_def567abc234";
 const managementCode = "GG-AAAA-BBBB-CCCC";
+const oldManagementCode = "GG-ZZZZ-ZZZZ-ZZZZ";
 const now = "2026-05-30T12:00:00.000Z";
 let fetchMock: ReturnType<typeof vi.fn>;
 let clipboardWriteMock: ReturnType<typeof vi.fn>;
@@ -29,6 +34,10 @@ beforeEach(() => {
     configurable: true,
     value: new MemoryStorage(),
   });
+  Object.defineProperty(window, "sessionStorage", {
+    configurable: true,
+    value: new MemoryStorage(),
+  });
   Object.defineProperty(window.navigator, "clipboard", {
     configurable: true,
     value: {
@@ -36,11 +45,14 @@ beforeEach(() => {
     },
   });
   window.localStorage.clear();
+  window.sessionStorage.clear();
+  vi.mocked(navigateTo).mockReset();
 });
 
 afterEach(() => {
   cleanup();
   window.localStorage.clear();
+  window.sessionStorage.clear();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -62,16 +74,30 @@ describe("Phase 1 V1 routes", () => {
     [`/manage/${lobbyId}`, "manage-v1", "Locked"],
     [`/g/${lobbyId}`, "game-v1", "Locked"],
     [`/g/${lobbyId}/obs`, "overlay-hub-v1", "Add to OBS"],
-    [`/overlay/${lobbyId}/top`, "overlay-top-v1", lobbyId],
-  ])("renders %s without a Twitch login gate", async (path, routeId, heading) => {
+  ])(
+    "renders %s without a Twitch login gate",
+    async (path, routeId, heading) => {
+      fetchMock.mockResolvedValue(jsonResponse(publicLobbyState()));
+
+      const { container } = render(<App initialPath={path} />);
+
+      expect(screen.getByTestId(routeId)).toBeInTheDocument();
+      expect(
+        await screen.findByRole("heading", { name: heading })
+      ).toBeInTheDocument();
+      expect(container).not.toHaveTextContent(/twitch|oauth|login/i);
+    }
+  );
+
+  test("renders the OBS overlay route from live state without a login gate", async () => {
     fetchMock.mockResolvedValue(jsonResponse(publicLobbyState()));
 
-    const { container } = render(<App initialPath={path} />);
+    const { container } = render(
+      <App initialPath={`/overlay/${lobbyId}/top`} />
+    );
 
-    expect(screen.getByTestId(routeId)).toBeInTheDocument();
-    expect(
-      await screen.findByRole("heading", { name: heading })
-    ).toBeInTheDocument();
+    expect(screen.getByTestId("overlay-v1")).toBeInTheDocument();
+    expect(await screen.findByText("Rocket League")).toBeInTheDocument();
     expect(container).not.toHaveTextContent(/twitch|oauth|login/i);
   });
 
@@ -123,7 +149,9 @@ describe("Phase 1 V1 routes", () => {
 
     const { container } = render(<App initialPath={`/g/${lobbyId}`} />);
 
-    expect(await screen.findByRole("heading", { name: "Locked" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Locked" })
+    ).toBeInTheDocument();
     expect(
       screen.queryByRole("link", { name: "Manage this match" })
     ).not.toBeInTheDocument();
@@ -138,11 +166,15 @@ describe("Phase 1 V1 routes", () => {
     fetchMock.mockResolvedValue(jsonResponse(publicLobbyState()));
 
     const { container } = render(
-      <App initialPath={`/manage/${lobbyId}?managementCode=abc123&token=secret456`} />
+      <App
+        initialPath={`/manage/${lobbyId}?managementCode=abc123&token=secret456`}
+      />
     );
 
     expect(screen.getByTestId("manage-v1")).toBeInTheDocument();
-    expect(await screen.findByRole("heading", { name: "Locked" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Locked" })
+    ).toBeInTheDocument();
     expect(container).not.toHaveTextContent("abc123");
     expect(container).not.toHaveTextContent("secret456");
   });
@@ -157,7 +189,9 @@ describe("Phase 1 V1 routes", () => {
 
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Locked" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Locked" })
+    ).toBeInTheDocument();
     expect(window.location.pathname).toBe(`/g/${lobbyId}`);
     expect(window.location.search).toBe("?view=mod");
     expect(window.location.hash).toBe("#room");
@@ -165,7 +199,7 @@ describe("Phase 1 V1 routes", () => {
 });
 
 describe("Phase 5 create and join flow", () => {
-  test("creates a lobby, stores the returned passcode, and shows one clean match URL", async () => {
+  test("creates a lobby, stores the passcode, and redirects into the match room", async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse({
         lobbyId,
@@ -175,8 +209,10 @@ describe("Phase 5 create and join flow", () => {
 
     const { container } = render(<App initialPath="/" />);
     const storageKey = getManagementPasscodeStorageKey(lobbyId);
+    const oldStorageKey = getManagementPasscodeStorageKey(oldLobbyId);
 
-    expect(window.localStorage.getItem(storageKey)).toBeNull();
+    window.localStorage.setItem(oldStorageKey, oldManagementCode);
+    expect(window.sessionStorage.getItem(storageKey)).toBeNull();
 
     fireEvent.change(screen.getByLabelText("Player 1 name"), {
       target: { value: "  Alice  " },
@@ -204,20 +240,15 @@ describe("Phase 5 create and join flow", () => {
       games: ["Rocket League", "Tetris", "Chess"],
       targetScore: 5,
     });
-    expect(window.localStorage.getItem(storageKey)).toBe(managementCode);
-    expect(screen.getAllByDisplayValue(`/g/${lobbyId}`)).toHaveLength(1);
-    expect(container).not.toHaveTextContent(`/manage/${lobbyId}`);
-    expect(container).not.toHaveTextContent(managementCode);
-
-    const openMatchLink = screen.getByRole("link", { name: "Open match room" });
-    const manageLink = screen.getByRole("link", { name: "Manage this match" });
-
-    expect(openMatchLink).toHaveAttribute("href", `/g/${lobbyId}`);
-    expect(manageLink).toHaveAttribute("href", `/g/${lobbyId}`);
-    expect(cleanHref(openMatchLink)).not.toMatch(
-      /code|token|secret|management/i
+    expect(window.sessionStorage.getItem(storageKey)).toBe(managementCode);
+    expect(window.localStorage.getItem(storageKey)).toBeNull();
+    expect(window.localStorage.getItem(oldStorageKey)).toBeNull();
+    // No interstitial — the create page hands off straight to the match room
+    // and never paints the passcode itself.
+    await waitFor(() =>
+      expect(navigateTo).toHaveBeenCalledWith(`/g/${lobbyId}`)
     );
-    expect(cleanHref(manageLink)).not.toMatch(/code|token|secret|management/i);
+    expect(container).not.toHaveTextContent(managementCode);
   });
 
   test("omits optional starting games and target score when they are blank", async () => {
@@ -247,81 +278,11 @@ describe("Phase 5 create and join flow", () => {
       playerTwoName: "Bob",
     });
     expect(
-      window.localStorage.getItem(getManagementPasscodeStorageKey(lobbyId))
+      window.sessionStorage.getItem(getManagementPasscodeStorageKey(lobbyId))
     ).toBe(managementCode);
-  });
-
-  test("reveals and copies the created passcode only after explicit clicks", async () => {
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse({
-        lobbyId,
-        managementCode,
-      })
+    await waitFor(() =>
+      expect(navigateTo).toHaveBeenCalledWith(`/g/${lobbyId}`)
     );
-
-    render(<App initialPath="/create" />);
-
-    fireEvent.change(screen.getByLabelText("Player 1 name"), {
-      target: { value: "Alice" },
-    });
-    fireEvent.change(screen.getByLabelText("Player 2 name"), {
-      target: { value: "Bob" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Create match" }));
-
-    await screen.findByDisplayValue(`/g/${lobbyId}`);
-
-    expect(screen.queryByText(managementCode)).not.toBeInTheDocument();
-    expect(clipboardWriteMock).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole("button", { name: "Reveal" }));
-
-    // Confirmation gate: passcode stays hidden until the streamer confirms.
-    expect(screen.queryByText(managementCode)).not.toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Copy passcode" })
-    ).toBeDisabled();
-
-    fireEvent.click(screen.getByRole("button", { name: "Yes, reveal" }));
-
-    expect(screen.getByText(managementCode)).toBeInTheDocument();
-    expect(clipboardWriteMock).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole("button", { name: "Copy passcode" }));
-
-    await waitFor(() => {
-      expect(clipboardWriteMock).toHaveBeenCalledWith(managementCode);
-    });
-  });
-
-  test("keeps the passcode hidden when the reveal confirmation is cancelled", async () => {
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse({
-        lobbyId,
-        managementCode,
-      })
-    );
-
-    render(<App initialPath="/create" />);
-
-    fireEvent.change(screen.getByLabelText("Player 1 name"), {
-      target: { value: "Alice" },
-    });
-    fireEvent.change(screen.getByLabelText("Player 2 name"), {
-      target: { value: "Bob" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Create match" }));
-
-    await screen.findByDisplayValue(`/g/${lobbyId}`);
-
-    fireEvent.click(screen.getByRole("button", { name: "Reveal" }));
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-
-    expect(screen.queryByText(managementCode)).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Reveal" })).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Copy passcode" })
-    ).toBeDisabled();
   });
 
   test.each([
@@ -333,8 +294,10 @@ describe("Phase 5 create and join flow", () => {
 
     render(<App initialPath="/create" />);
     const storageKey = getManagementPasscodeStorageKey(lobbyId);
+    const oldStorageKey = getManagementPasscodeStorageKey(oldLobbyId);
 
-    expect(window.localStorage.getItem(storageKey)).toBeNull();
+    window.localStorage.setItem(oldStorageKey, oldManagementCode);
+    expect(window.sessionStorage.getItem(storageKey)).toBeNull();
 
     fireEvent.change(screen.getByLabelText("Match URL or ID"), {
       target: { value: matchReference },
@@ -351,45 +314,15 @@ describe("Phase 5 create and join flow", () => {
     expect(url).toBe(`/api/lobbies/${lobbyId}/verify`);
     expect(url).not.toMatch(/[?&].*(code|token|secret|management)/i);
     expect(JSON.parse(String(options.body))).toEqual({ managementCode });
-    expect(window.localStorage.getItem(storageKey)).toBe(managementCode);
-    expect(screen.getByText("Passcode verified.")).toBeInTheDocument();
-    expect(
-      screen.getByRole("link", { name: "Open match room" })
-    ).toHaveAttribute("href", `/g/${lobbyId}`);
-    expect(
-      screen.getByRole("link", { name: "Manage this match" })
-    ).toHaveAttribute("href", `/g/${lobbyId}`);
-  });
-
-  test("copies the clean match URL from the share field", async () => {
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse({
-        lobbyId,
-        managementCode,
-      })
+    expect(window.sessionStorage.getItem(storageKey)).toBe(managementCode);
+    expect(window.localStorage.getItem(storageKey)).toBeNull();
+    expect(window.localStorage.getItem(oldStorageKey)).toBeNull();
+    await waitFor(() =>
+      expect(navigateTo).toHaveBeenCalledWith(`/g/${lobbyId}`)
     );
-
-    render(<App initialPath="/create" />);
-
-    fireEvent.change(screen.getByLabelText("Player 1 name"), {
-      target: { value: "Alice" },
-    });
-    fireEvent.change(screen.getByLabelText("Player 2 name"), {
-      target: { value: "Bob" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Create match" }));
-
-    await screen.findByDisplayValue(`/g/${lobbyId}`);
-
-    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
-
-    await waitFor(() => {
-      expect(clipboardWriteMock).toHaveBeenCalledWith(`/g/${lobbyId}`);
-    });
-    expect(clipboardWriteMock).not.toHaveBeenCalledWith(managementCode);
   });
 
-  test("failed join verification does not store the passcode", async () => {
+  test("failed join verification does not store the passcode or redirect", async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse(
         {
@@ -416,36 +349,9 @@ describe("Phase 5 create and join flow", () => {
       await screen.findByText("Management passcode is invalid.")
     ).toBeInTheDocument();
     expect(
-      window.localStorage.getItem(getManagementPasscodeStorageKey(lobbyId))
+      window.sessionStorage.getItem(getManagementPasscodeStorageKey(lobbyId))
     ).toBeNull();
-  });
-
-  test("result links never expose the management passcode", async () => {
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse({
-        lobbyId,
-        managementCode,
-      })
-    );
-
-    const { container } = render(<App initialPath="/create" />);
-
-    fireEvent.change(screen.getByLabelText("Player 1 name"), {
-      target: { value: "Alice" },
-    });
-    fireEvent.change(screen.getByLabelText("Player 2 name"), {
-      target: { value: "Bob" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Create match" }));
-
-    await screen.findByDisplayValue(`/g/${lobbyId}`);
-
-    for (const link of Array.from(container.querySelectorAll("a"))) {
-      expect(link.getAttribute("href") ?? "").not.toContain(managementCode);
-      expect(link.getAttribute("href") ?? "").not.toMatch(
-        /code|token|secret|managementCode/i
-      );
-    }
+    expect(navigateTo).not.toHaveBeenCalled();
   });
 });
 
@@ -456,10 +362,6 @@ function jsonResponse(body: unknown, status = 200): Response {
       "content-type": "application/json",
     },
   });
-}
-
-function cleanHref(link: HTMLElement): string {
-  return link.getAttribute("href") ?? "";
 }
 
 function publicLobbyState() {

@@ -12,7 +12,7 @@ type RouteId =
   | "manage"
   | "game"
   | "overlayHub"
-  | "overlayTop"
+  | "overlay"
   | "notFound";
 
 type RouteDefinition = {
@@ -24,6 +24,7 @@ type RouteDefinition = {
 export type MatchedRoute = {
   id: RouteId;
   params: Record<string, string>;
+  search: string;
 };
 
 export const V1_ROUTE_DEFINITIONS: readonly RouteDefinition[] = [
@@ -33,15 +34,11 @@ export const V1_ROUTE_DEFINITIONS: readonly RouteDefinition[] = [
   { id: "game", pattern: "/g/:lobbyId", paramNames: ["lobbyId"] },
   { id: "overlayHub", pattern: "/g/:lobbyId/obs", paramNames: ["lobbyId"] },
   {
-    id: "overlayTop",
-    pattern: "/overlay/:lobbyId/top",
-    paramNames: ["lobbyId"],
+    id: "overlay",
+    pattern: "/overlay/:lobbyId/:variant",
+    paramNames: ["lobbyId", "variant"],
   },
 ];
-
-function getPathname(path: string): string {
-  return new URL(path, "https://gaming-gauntlet.local").pathname;
-}
 
 function splitPath(pathname: string): string[] {
   return pathname.split("/").filter(Boolean);
@@ -56,7 +53,10 @@ function decodePathPart(part: string): string {
 }
 
 export function matchRoute(path: string): MatchedRoute {
-  const pathParts = splitPath(getPathname(path));
+  // Parse the location once here; callers receive both the matched params and
+  // the raw query string off the same parse.
+  const url = new URL(path, "https://gaming-gauntlet.local");
+  const pathParts = splitPath(url.pathname);
 
   for (const route of V1_ROUTE_DEFINITIONS) {
     const patternParts = splitPath(route.pattern);
@@ -78,9 +78,9 @@ export function matchRoute(path: string): MatchedRoute {
     });
 
     if (matches) {
-      return { id: route.id, params };
+      return { id: route.id, params, search: url.search };
     }
   }
 
-  return { id: "notFound", params: {} };
+  return { id: "notFound", params: {}, search: url.search };
 }

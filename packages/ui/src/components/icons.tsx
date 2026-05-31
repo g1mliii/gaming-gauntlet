@@ -8,6 +8,7 @@ export type IcoName =
   | "overlay"
   | "obs"
   | "copy"
+  | "share"
   | "eye"
   | "lock"
   | "trash";
@@ -48,6 +49,14 @@ const ICON_PATHS: Record<IcoName, ReactNode> = {
     <>
       <rect x="9" y="9" width="11" height="11" rx="1" />
       <path d="M5 15V5a1 1 0 0 1 1-1h10" />
+    </>
+  ),
+  share: (
+    <>
+      <circle cx="18" cy="5" r="3" />
+      <circle cx="6" cy="12" r="3" />
+      <circle cx="18" cy="19" r="3" />
+      <path d="M8.6 10.5l6.8-4M8.6 13.5l6.8 4" />
     </>
   ),
   eye: (

@@ -3,10 +3,16 @@ import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { handleApiRequest } from ".";
-import type { ApiD1Result, ApiDatabase, ApiEnv, ApiStatement } from ".";
+import type {
+  ApiD1Result,
+  ApiDatabase,
+  ApiEnv,
+  ApiRateLimiter,
+  ApiStatement,
+} from ".";
 
 type SqliteValue = string | number | null;
 
@@ -237,6 +243,56 @@ describe("Phase 3 core lobby API", () => {
     expect(body.lobby.targetScore).toBeNull();
   });
 
+  test("GET /api/lobbies/:lobbyId/state returns a version ETag and 304s unchanged polls", async () => {
+    const created = await createLobby({
+      playerOneName: "Alice",
+      playerTwoName: "Bob",
+    });
+
+    const first = await apiGet(`/api/lobbies/${created.lobbyId}/state`);
+    const etag = first.headers.get("etag");
+
+    expect(first.status).toBe(200);
+    expect(etag).toBe('"v1"');
+
+    const conditional = await apiGet(`/api/lobbies/${created.lobbyId}/state`, {
+      "if-none-match": etag!,
+    });
+
+    expect(conditional.status).toBe(304);
+    expect(conditional.headers.get("etag")).toBe('"v1"');
+    expect(await conditional.text()).toBe("");
+  });
+
+  test("GET /api/lobbies/:lobbyId/state serves a fresh body and ETag after a write", async () => {
+    const created = await createLobby({
+      playerOneName: "Alice",
+      playerTwoName: "Bob",
+    });
+
+    const patched = await apiJson(
+      `/api/lobbies/${created.lobbyId}`,
+      { playerOneScore: 1 },
+      { method: "PATCH", headers: authHeader(created.managementCode) }
+    );
+
+    expect(patched.status).toBe(200);
+
+    // A poller still holding the pre-write ETag must not get a stale 304.
+    const response = await apiGet(`/api/lobbies/${created.lobbyId}/state`, {
+      "if-none-match": '"v1"',
+    });
+    const body = (await response.json()) as {
+      version: number;
+      lobby: { playerOneScore: number };
+    };
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("etag")).toBe('"v2"');
+    expect(body.version).toBe(2);
+    expect(body.lobby.playerOneScore).toBe(1);
+  });
+
   test("POST /api/lobbies/:lobbyId/verify accepts the correct code and rejects wrong codes", async () => {
     const created = await createLobby({
       playerOneName: "Alice",
@@ -305,6 +361,78 @@ describe("Phase 3 core lobby API", () => {
 
     expect(response.status).toBe(413);
     expect(body.error.code).toBe("payload_too_large");
+  });
+
+  test("configured rate limiters reject create, verify, state, and write routes", async () => {
+    const createLimiter = mockRateLimiter(false);
+    const verifyLimiter = mockRateLimiter(false);
+    const stateLimiter = mockRateLimiter(false);
+    const writeLimiter = mockRateLimiter(false);
+    const limitedEnv: ApiEnv = {
+      ...env,
+      CREATE_RATE_LIMITER: createLimiter,
+      STATE_RATE_LIMITER: stateLimiter,
+      VERIFY_RATE_LIMITER: verifyLimiter,
+      WRITE_RATE_LIMITER: writeLimiter,
+    };
+    const clientHeaders = { "cf-connecting-ip": "203.0.113.10" };
+
+    const createResponse = await handleApiRequest(
+      new Request("https://api.test/api/lobbies", {
+        method: "POST",
+        headers: clientHeaders,
+        body: "{}",
+      }),
+      limitedEnv
+    );
+    const stateResponse = await handleApiRequest(
+      new Request(`https://api.test/api/lobbies/${lobbyIdFixture()}/state`, {
+        headers: clientHeaders,
+      }),
+      limitedEnv
+    );
+    const verifyResponse = await handleApiRequest(
+      new Request(`https://api.test/api/lobbies/${lobbyIdFixture()}/verify`, {
+        method: "POST",
+        headers: clientHeaders,
+        body: "{}",
+      }),
+      limitedEnv
+    );
+    const writeResponse = await handleApiRequest(
+      new Request(`https://api.test/api/lobbies/${lobbyIdFixture()}`, {
+        method: "PATCH",
+        headers: clientHeaders,
+        body: "{}",
+      }),
+      limitedEnv
+    );
+
+    for (const response of [
+      createResponse,
+      stateResponse,
+      verifyResponse,
+      writeResponse,
+    ]) {
+      const body = (await response.json()) as { error: { code: string } };
+
+      expect(response.status).toBe(429);
+      expect(response.headers.get("retry-after")).toBe("60");
+      expect(body.error.code).toBe("rate_limited");
+    }
+
+    expect(createLimiter.limit).toHaveBeenCalledWith({
+      key: "create:203.0.113.10",
+    });
+    expect(stateLimiter.limit).toHaveBeenCalledWith({
+      key: `state:${lobbyIdFixture()}:203.0.113.10`,
+    });
+    expect(verifyLimiter.limit).toHaveBeenCalledWith({
+      key: `verify:${lobbyIdFixture()}:203.0.113.10`,
+    });
+    expect(writeLimiter.limit).toHaveBeenCalledWith({
+      key: `write:${lobbyIdFixture()}:203.0.113.10`,
+    });
   });
 
   test("write endpoints require the correct Authorization bearer code", async () => {
@@ -847,8 +975,11 @@ describe("Phase 3 core lobby API", () => {
     };
   }
 
-  function apiGet(path: string): Promise<Response> {
-    return handleApiRequest(new Request(`https://api.test${path}`), env);
+  function apiGet(path: string, headers?: HeadersInit): Promise<Response> {
+    return handleApiRequest(
+      new Request(`https://api.test${path}`, { headers }),
+      env
+    );
   }
 
   function authHeader(managementCode: string): HeadersInit {
@@ -881,5 +1012,15 @@ describe("Phase 3 core lobby API", () => {
       }),
       env
     );
+  }
+
+  function mockRateLimiter(success: boolean): ApiRateLimiter {
+    return {
+      limit: vi.fn().mockResolvedValue({ success }),
+    };
+  }
+
+  function lobbyIdFixture(): string {
+    return "lob_abc234def567";
   }
 });

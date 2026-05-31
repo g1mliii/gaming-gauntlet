@@ -1,0 +1,169 @@
+// Single source of truth for the OBS overlay routes. Reused by the overlay
+// pages (Phase 8) and the "Add to OBS" gallery (Phase 9). Each entry's `slug`
+// is the URL segment in /overlay/:lobbyId/:variant and the recommended OBS
+// browser-source size is `w` × `h`.
+
+export type OverlayDefinition = {
+  id: string;
+  name: string;
+  desc: string;
+  w: number;
+  h: number;
+  slug: string;
+};
+
+export const OVERLAYS = [
+  {
+    id: "top",
+    name: "Top Bar",
+    desc: "Slim header bar with both scores + current game.",
+    w: 1280,
+    h: 90,
+    slug: "top",
+  },
+  {
+    id: "arena-bar",
+    name: "Arena Bar",
+    desc: "Angled top scoreboard with both scores and the current game.",
+    w: 960,
+    h: 96,
+    slug: "arena-bar",
+  },
+  {
+    id: "shield-bar",
+    name: "Shield Bar",
+    desc: "Top bar with team badges and a center game block.",
+    w: 1000,
+    h: 96,
+    slug: "shield-bar",
+  },
+  {
+    id: "broadcast",
+    name: "Broadcast Scoreboard",
+    desc: "Light broadcast scoreboard with the match title above.",
+    w: 1040,
+    h: 150,
+    slug: "broadcast",
+  },
+  {
+    id: "series-bar",
+    name: "Series Bar",
+    desc: "Bold scoreboard with oversized scores and a series tracker.",
+    w: 1080,
+    h: 120,
+    slug: "series-bar",
+  },
+  {
+    id: "lower-third",
+    name: "Lower Third",
+    desc: "Broadcast lower-third for intros and transitions.",
+    w: 900,
+    h: 180,
+    slug: "lower-third",
+  },
+  {
+    id: "compact",
+    name: "Compact Card",
+    desc: "Small stacked score card for any corner.",
+    w: 320,
+    h: 200,
+    slug: "compact",
+  },
+  {
+    id: "rail",
+    name: "Vertical Rail",
+    desc: "Tall portrait strip for a screen edge or beside a facecam.",
+    w: 240,
+    h: 560,
+    slug: "rail",
+  },
+  {
+    id: "square",
+    name: "Square Card",
+    desc: "Balanced square score card for any corner.",
+    w: 360,
+    h: 360,
+    slug: "square",
+  },
+  {
+    id: "full",
+    name: "Fullscreen Showcase",
+    desc: "Between-rounds full-frame card with the current pick.",
+    w: 1920,
+    h: 1080,
+    slug: "full",
+  },
+  {
+    id: "vs-intro",
+    name: "VS Intro",
+    desc: "Full-frame matchup screen for the start of a series.",
+    w: 1920,
+    h: 1080,
+    slug: "vs-intro",
+  },
+  {
+    id: "ticker",
+    name: "Standings Ticker",
+    desc: "Slim bottom ticker bar with both scores + current game.",
+    w: 1920,
+    h: 70,
+    slug: "ticker",
+  },
+  {
+    id: "corner",
+    name: "Corner Bug",
+    desc: "Minimal corner bug with both scores.",
+    w: 220,
+    h: 64,
+    slug: "corner",
+  },
+  {
+    id: "banner",
+    name: "Break / Sponsor Banner",
+    desc: "Break or sponsor card for between-segment screens.",
+    w: 1280,
+    h: 300,
+    slug: "banner",
+  },
+] as const satisfies readonly OverlayDefinition[];
+
+// The set of valid overlay slugs, narrowed to a literal union so the graphics
+// map (OverlayGraphics.tsx) is checked exhaustively against the catalog.
+export type OverlaySlug = (typeof OVERLAYS)[number]["slug"];
+
+export const OVERLAY_SLUGS: ReadonlySet<string> = new Set(
+  OVERLAYS.map((overlay) => overlay.slug)
+);
+
+export function isOverlaySlug(value: string): boolean {
+  return OVERLAY_SLUGS.has(value);
+}
+
+export function getOverlayDefinition(
+  slug: string
+): OverlayDefinition | undefined {
+  return OVERLAYS.find((overlay) => overlay.slug === slug);
+}
+
+export const THEMES = ["default", "iem", "blast", "pgl", "arena"] as const;
+
+export type OverlayTheme = (typeof THEMES)[number];
+
+const THEME_SET: ReadonlySet<string> = new Set(THEMES);
+
+export function isTheme(value: string): value is OverlayTheme {
+  return THEME_SET.has(value);
+}
+
+// Picker labels are palette-descriptive (no tournament/brand names in the UI);
+// the `value` is the key used in ?theme= and the gg-theme-/gg-ov-- classes.
+export const THEME_OPTIONS: ReadonlyArray<{
+  value: OverlayTheme;
+  label: string;
+}> = [
+  { value: "default", label: "Default" },
+  { value: "iem", label: "Ice" },
+  { value: "blast", label: "Neon" },
+  { value: "pgl", label: "Sunset" },
+  { value: "arena", label: "Arena" },
+];

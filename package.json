@@ -15,7 +15,7 @@
     "dev": "npm run dev --workspace @gaming-gauntlet/web",
     "lint": "eslint . --max-warnings=0",
     "test": "npm run test --workspace @gaming-gauntlet/core && npm run test --workspace @gaming-gauntlet/api && npm run test --workspace @gaming-gauntlet/web",
-    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json --pretty false",
+    "typecheck": "npm run typecheck --workspace @gaming-gauntlet/core && npm run typecheck --workspace @gaming-gauntlet/api && npm run typecheck --workspace @gaming-gauntlet/ui && npm run typecheck --workspace @gaming-gauntlet/web",
     "format": "prettier --write .",
     "verify": "npm run lint && npm run typecheck && npm run test && npm run build"
   },

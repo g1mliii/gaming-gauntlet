@@ -53,8 +53,16 @@ export interface ApiDatabase {
   batch<T = unknown>(statements: ApiStatement[]): Promise<ApiD1Result<T>[]>;
 }
 
+export interface ApiRateLimiter {
+  limit(options: { key: string }): Promise<{ success: boolean }>;
+}
+
 export interface ApiEnv {
+  CREATE_RATE_LIMITER?: ApiRateLimiter;
   DB: ApiDatabase;
+  STATE_RATE_LIMITER?: ApiRateLimiter;
+  VERIFY_RATE_LIMITER?: ApiRateLimiter;
+  WRITE_RATE_LIMITER?: ApiRateLimiter;
 }
 
 type ApiRoute =
@@ -78,6 +86,7 @@ type JsonErrorCode =
   | "no_enabled_games"
   | "not_found"
   | "payload_too_large"
+  | "rate_limited"
   | "unauthorized"
   | "validation_error"
   | "internal_error";
@@ -137,13 +146,18 @@ export async function handleApiRequest(
 ): Promise<Response> {
   try {
     const route = matchRoute(request);
+    const rateLimitResponse = await enforceRateLimit(request, route, env);
+
+    if (rateLimitResponse) {
+      return rateLimitResponse;
+    }
 
     if (route.id === "createLobby") {
       return await createLobby(request, env.DB);
     }
 
     if (route.id === "getLobbyState") {
-      return await getLobbyState(route.lobbyId, env.DB);
+      return await getLobbyState(request, route.lobbyId, env.DB);
     }
 
     if (route.id === "verifyLobby") {
@@ -265,6 +279,78 @@ function matchRoute(request: Request): ApiRoute {
   }
 
   return { id: "notFound" };
+}
+
+async function enforceRateLimit(
+  request: Request,
+  route: ApiRoute,
+  env: ApiEnv
+): Promise<Response | null> {
+  const key = rateLimitKey(request, route);
+
+  if (!key) {
+    return null;
+  }
+
+  const limiter = env[key.limiter];
+
+  if (!limiter) {
+    return null;
+  }
+
+  const result = await limiter.limit({ key: key.value });
+
+  return result.success ? null : rateLimitedError();
+}
+
+function rateLimitKey(
+  request: Request,
+  route: ApiRoute
+): {
+  limiter: keyof Pick<
+    ApiEnv,
+    | "CREATE_RATE_LIMITER"
+    | "STATE_RATE_LIMITER"
+    | "VERIFY_RATE_LIMITER"
+    | "WRITE_RATE_LIMITER"
+  >;
+  value: string;
+} | null {
+  const client = request.headers.get("cf-connecting-ip") ?? "unknown";
+
+  if (route.id === "createLobby") {
+    return { limiter: "CREATE_RATE_LIMITER", value: `create:${client}` };
+  }
+
+  if (route.id === "getLobbyState") {
+    return {
+      limiter: "STATE_RATE_LIMITER",
+      value: `state:${route.lobbyId}:${client}`,
+    };
+  }
+
+  if (route.id === "verifyLobby") {
+    return {
+      limiter: "VERIFY_RATE_LIMITER",
+      value: `verify:${route.lobbyId}:${client}`,
+    };
+  }
+
+  if (
+    route.id === "updateLobby" ||
+    route.id === "spinLobby" ||
+    route.id === "addGame" ||
+    route.id === "updateGame" ||
+    route.id === "deleteGame" ||
+    route.id === "reorderGames"
+  ) {
+    return {
+      limiter: "WRITE_RATE_LIMITER",
+      value: `write:${route.lobbyId}:${client}`,
+    };
+  }
+
+  return null;
 }
 
 async function createLobby(
@@ -398,6 +484,7 @@ async function createLobby(
 }
 
 async function getLobbyState(
+  request: Request,
   lobbyId: string,
   db: ApiDatabase
 ): Promise<Response> {
@@ -407,13 +494,32 @@ async function getLobbyState(
     return validationError(parsedLobbyId.error.issues);
   }
 
+  // Public clients (OBS overlays, spectators) poll this endpoint constantly.
+  // The lobby version bumps on every mutation, so it doubles as an ETag: a
+  // cheap version-only lookup lets unchanged polls short-circuit with a 304
+  // before we pay for the heavier full-state load or serialize a JSON body.
+  const version = await loadLobbyVersion(db, parsedLobbyId.data);
+
+  if (version === null) {
+    return jsonError(404, "not_found", "Lobby was not found.");
+  }
+
+  if (etagMatches(request.headers.get("if-none-match"), lobbyStateEtag(version))) {
+    return notModifiedResponse(lobbyStateEtag(version));
+  }
+
   const state = await loadPublicLobbyState(db, parsedLobbyId.data);
 
   if (!state) {
     return jsonError(404, "not_found", "Lobby was not found.");
   }
 
-  return jsonResponse(state);
+  // Derive the served ETag from the loaded state's version (not the pre-check
+  // version) so a concurrent write between the two reads can never hand the
+  // client an ETag that disagrees with the body it just received.
+  return jsonResponse(state, {
+    headers: { etag: lobbyStateEtag(state.version) },
+  });
 }
 
 async function verifyLobby(
@@ -980,6 +1086,18 @@ async function reorderGames(
   return publicLobbyStateResponse(db, parsedLobbyId.data);
 }
 
+async function loadLobbyVersion(
+  db: ApiDatabase,
+  lobbyId: string
+): Promise<number | null> {
+  const row = await db
+    .prepare(`SELECT version FROM lobbies WHERE id = ? LIMIT 1`)
+    .bind(lobbyId)
+    .first<{ version: number }>();
+
+  return row ? row.version : null;
+}
+
 async function loadPublicLobbyState(
   db: ApiDatabase,
   lobbyId: string
@@ -1361,6 +1479,36 @@ function validationError(issues: SchemaIssue[]): Response {
   });
 }
 
+function lobbyStateEtag(version: number): string {
+  return `"v${version}"`;
+}
+
+// RFC 9110 If-None-Match: a comma-separated list, the "*" wildcard, and weak
+// validators (W/ prefix) that an intermediary may have added are all valid.
+function etagMatches(ifNoneMatch: string | null, etag: string): boolean {
+  if (!ifNoneMatch) {
+    return false;
+  }
+
+  const normalized = etag.replace(/^W\//, "");
+
+  return ifNoneMatch.split(",").some((candidate) => {
+    const value = candidate.trim();
+    return value === "*" || value.replace(/^W\//, "") === normalized;
+  });
+}
+
+function notModifiedResponse(etag: string): Response {
+  return new Response(null, {
+    status: 304,
+    headers: {
+      etag,
+      "cache-control": "no-store",
+      "x-content-type-options": "nosniff",
+    },
+  });
+}
+
 function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
   const headers = new Headers(init.headers);
   headers.set("content-type", JSON_CONTENT_TYPE);
@@ -1389,6 +1537,17 @@ function jsonError(
     },
     { status }
   );
+}
+
+function rateLimitedError(): Response {
+  const response = jsonError(
+    429,
+    "rate_limited",
+    "Too many requests. Try again shortly."
+  );
+
+  response.headers.set("retry-after", "60");
+  return response;
 }
 
 function jsonHandledError(response: Response): Error {

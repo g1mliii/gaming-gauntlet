@@ -1,13 +1,12 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
 import {
-  Ico,
   KitButton,
   KitNotice,
   KitPanel,
   KitTextField,
   KitTextareaField,
-  PageShell
+  PageShell,
 } from "@gaming-gauntlet/ui";
 import type { CreateLobbyRequestInput } from "@gaming-gauntlet/core";
 
@@ -15,50 +14,11 @@ import { createLobby, verifyLobbyPasscode } from "./lobby-api";
 import {
   buildMatchUrl,
   extractLobbyIdFromMatchReference,
-  storeManagementPasscode
+  storeManagementPasscode,
 } from "./management-passcodes";
-
-type CreateResult = {
-  type: "created";
-  lobbyId: string;
-  managementCode: string;
-};
-
-type JoinResult = {
-  type: "verified";
-  lobbyId: string;
-};
-
-type FlowResult = CreateResult | JoinResult;
+import { navigateTo } from "./navigation";
 
 const maskedPasscode = "GG-••••-••••-••••";
-
-function CopyField({
-  label,
-  value,
-  onCopy
-}: {
-  label: string;
-  value: string;
-  onCopy: () => void;
-}) {
-  return (
-    <div className="gg-copyfield">
-      {label ? <span className="gg-copyfield__label">{label}</span> : null}
-      <div className="gg-share">
-        <input
-          readOnly
-          value={value}
-          onFocus={(event) => event.target.select()}
-          aria-label={label}
-        />
-        <KitButton type="button" onClick={onCopy}>
-          <Ico name="copy" /> Copy
-        </KitButton>
-      </div>
-    </div>
-  );
-}
 
 export default function CreatePage() {
   const [playerOneName, setPlayerOneName] = useState("");
@@ -67,19 +27,14 @@ export default function CreatePage() {
   const [targetScore, setTargetScore] = useState("");
   const [matchReference, setMatchReference] = useState("");
   const [joinPasscode, setJoinPasscode] = useState("");
-  const [result, setResult] = useState<FlowResult | null>(null);
-  const [isPasscodeRevealed, setIsPasscodeRevealed] = useState(false);
-  const [isConfirmingReveal, setIsConfirmingReveal] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [joinError, setJoinError] = useState<string | null>(null);
-  const [copyStatus, setCopyStatus] = useState<string | null>(null);
 
   async function handleCreateSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setCreateError(null);
-    setCopyStatus(null);
 
     const payload = createPayload();
 
@@ -93,16 +48,11 @@ export default function CreatePage() {
     try {
       const created = await createLobby(payload);
       storeManagementPasscode(created.lobbyId, created.managementCode);
-      setResult({
-        type: "created",
-        lobbyId: created.lobbyId,
-        managementCode: created.managementCode
-      });
-      setIsPasscodeRevealed(false);
-      setIsConfirmingReveal(false);
+      // Straight into the match room — it auto-unlocks from the stored passcode
+      // and hosts the share + passcode controls now, so there is no interstitial.
+      navigateTo(buildMatchUrl(created.lobbyId));
     } catch (error) {
       setCreateError(error instanceof Error ? error.message : "Create failed.");
-    } finally {
       setIsCreating(false);
     }
   }
@@ -110,7 +60,6 @@ export default function CreatePage() {
   async function handleJoinSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setJoinError(null);
-    setCopyStatus(null);
 
     const lobbyId = extractLobbyIdFromMatchReference(matchReference);
     const trimmedPasscode = joinPasscode.trim();
@@ -130,10 +79,11 @@ export default function CreatePage() {
     try {
       await verifyLobbyPasscode(lobbyId, trimmedPasscode);
       storeManagementPasscode(lobbyId, trimmedPasscode);
-      setResult({ type: "verified", lobbyId });
+      navigateTo(buildMatchUrl(lobbyId));
     } catch (error) {
-      setJoinError(error instanceof Error ? error.message : "Verification failed.");
-    } finally {
+      setJoinError(
+        error instanceof Error ? error.message : "Verification failed."
+      );
       setIsVerifying(false);
     }
   }
@@ -152,7 +102,7 @@ export default function CreatePage() {
       .filter(Boolean);
     const payload: CreateLobbyRequestInput = {
       playerOneName: trimmedPlayerOneName,
-      playerTwoName: trimmedPlayerTwoName
+      playerTwoName: trimmedPlayerTwoName,
     };
     const parsedTargetScore = Number(targetScore);
 
@@ -166,53 +116,6 @@ export default function CreatePage() {
 
     return payload;
   }
-
-  function requestReveal() {
-    setIsConfirmingReveal(true);
-  }
-
-  function confirmReveal() {
-    setIsPasscodeRevealed(true);
-    setIsConfirmingReveal(false);
-  }
-
-  function cancelReveal() {
-    setIsConfirmingReveal(false);
-  }
-
-  function hidePasscode() {
-    setIsPasscodeRevealed(false);
-    setIsConfirmingReveal(false);
-  }
-
-  async function copyManagementPasscode() {
-    if (result?.type !== "created") {
-      return;
-    }
-
-    setCopyStatus(null);
-
-    try {
-      await navigator.clipboard.writeText(result.managementCode);
-      setCopyStatus("Passcode copied.");
-    } catch {
-      setCopyStatus("Passcode copy failed.");
-    }
-  }
-
-  async function copyMatchUrl() {
-    setCopyStatus(null);
-
-    try {
-      await navigator.clipboard.writeText(matchUrl);
-      setCopyStatus("Match URL copied.");
-    } catch {
-      setCopyStatus("Match URL copy failed.");
-    }
-  }
-
-  const resultLobbyId = result?.lobbyId ?? null;
-  const matchUrl = resultLobbyId ? buildMatchUrl(resultLobbyId) : "";
 
   return (
     <PageShell
@@ -308,127 +211,12 @@ export default function CreatePage() {
               </KitNotice>
             ) : null}
             <p className="gg-field__hint">
-              Already created a match on this device? Your passcode is remembered
-              automatically — just open the match room.
+              Already created a match in this browser session? Your passcode is
+              remembered automatically — just open the match room.
             </p>
           </form>
         </KitPanel>
       </div>
-
-      {result ? (
-        <KitPanel
-          className="gg-create-result"
-          eyebrow={result.type === "created" ? "Created" : "Verified"}
-          title="Match ready"
-          actions={
-            <>
-              <a className="gg-button gg-button--primary" href={matchUrl}>
-                Open match room
-              </a>
-              <a className="gg-button gg-button--ghost" href={matchUrl}>
-                Manage this match
-              </a>
-            </>
-          }
-        >
-          <p className="gg-panel__summary" style={{ marginTop: 0 }}>
-            Share the match URL with your opponent, chat, and OBS. Keep the
-            passcode private — anyone with it can control the scoreboard.
-          </p>
-          <CopyField
-            label="Match URL — the only link you share"
-            value={matchUrl}
-            onCopy={copyMatchUrl}
-          />
-
-          {result.type === "created" ? (
-            <div className="gg-passcode">
-              <div className="gg-spread">
-                <div>
-                  <p className="gg-passcode__label">Management passcode</p>
-                  <p
-                    className={`gg-passcode__value${
-                      isPasscodeRevealed ? "" : " is-masked"
-                    }`}
-                  >
-                    {isPasscodeRevealed ? result.managementCode : maskedPasscode}
-                  </p>
-                </div>
-                <div className="gg-row">
-                  {isPasscodeRevealed ? (
-                    <KitButton
-                      aria-expanded
-                      onClick={hidePasscode}
-                      size="sm"
-                      type="button"
-                      variant="ghost"
-                    >
-                      <Ico name="eye" /> Hide
-                    </KitButton>
-                  ) : isConfirmingReveal ? (
-                    <>
-                      <KitButton
-                        onClick={confirmReveal}
-                        size="sm"
-                        type="button"
-                        variant="primary"
-                      >
-                        Yes, reveal
-                      </KitButton>
-                      <KitButton
-                        onClick={cancelReveal}
-                        size="sm"
-                        type="button"
-                        variant="ghost"
-                      >
-                        Cancel
-                      </KitButton>
-                    </>
-                  ) : (
-                    <KitButton
-                      aria-expanded={false}
-                      onClick={requestReveal}
-                      size="sm"
-                      type="button"
-                      variant="ghost"
-                    >
-                      <Ico name="eye" /> Reveal
-                    </KitButton>
-                  )}
-                  <KitButton
-                    disabled={!isPasscodeRevealed}
-                    onClick={copyManagementPasscode}
-                    size="sm"
-                    type="button"
-                  >
-                    <Ico name="copy" /> Copy passcode
-                  </KitButton>
-                </div>
-              </div>
-              {isConfirmingReveal ? (
-                <KitNotice style={{ margin: 0 }} tone="danger">
-                  Reveal your passcode on screen? Anyone watching your stream can
-                  read and copy it — make sure you’re not live.
-                </KitNotice>
-              ) : (
-                <KitNotice style={{ margin: 0 }} tone="warning">
-                  Saved to this device. Store it somewhere safe — we only keep a
-                  hash, so we can’t recover it for you.
-                </KitNotice>
-              )}
-            </div>
-          ) : (
-            <KitNotice style={{ margin: 0 }} tone="success">
-              Passcode verified.
-            </KitNotice>
-          )}
-          {copyStatus ? (
-            <KitNotice aria-live="polite" role="status" tone="success">
-              {copyStatus}
-            </KitNotice>
-          ) : null}
-        </KitPanel>
-      ) : null}
     </PageShell>
   );
 }

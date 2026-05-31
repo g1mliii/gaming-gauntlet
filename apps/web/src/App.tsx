@@ -1,10 +1,10 @@
 import { useEffect } from "react";
 import type { ReactNode } from "react";
-import { KitButtonLink, KitChip, PageShell, ScoreBug } from "@gaming-gauntlet/ui";
-import type { GauntletMatchSurface } from "@gaming-gauntlet/ui";
+import { KitButtonLink, KitChip, PageShell } from "@gaming-gauntlet/ui";
 
 import CreatePage from "./CreatePage";
 import MatchRoom from "./match/MatchRoom";
+import OverlayPage from "./overlay/OverlayPage";
 import { FORBIDDEN_URL_PARAM_NAMES, matchRoute } from "./routes";
 import type { MatchedRoute } from "./routes";
 
@@ -15,17 +15,6 @@ type AppProps = {
 const siteOrigin = "https://gaming-gauntlet.com";
 const defaultDescription =
   "Create a Gaming Gauntlet lobby, share one match URL, and keep stream controls behind a private passcode.";
-
-const previewMatch: GauntletMatchSurface = {
-  title: "Demo Lobby",
-  status: "ready",
-  targetWins: 3,
-  players: [
-    { displayName: "Player One", wins: 0 },
-    { displayName: "Player Two", wins: 0 },
-  ],
-  currentGame: { title: "Waiting for first spin" },
-};
 
 function getCurrentPath(initialPath?: string): string {
   if (initialPath) {
@@ -81,9 +70,11 @@ function getRouteSeo(route: MatchedRoute): SeoConfig {
     };
   }
 
-  if (route.id === "overlayTop") {
+  if (route.id === "overlay") {
+    const variant = route.params.variant ?? "";
+
     return {
-      canonicalPath: `/overlay/${encodeURIComponent(route.params.lobbyId ?? "")}/top`,
+      canonicalPath: `/overlay/${encodeURIComponent(route.params.lobbyId ?? "")}/${encodeURIComponent(variant)}`,
       description: "Gaming Gauntlet OBS overlay surface for a live match.",
       robots: "noindex,nofollow",
       title: "Overlay | Gaming Gauntlet",
@@ -157,38 +148,22 @@ function applySeo(route: MatchedRoute) {
 function RouteChrome({
   children,
   routeId,
+  showBrand = true,
 }: {
   children: ReactNode;
   routeId: string;
+  showBrand?: boolean;
 }) {
   return (
     <main className="v1-app" data-route-id={routeId} data-testid={routeId}>
-      <nav className="v1-nav" aria-label="Primary">
-        <a className="v1-nav__brand" href="/">
-          Gaming Gauntlet
-        </a>
-      </nav>
+      {showBrand ? (
+        <nav className="v1-nav" aria-label="Primary">
+          <a className="v1-nav__brand" href="/">
+            Gaming Gauntlet
+          </a>
+        </nav>
+      ) : null}
       {children}
-    </main>
-  );
-}
-
-function OverlayTopPage({ lobbyId }: { lobbyId: string }) {
-  return (
-    <main
-      className="v1-overlay"
-      data-route-id="overlay-top-v1"
-      data-testid="overlay-top-v1"
-    >
-      <PageShell
-        eyebrow="Overlay"
-        title={lobbyId}
-        deck=""
-        emphasis="compact"
-        tone="overlay"
-      >
-        <ScoreBug match={previewMatch} transparent />
-      </PageShell>
     </main>
   );
 }
@@ -229,8 +204,9 @@ function NotFoundPage() {
 }
 
 export default function App({ initialPath }: AppProps) {
-  const route = matchRoute(getCurrentPath(initialPath));
-  const isOverlay = route.id === "overlayTop";
+  const currentPath = getCurrentPath(initialPath);
+  const route = matchRoute(currentPath);
+  const isOverlay = route.id === "overlay";
   const lobbyId = route.params.lobbyId ?? "";
 
   useEffect(() => {
@@ -284,7 +260,7 @@ export default function App({ initialPath }: AppProps) {
 
   if (route.id === "manage") {
     return (
-      <RouteChrome routeId="manage-v1">
+      <RouteChrome routeId="manage-v1" showBrand={false}>
         <MatchRoom lobbyId={route.params.lobbyId ?? ""} />
       </RouteChrome>
     );
@@ -292,7 +268,7 @@ export default function App({ initialPath }: AppProps) {
 
   if (route.id === "game") {
     return (
-      <RouteChrome routeId="game-v1">
+      <RouteChrome routeId="game-v1" showBrand={false}>
         <MatchRoom lobbyId={route.params.lobbyId ?? ""} />
       </RouteChrome>
     );
@@ -302,8 +278,14 @@ export default function App({ initialPath }: AppProps) {
     return <OverlayHubPage lobbyId={route.params.lobbyId ?? ""} />;
   }
 
-  if (route.id === "overlayTop") {
-    return <OverlayTopPage lobbyId={route.params.lobbyId ?? ""} />;
+  if (route.id === "overlay") {
+    return (
+      <OverlayPage
+        lobbyId={route.params.lobbyId ?? ""}
+        search={route.search}
+        variant={route.params.variant ?? ""}
+      />
+    );
   }
 
   return <NotFoundPage />;

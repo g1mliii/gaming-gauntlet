@@ -491,32 +491,70 @@ Give streamers one Overlays surface — live previews + copy-URL + instructions 
 reached from the match room's "Add to OBS" action. The kit merges the old
 preview gallery and copy-URL panel into a single screen (`screens-obs.jsx`).
 
+## Context (what Phase 8 already shipped — reuse, don't rebuild)
+
+Phase 8 built the overlay system this surface sits on top of. Phase 9 is mostly a
+gallery + copy-URL + instructions wrapper around it.
+
+- **Catalog is the single source of truth.** `apps/web/src/overlay/catalog.ts`
+  exports `OVERLAYS` ({ id, name, desc, w, h, slug }) — currently **14**
+  overlays, not the kit's 7. Drive the gallery off this array; never hardcode a
+  list (then new overlays appear automatically). It also exports `THEMES`,
+  `THEME_OPTIONS` (palette-descriptive labels), and `isTheme()`.
+- **Live graphic** is `OverlayGraphic({ slug, m, options })` in
+  `overlay/OverlayGraphics.tsx`; build its view model with
+  `toOverlayMatch(state)` from `overlay/overlay-match.ts`; poll public state with
+  `useOverlayState(lobbyId)` from `overlay/use-overlay-state.ts`. A single shared
+  poll can feed every preview.
+- **Overlay route** is generic: `/overlay/:lobbyId/:variant` (the `:variant` is
+  the catalog `slug`). The surface itself is the `overlayHub` route
+  (`/g/:lobbyId/obs`), already linked from the match room's "Add to OBS" button.
+- **Themes** are real and must flow through here. `overlay-theme.ts` stores the
+  streamer's chosen theme per-lobby in localStorage (`readStoredTheme`,
+  `useOverlayTheme`, `themeClassName`). The match room already has a theme picker;
+  copied overlay URLs MUST carry that choice as `?theme=<theme>` so OBS matches
+  the room. Previews must render in the selected theme too (wrap each preview in
+  `themeClassName(theme)` / `gg-ov--<theme>`).
+- **Names are generic** (Arena Bar, Shield Bar, Broadcast Scoreboard, Series Bar,
+  etc.) — no tournament/brand names in any visible text.
+
 ## AI Prompt
 
 ```text
 Implement Phase 9: "Add to OBS" Overlays Surface.
 
 Use prototype/screens-obs.jsx as the structural target. Reach it from the match
-room's "Add to OBS" button (not a separate copyable management URL).
+room's "Add to OBS" button (the existing /g/:lobbyId/obs route — not a separate
+copyable management URL). Reuse the Phase 8 overlay module (see Context above);
+do not duplicate graphics, catalog, or polling.
 
 Tasks:
-1. Build a responsive overlay gallery. Each overlay card shows:
+1. Build a responsive overlay gallery driven by the OVERLAYS catalog (render a
+   card per entry so it stays in sync as the catalog grows). Each card shows:
    - a LIVE, transparent, auto-scaled preview of the real overlay graphic
-     (rendered from public state, on a checkerboard backdrop)
-   - the overlay name
-   - the recommended OBS width × height
-   - a short description
+     (OverlayGraphic from public state, in the selected theme, on a checkerboard
+     backdrop), fit to the card via a scale transform
+   - the overlay name (from catalog)
+   - the recommended OBS width × height (from catalog w × h)
+   - the short description (from catalog)
    - a Copy URL button
-2. Include these overlays: Top Bar, Lower Third, Compact Card, Vertical Rail,
-   Square Card, Fullscreen Showcase (and Wheel).
-3. Add a compact instructions block:
+   Consider grouping cards (e.g. top bars / score cards / fullscreen) since there
+   are now ~14 overlays.
+2. Add a theme selector on the surface that mirrors the match room (THEME_OPTIONS,
+   stored via overlay-theme). Changing it re-skins every preview AND changes the
+   theme baked into copied URLs. Default to the lobby's stored theme.
+3. Copy URL builds an absolute overlay URL: <origin>/overlay/:lobbyId/:slug and
+   appends ?theme=<selected theme> (omit when "default"). It must NEVER include
+   the management code or any unsafe param (code, token, secret, managementCode).
+   Other safe params (scale, brand, showNext, transparent, animation) are optional
+   and out of scope unless trivial.
+4. Add a compact instructions block:
    - Setup: copy the overlay URL → OBS Sources → + → Browser → paste the URL →
      set the listed width & height → OK → drag into place.
    - Troubleshooting: blank → re-copy the full link / confirm the match exists;
      not updating → right-click the source → Refresh; not transparent → remove
      any color source behind it.
-4. Generated overlay URLs must never include the management code or unsafe
-   params (code, token, secret, managementCode).
+5. The surface is public/read-only and shows no management controls or passcode.
 
 At the end, add regression tests.
 ```
@@ -525,11 +563,16 @@ At the end, add regression tests.
 
 ```text
 Add tests that verify:
-- The overlays surface is reached from the match room's "Add to OBS" action.
-- The gallery renders a live preview for every overlay.
-- Every overlay card has a Copy URL button.
-- Recommended OBS sizes are shown.
-- Copied URLs never include the management code or unsafe query params.
+- The overlays surface is reached from the match room's "Add to OBS" action
+  (the /g/:lobbyId/obs route).
+- The gallery renders a live preview + Copy URL button for EVERY overlay in the
+  OVERLAYS catalog (iterate the catalog so new overlays are covered automatically).
+- Recommended OBS sizes (catalog w × h) are shown per card.
+- A copied URL points at /overlay/:lobbyId/:slug and carries the selected
+  ?theme=, and never includes managementCode/code/token/secret.
+- Changing the theme selector updates the copied URL's ?theme= and the previews'
+  theme class; the default theme produces a URL with no theme param.
+- The surface renders no management controls and exposes no passcode/secret.
 - Setup instructions render.
 - Troubleshooting notes render.
 ```
@@ -540,7 +583,7 @@ Add tests that verify:
 
 ## Goal
 
-Add protection for streamer URLs and public endpoints.
+Add protection for streamer URLs and public endpoints. our main issues is streamers with large viewership may try to get into the games and hit the urls all at once to either crash the site or try to get into lobby by going to that url with the code or trying random codes, any of these thigns we need protectoins for all of these i have 11 tasks here but you can add more to tackle this issue thanks. anythign with large numbe of people trying to access urls or the site we need protectionsf or tall of this thanks.
 
 ## AI Prompt
 
@@ -564,6 +607,7 @@ Tasks:
    - rate limiting rules
    - DDoS protection
 10. Make sure overlays still work smoothly in OBS.
+11. ip adress protection anonmiyy for streamers no ip's should be accessible or anonmyed idea is to be as safe as possinle we dont want to have any securtiy issues for streamsers and their location and data as this can be very bad.
 
 At the end, add regression tests.
 ```

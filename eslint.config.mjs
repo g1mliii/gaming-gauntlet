@@ -9,7 +9,9 @@ export default [
       "**/dist/**",
       "**/coverage/**",
       "**/node_modules/**",
-      "prototype/**"
+      "apps/api/src/worker-configuration.d.ts",
+      "prototype/**",
+      "security-review/wrangler-dry-run*/**"
     ]
   },
   js.configs.recommended,

@@ -84,14 +84,33 @@ export async function verifyLobbyPasscode(
   return parsed.data;
 }
 
+// A poll either returns fresh state (with the ETag to echo back next time) or,
+// when the caller's ETag still matches, a "not-modified" marker so the caller
+// can skip re-rendering. Callers thread `etag` from the previous "modified"
+// result back in to enable server-side 304 short-circuiting.
+export type PublicLobbyStateResult =
+  | { status: "modified"; state: PublicLobbyState; etag: string | null }
+  | { status: "not-modified"; etag: string | null };
+
 export async function fetchPublicLobbyState(
   lobbyId: string,
-  options: { signal?: AbortSignal } = {}
-): Promise<PublicLobbyState> {
+  options: { signal?: AbortSignal; etag?: string | null } = {}
+): Promise<PublicLobbyStateResult> {
+  const headers = new Headers();
+
+  if (options.etag) {
+    headers.set("if-none-match", options.etag);
+  }
+
   const response = await fetch(
     `/api/lobbies/${encodeURIComponent(lobbyId)}/state`,
-    { signal: options.signal }
+    { signal: options.signal, headers }
   );
+
+  if (response.status === 304) {
+    return { status: "not-modified", etag: options.etag ?? null };
+  }
+
   const body = await readJson(response);
 
   if (!response.ok) {
@@ -104,7 +123,11 @@ export async function fetchPublicLobbyState(
     throw new LobbyApiError("Lobby state response was not valid.", response.status);
   }
 
-  return parsed.data;
+  return {
+    status: "modified",
+    state: parsed.data,
+    etag: response.headers.get("etag"),
+  };
 }
 
 export async function updateLobby(
@@ -195,6 +218,10 @@ export async function reorderGames(
       body: parsedPayload
     }
   );
+}
+
+export function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError";
 }
 
 async function readJson(response: Response): Promise<unknown> {

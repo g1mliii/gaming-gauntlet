@@ -18,7 +18,10 @@ import {
 import type { GauntletMatchSurface } from "@gaming-gauntlet/ui";
 import { TargetScoreSchema } from "@gaming-gauntlet/core";
 
-import { buildOverlaysUrl } from "../management-passcodes";
+import { isTheme, THEME_OPTIONS } from "../overlay/catalog";
+import type { OverlayTheme } from "../overlay/catalog";
+import { buildMatchUrl, buildOverlaysUrl } from "../management-passcodes";
+import { themeClassName, useOverlayTheme } from "../overlay-theme";
 import { useMatchRoom } from "./use-match-room";
 import type {
   MatchRoomActions,
@@ -59,18 +62,20 @@ export default function MatchRoom({ lobbyId }: MatchRoomProps) {
     error,
     isLoading,
     isUnlocked,
-    isWriting,
     lobby,
+    managementCode,
     spin,
     surface,
     unlock,
     unlockError,
   } = useMatchRoom(lobbyId);
   const [wheelStyle, setWheelStyle] = useState<"radial" | "reel">("radial");
+  const [theme, setTheme] = useOverlayTheme(lobbyId);
+  const themeClass = themeClassName(theme);
 
   if (!lobby || !surface) {
     return (
-      <div className="gg-content__inner">
+      <div className={mergeClassNames("gg-content__inner", themeClass)}>
         <KitPanel
           eyebrow="Match room"
           title={isLoading ? "Loading" : "Unavailable"}
@@ -90,14 +95,21 @@ export default function MatchRoom({ lobbyId }: MatchRoomProps) {
         lobby={lobby}
         onUnlock={unlock}
         surface={surface}
+        themeClass={themeClass}
         unlockError={unlockError}
       />
     );
   }
 
   return (
-    <div className="gg-content__inner">
-      <MatchHeader actions={actions} isWriting={isWriting} lobby={lobby} />
+    <div className={mergeClassNames("gg-content__inner", themeClass)}>
+      <ShareBar lobbyId={lobby.lobbyId} managementCode={managementCode} />
+      <MatchHeader
+        actions={actions}
+        lobby={lobby}
+        onThemeChange={setTheme}
+        theme={theme}
+      />
       {error ? (
         <KitNotice aria-live="polite" role="status" tone="warning">
           {error}
@@ -123,12 +135,14 @@ function LockedRoom({
   lobby,
   onUnlock,
   surface,
+  themeClass,
   unlockError,
 }: {
   error: string | null;
   lobby: MatchRoomLobby;
   onUnlock: (managementCode: string) => Promise<void>;
   surface: GauntletMatchSurface;
+  themeClass: string;
   unlockError: string | null;
 }) {
   const [passcode, setPasscode] = useState("");
@@ -136,16 +150,13 @@ function LockedRoom({
   const isMountedRef = useRef(true);
   const currentGameTitle = getCurrentGameTitle(surface);
 
-  useEffect(
-    () => {
-      isMountedRef.current = true;
+  useEffect(() => {
+    isMountedRef.current = true;
 
-      return () => {
-        isMountedRef.current = false;
-      };
-    },
-    []
-  );
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   async function handleUnlock(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -164,7 +175,7 @@ function LockedRoom({
   }
 
   return (
-    <div className="gg-content__inner">
+    <div className={mergeClassNames("gg-content__inner", themeClass)}>
       <div className="gg-lockscreen">
         <KitPanel className="gg-lockcard" eyebrow="Control room" title="Locked">
           <Ico name="lock" className="gg-lock-ico" />
@@ -219,12 +230,14 @@ function LockedRoom({
 
 function MatchHeader({
   actions,
-  isWriting,
   lobby,
+  onThemeChange,
+  theme,
 }: {
   actions: MatchRoomActions;
-  isWriting: boolean;
   lobby: MatchRoomLobby;
+  onThemeChange: (theme: OverlayTheme) => void;
+  theme: OverlayTheme;
 }) {
   const [titleDraft, setTitleDraft] = useState(lobby.title);
 
@@ -259,12 +272,171 @@ function MatchHeader({
         />
       </div>
       <div className="gg-shell__actions">
-        {isWriting ? <KitChip tone="live">Saving</KitChip> : null}
+        <label className="gg-theme-pick">
+          <span>Theme</span>
+          <select
+            aria-label="Overlay theme"
+            onChange={(event) => {
+              if (isTheme(event.target.value)) {
+                onThemeChange(event.target.value);
+              }
+            }}
+            value={theme}
+          >
+            {THEME_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
         <KitButtonLink href={buildOverlaysUrl(lobby.lobbyId)} variant="ghost">
           <Ico name="obs" /> Add to OBS
         </KitButtonLink>
       </div>
     </header>
+  );
+}
+
+const MASKED_PASSCODE = "GG-••••-••••-••••";
+
+// Slim share strip across the top of the unlocked room (it reclaims the space
+// the page brand used to occupy). Surfaces the one shareable link plus the
+// management passcode behind a reveal guard so it never sits on screen while the
+// streamer is live.
+function ShareBar({
+  lobbyId,
+  managementCode,
+}: {
+  lobbyId: string;
+  managementCode: string | null;
+}) {
+  const matchPath = buildMatchUrl(lobbyId);
+  const [isRevealed, setIsRevealed] = useState(false);
+  const [isConfirmingReveal, setIsConfirmingReveal] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+
+  function absoluteMatchUrl(): string {
+    try {
+      return new URL(matchPath, window.location.origin).toString();
+    } catch {
+      return matchPath;
+    }
+  }
+
+  async function copy(text: string, label: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setStatus(`${label} copied.`);
+    } catch {
+      setStatus(`${label} copy failed.`);
+    }
+  }
+
+  async function shareMatch() {
+    const url = absoluteMatchUrl();
+
+    if (typeof navigator.share === "function") {
+      try {
+        await navigator.share({ title: "Gaming Gauntlet match", url });
+      } catch {
+        // The streamer dismissed the share sheet, or it failed — leave the
+        // copy/share controls untouched so they can try again.
+      }
+
+      return;
+    }
+
+    await copy(url, "Match URL");
+  }
+
+  return (
+    <div className="gg-sharebar">
+      <div className="gg-sharebar__field">
+        <span className="gg-sharebar__label">Match URL</span>
+        <code className="gg-sharebar__value">{matchPath}</code>
+        <KitButton
+          onClick={() => copy(absoluteMatchUrl(), "Match URL")}
+          size="sm"
+          type="button"
+        >
+          <Ico name="copy" /> Copy
+        </KitButton>
+        <KitButton onClick={shareMatch} size="sm" type="button" variant="ghost">
+          <Ico name="share" /> Share
+        </KitButton>
+      </div>
+
+      <div className="gg-sharebar__field">
+        <span className="gg-sharebar__label">Passcode</span>
+        <code className="gg-sharebar__value gg-sharebar__value--code">
+          {isRevealed && managementCode ? managementCode : MASKED_PASSCODE}
+        </code>
+        {isRevealed ? (
+          <KitButton
+            onClick={() => {
+              setIsRevealed(false);
+              setIsConfirmingReveal(false);
+            }}
+            size="sm"
+            type="button"
+            variant="ghost"
+          >
+            <Ico name="eye" /> Hide
+          </KitButton>
+        ) : isConfirmingReveal ? (
+          <>
+            <KitButton
+              onClick={() => {
+                setIsRevealed(true);
+                setIsConfirmingReveal(false);
+              }}
+              size="sm"
+              type="button"
+              variant="primary"
+            >
+              Yes, reveal
+            </KitButton>
+            <KitButton
+              onClick={() => setIsConfirmingReveal(false)}
+              size="sm"
+              type="button"
+              variant="ghost"
+            >
+              Cancel
+            </KitButton>
+          </>
+        ) : (
+          <KitButton
+            onClick={() => setIsConfirmingReveal(true)}
+            size="sm"
+            type="button"
+            variant="ghost"
+          >
+            <Ico name="eye" /> Reveal
+          </KitButton>
+        )}
+        <KitButton
+          disabled={!isRevealed || !managementCode}
+          onClick={() => managementCode && copy(managementCode, "Passcode")}
+          size="sm"
+          type="button"
+        >
+          <Ico name="copy" /> Copy
+        </KitButton>
+      </div>
+
+      {isConfirmingReveal ? (
+        <p className="gg-sharebar__warn" role="status">
+          Anyone watching your stream can read this — make sure you’re not live.
+        </p>
+      ) : null}
+      {status ? (
+        <p aria-live="polite" className="gg-sharebar__status" role="status">
+          {status}
+        </p>
+      ) : null}
+    </div>
   );
 }
 
@@ -277,7 +449,8 @@ function ScoreboardPanel({
   lobby: MatchRoomLobby;
   surface: GauntletMatchSurface;
 }) {
-  const targetText = lobby.targetScore === null ? "" : String(lobby.targetScore);
+  const targetText =
+    lobby.targetScore === null ? "" : String(lobby.targetScore);
   const [targetDraft, setTargetDraft] = useState(targetText);
 
   useEffect(() => {
@@ -501,7 +674,9 @@ function SpinPanel({
         <div className="gg-row" style={{ gap: "0.5rem" }}>
           <div aria-label="Wheel style" className="gg-seg" role="tablist">
             <button
-              className={mergeClassNames(wheelStyle === "radial" && "is-active")}
+              className={mergeClassNames(
+                wheelStyle === "radial" && "is-active"
+              )}
               onClick={() => onWheelStyleChange("radial")}
               type="button"
             >
@@ -542,7 +717,11 @@ function SpinPanel({
       </div>
       <div className="gg-pick">
         <p className="gg-pick__label">
-          {spinning ? "Spinning…" : lobby.currentGameId ? "Now playing" : "No pick yet"}
+          {spinning
+            ? "Spinning…"
+            : lobby.currentGameId
+              ? "Now playing"
+              : "No pick yet"}
         </p>
         <p
           className={mergeClassNames(

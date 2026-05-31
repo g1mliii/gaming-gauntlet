@@ -12,6 +12,7 @@ import {
   addGame as apiAddGame,
   deleteGame as apiDeleteGame,
   fetchPublicLobbyState,
+  isAbortError,
   reorderGames as apiReorderGames,
   spinLobby as apiSpinLobby,
   updateGame as apiUpdateGame,
@@ -19,7 +20,7 @@ import {
   verifyLobbyPasscode,
 } from "../lobby-api";
 import {
-  getManagementPasscodeStorageKey,
+  readStoredManagementPasscode,
   storeManagementPasscode,
 } from "../management-passcodes";
 
@@ -63,6 +64,7 @@ export type MatchRoomModel = {
   isWriting: boolean;
   error: string | null;
   unlockError: string | null;
+  managementCode: string | null;
   unlock: (managementCode: string) => Promise<void>;
   spin: () => Promise<string | null>;
 };
@@ -78,9 +80,10 @@ export function useMatchRoom(lobbyId: string): MatchRoomModel {
   const [isLoading, setIsLoading] = useState(true);
   const [isWriting, setIsWriting] = useState(false);
   const [managementCode, setManagementCode] = useState<string | null>(() =>
-    readStoredPasscode(lobbyId)
+    readStoredManagementPasscode(lobbyId)
   );
   const stateRef = useRef<PublicLobbyState | null>(null);
+  const lastEtagRef = useRef<string | null>(null);
   const lastWrittenVersionRef = useRef(0);
   const lifecycleGenerationRef = useRef(0);
   const managementCodeRef = useRef(managementCode);
@@ -88,12 +91,15 @@ export function useMatchRoom(lobbyId: string): MatchRoomModel {
   const pendingWritesRef = useRef(0);
   const writeSequenceRef = useRef(0);
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    // Re-arm on (re)mount so StrictMode's mount→unmount→remount in dev doesn't
+    // leave mountedRef stuck false (which would wedge polling on "Loading").
+    mountedRef.current = true;
+
+    return () => {
       mountedRef.current = false;
-    },
-    []
-  );
+    };
+  }, []);
 
   useEffect(() => {
     managementCodeRef.current = managementCode;
@@ -135,15 +141,27 @@ export function useMatchRoom(lobbyId: string): MatchRoomModel {
       const isActive = options.isActive ?? (() => !options.signal?.aborted);
 
       try {
-        const nextState = await fetchPublicLobbyState(lobbyId, {
+        const result = await fetchPublicLobbyState(lobbyId, {
           signal: options.signal,
+          // A forced refresh wants the authoritative server truth, so never let
+          // it short-circuit to a 304.
+          etag: options.force ? null : lastEtagRef.current,
         });
 
         if (!isActive()) {
           return;
         }
 
-        acceptState(nextState, options);
+        if (result.status === "not-modified") {
+          setError(null);
+          return;
+        }
+
+        // Track the latest server ETag even when acceptState rejects the body
+        // (e.g. an optimistic local write is still ahead) so the next poll can
+        // still 304 against the server's current version.
+        lastEtagRef.current = result.etag;
+        acceptState(result.state, options);
       } catch (refreshError) {
         if (isAbortError(refreshError) || !isActive()) {
           return;
@@ -175,11 +193,12 @@ export function useMatchRoom(lobbyId: string): MatchRoomModel {
     setError(null);
     stateRef.current = null;
     setState(null);
+    lastEtagRef.current = null;
     lastWrittenVersionRef.current = 0;
     pendingWritesRef.current = 0;
     writeSequenceRef.current = 0;
     setIsWriting(false);
-    setManagementCode(readStoredPasscode(lobbyId));
+    setManagementCode(readStoredManagementPasscode(lobbyId));
 
     const isActive = () =>
       isMounted &&
@@ -310,14 +329,18 @@ export function useMatchRoom(lobbyId: string): MatchRoomModel {
 
       const code = managementCode;
 
-      return runStateWrite(optimistic, () => apiUpdateLobby(lobbyId, code, patch));
+      return runStateWrite(optimistic, () =>
+        apiUpdateLobby(lobbyId, code, patch)
+      );
     },
     [lobbyId, managementCode, runStateWrite]
   );
 
   const patchLobby = useCallback(
     (patch: UpdateLobbyRequest) => {
-      void runLobbyWrite(patch, (stateToPatch) => bumpLobby(stateToPatch, patch));
+      void runLobbyWrite(patch, (stateToPatch) =>
+        bumpLobby(stateToPatch, patch)
+      );
     },
     [runLobbyWrite]
   );
@@ -621,6 +644,7 @@ export function useMatchRoom(lobbyId: string): MatchRoomModel {
     isWriting,
     error,
     unlockError,
+    managementCode,
     unlock,
     spin,
   };
@@ -632,16 +656,6 @@ function getPollInterval(isUnlocked: boolean): number {
   }
 
   return isUnlocked ? CONTROL_POLL_INTERVAL_MS : LOCKED_POLL_INTERVAL_MS;
-}
-
-function readStoredPasscode(lobbyId: string): string | null {
-  try {
-    return window.localStorage.getItem(
-      getManagementPasscodeStorageKey(lobbyId)
-    );
-  } catch {
-    return null;
-  }
 }
 
 function toMatchRoomLobby(state: PublicLobbyState): MatchRoomLobby {
@@ -731,8 +745,4 @@ function bumpState(
 
 function normalizePositions<T extends { position: number }>(games: T[]): T[] {
   return games.map((game, position) => ({ ...game, position }));
-}
-
-function isAbortError(error: unknown): boolean {
-  return error instanceof DOMException && error.name === "AbortError";
 }

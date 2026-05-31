@@ -6,7 +6,8 @@
   "scripts": {
     "build": "vite build",
     "dev": "vite --host 127.0.0.1",
-    "test": "vitest run"
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --pretty false"
   },
   "dependencies": {
     "@gaming-gauntlet/core": "file:../../packages/core",
