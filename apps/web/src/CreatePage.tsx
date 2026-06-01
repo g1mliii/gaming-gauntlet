@@ -212,7 +212,7 @@ export default function CreatePage() {
               label="Match URL or ID"
               name="matchReference"
               onChange={(event) => setMatchReference(event.target.value)}
-              placeholder="gaminggauntlet.com/g/lob_8fk2n4qz"
+              placeholder="gaming-gauntlet.com/g/lob_8fk2n4qz"
               value={matchReference}
             />
             <KitTextField

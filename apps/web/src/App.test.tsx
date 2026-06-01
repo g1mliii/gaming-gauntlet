@@ -288,7 +288,7 @@ describe("Phase 5 create and join flow", () => {
   test.each([
     ["raw lobby id", lobbyId],
     ["relative match URL", `/g/${lobbyId}`],
-    ["full match URL", `https://gaminggauntlet.com/g/${lobbyId}?code=ignored`],
+    ["full match URL", `https://gaming-gauntlet.com/g/${lobbyId}?code=ignored`],
   ])("joins an existing match from a %s", async (_label, matchReference) => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ success: true }));
 

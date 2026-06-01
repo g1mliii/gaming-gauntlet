@@ -6,6 +6,7 @@ import CreatePage from "./CreatePage";
 import MatchRoom from "./match/MatchRoom";
 import OverlayPage from "./overlay/OverlayPage";
 import OverlaysSurface from "./overlay/OverlaysSurface";
+import { PUBLIC_SITE_ORIGIN } from "./public-urls";
 import { FORBIDDEN_URL_PARAM_NAMES, matchRoute } from "./routes";
 import type { MatchedRoute } from "./routes";
 
@@ -13,7 +14,6 @@ type AppProps = {
   initialPath?: string;
 };
 
-const siteOrigin = "https://gaming-gauntlet.com";
 const defaultDescription =
   "Create a Gaming Gauntlet lobby, share one match URL, and keep stream controls behind a private passcode.";
 
@@ -133,7 +133,10 @@ function setCanonicalLink(href: string) {
 
 function applySeo(route: MatchedRoute) {
   const seo = getRouteSeo(route);
-  const canonicalUrl = new URL(seo.canonicalPath, siteOrigin).toString();
+  const canonicalUrl = new URL(
+    seo.canonicalPath,
+    PUBLIC_SITE_ORIGIN
+  ).toString();
 
   document.title = seo.title;
   setCanonicalLink(canonicalUrl);

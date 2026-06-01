@@ -42,7 +42,7 @@ function OverlayPreview({ ov, m, maxW = 340, maxH = 170 }) {
 }
 
 function OverlaysScreen({ lobby, surface, nav, toast }) {
-  const base = `https://gaminggauntlet.com/overlay/${lobby.lobbyId}`;
+  const base = `https://gaming-gauntlet.com/overlay/${lobby.lobbyId}`;
   return (
     <div className="gg-content__inner">
       <UrlBar path={`/overlay/${lobby.lobbyId}/…`} />

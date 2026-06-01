@@ -131,7 +131,7 @@ describe("Phase 3 core lobby API", () => {
       );
     }
     database = new SqliteD1Database(sqlite);
-    env = { DB: database };
+    env = { DB: database, RATE_LIMIT_KEY_SALT: "phase10-test-salt" };
   });
 
   afterEach(() => {
@@ -261,6 +261,9 @@ describe("Phase 3 core lobby API", () => {
 
     expect(conditional.status).toBe(304);
     expect(conditional.headers.get("etag")).toBe('"v1"');
+    expect(conditional.headers.get("cache-control")).toBe(
+      "public, max-age=1, must-revalidate"
+    );
     expect(await conditional.text()).toBe("");
   });
 
@@ -289,6 +292,9 @@ describe("Phase 3 core lobby API", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("etag")).toBe('"v2"');
+    expect(response.headers.get("cache-control")).toBe(
+      "public, max-age=1, must-revalidate"
+    );
     expect(body.version).toBe(2);
     expect(body.lobby.playerOneScore).toBe(1);
   });
@@ -363,7 +369,35 @@ describe("Phase 3 core lobby API", () => {
     expect(body.error.code).toBe("payload_too_large");
   });
 
-  test("configured rate limiters reject create, verify, state, and write routes", async () => {
+  test("malformed lobby and game IDs are rejected before state or write work", async () => {
+    const malformedLobby = await apiGet("/api/lobbies/not-a-lobby/state");
+    const malformedLobbyBody = (await malformedLobby.json()) as {
+      error: { code: string };
+    };
+    const created = await createLobby({
+      playerOneName: "Alice",
+      playerTwoName: "Bob",
+      games: ["Rocket League"],
+    });
+    const malformedGame = await apiJson(
+      `/api/lobbies/${created.lobbyId}/games/not-a-game`,
+      { title: "Rocket League 2" },
+      {
+        method: "PATCH",
+        headers: authHeader(created.managementCode),
+      }
+    );
+    const malformedGameBody = (await malformedGame.json()) as {
+      error: { code: string };
+    };
+
+    expect(malformedLobby.status).toBe(400);
+    expect(malformedLobbyBody.error.code).toBe("validation_error");
+    expect(malformedGame.status).toBe(400);
+    expect(malformedGameBody.error.code).toBe("validation_error");
+  });
+
+  test("configured rate limiters reject create, verify, state, and write routes without raw IP keys", async () => {
     const createLimiter = mockRateLimiter(false);
     const verifyLimiter = mockRateLimiter(false);
     const stateLimiter = mockRateLimiter(false);
@@ -422,16 +456,237 @@ describe("Phase 3 core lobby API", () => {
     }
 
     expect(createLimiter.limit).toHaveBeenCalledWith({
-      key: "create:203.0.113.10",
+      key: expect.stringMatching(/^create:iphash:[a-f0-9]{64}$/),
     });
     expect(stateLimiter.limit).toHaveBeenCalledWith({
-      key: `state:${lobbyIdFixture()}:203.0.113.10`,
+      key: expect.stringMatching(
+        new RegExp(`^state:${lobbyIdFixture()}:iphash:[a-f0-9]{64}$`)
+      ),
     });
     expect(verifyLimiter.limit).toHaveBeenCalledWith({
-      key: `verify:${lobbyIdFixture()}:203.0.113.10`,
+      key: expect.stringMatching(
+        new RegExp(`^verify:${lobbyIdFixture()}:iphash:[a-f0-9]{64}$`)
+      ),
     });
     expect(writeLimiter.limit).toHaveBeenCalledWith({
-      key: `write:${lobbyIdFixture()}:203.0.113.10`,
+      key: expect.stringMatching(
+        new RegExp(`^write:${lobbyIdFixture()}:iphash:[a-f0-9]{64}$`)
+      ),
+    });
+    expect(
+      [
+        limiterKey(createLimiter),
+        limiterKey(stateLimiter),
+        limiterKey(verifyLimiter),
+        limiterKey(writeLimiter),
+      ].join(" ")
+    ).not.toContain("203.0.113.10");
+  });
+
+  test("rate-limit keys are salted before they reach app-owned limiter bindings", async () => {
+    const firstLimiter = mockRateLimiter(true);
+    const secondLimiter = mockRateLimiter(true);
+    const requestUrl = `https://api.test/api/lobbies/${lobbyIdFixture()}/state`;
+    const headers = { "cf-connecting-ip": "203.0.113.10" };
+
+    await handleApiRequest(new Request(requestUrl, { headers }), {
+      ...env,
+      RATE_LIMIT_KEY_SALT: "phase10-first-salt",
+      STATE_RATE_LIMITER: firstLimiter,
+    });
+    await handleApiRequest(new Request(requestUrl, { headers }), {
+      ...env,
+      RATE_LIMIT_KEY_SALT: "phase10-second-salt",
+      STATE_RATE_LIMITER: secondLimiter,
+    });
+
+    expect(limiterKey(firstLimiter)).toMatch(
+      new RegExp(`^state:${lobbyIdFixture()}:iphash:[a-f0-9]{64}$`)
+    );
+    expect(limiterKey(secondLimiter)).toMatch(
+      new RegExp(`^state:${lobbyIdFixture()}:iphash:[a-f0-9]{64}$`)
+    );
+    expect(limiterKey(firstLimiter)).not.toBe(limiterKey(secondLimiter));
+    expect(limiterKey(firstLimiter)).not.toContain("203.0.113.10");
+    expect(limiterKey(secondLimiter)).not.toContain("203.0.113.10");
+  });
+
+  test("a bound limiter without a salt fails loudly instead of collapsing every client into one bucket", async () => {
+    const stateLimiter = mockRateLimiter(true);
+    const envWithoutSalt: ApiEnv = { DB: env.DB };
+    const response = await handleApiRequest(
+      new Request(`https://api.test/api/lobbies/${lobbyIdFixture()}/state`, {
+        headers: { "cf-connecting-ip": "203.0.113.10" },
+      }),
+      { ...envWithoutSalt, STATE_RATE_LIMITER: stateLimiter }
+    );
+    const body = (await response.json()) as { error: { code: string } };
+
+    expect(response.status).toBe(500);
+    expect(body.error.code).toBe("internal_error");
+    // The limiter is never called with a constant/collapsed key.
+    expect(stateLimiter.limit).not.toHaveBeenCalled();
+  });
+
+  test("raw Cloudflare client IPs are not returned in success, error, or 429 responses", async () => {
+    const rawIp = "203.0.113.44";
+    const created = await createLobby({
+      playerOneName: "Alice",
+      playerTwoName: "Bob",
+    });
+    const success = await handleApiRequest(
+      new Request(`https://api.test/api/lobbies/${created.lobbyId}/state`, {
+        headers: { "cf-connecting-ip": rawIp },
+      }),
+      env
+    );
+    const error = await handleApiRequest(
+      new Request("https://api.test/api/lobbies/not-a-lobby/state", {
+        headers: { "cf-connecting-ip": rawIp },
+      }),
+      env
+    );
+    const limited = await handleApiRequest(
+      new Request(`https://api.test/api/lobbies/${created.lobbyId}/verify`, {
+        method: "POST",
+        headers: {
+          "cf-connecting-ip": rawIp,
+          "content-type": "application/json",
+        },
+        body: "{}",
+      }),
+      { ...env, VERIFY_RATE_LIMITER: mockRateLimiter(false) }
+    );
+
+    for (const response of [success, error, limited]) {
+      const serialized = `${await response.clone().text()} ${headersText(
+        response.headers
+      )}`;
+
+      expect(serialized).not.toContain(rawIp);
+    }
+  });
+
+  test("CORS only allows production origins and never emits a wildcard", async () => {
+    const allowed = await handleApiRequest(
+      new Request("https://api.test/api/lobbies", {
+        method: "OPTIONS",
+        headers: {
+          origin: "https://gaming-gauntlet.com",
+          "access-control-request-method": "POST",
+          "access-control-request-headers": "content-type",
+        },
+      }),
+      env
+    );
+    const rejected = await handleApiRequest(
+      new Request("https://api.test/api/lobbies", {
+        method: "OPTIONS",
+        headers: {
+          origin: "https://attacker.example",
+          "access-control-request-method": "POST",
+          "access-control-request-headers": "authorization, content-type",
+        },
+      }),
+      env
+    );
+    const rejectedBody = (await rejected.json()) as {
+      error: { code: string };
+    };
+
+    expect(allowed.status).toBe(204);
+    expect(allowed.headers.get("access-control-allow-origin")).toBe(
+      "https://gaming-gauntlet.com"
+    );
+    expect(allowed.headers.get("access-control-allow-origin")).not.toBe("*");
+    expect(allowed.headers.get("access-control-allow-headers")).toContain(
+      "authorization"
+    );
+    expect(rejected.status).toBe(403);
+    expect(rejectedBody.error.code).toBe("forbidden");
+    expect(rejected.headers.get("access-control-allow-origin")).toBeNull();
+  });
+
+  test("authenticated writes stay no-store and use explicit production CORS", async () => {
+    const created = await createLobby({
+      playerOneName: "Alice",
+      playerTwoName: "Bob",
+    });
+    const headers = new Headers(authHeader(created.managementCode));
+
+    headers.set("origin", "https://www.gaming-gauntlet.com");
+
+    const response = await apiJson(
+      `/api/lobbies/${created.lobbyId}`,
+      { playerOneScore: 1 },
+      {
+        method: "PATCH",
+        headers,
+      }
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("access-control-allow-origin")).toBe(
+      "https://www.gaming-gauntlet.com"
+    );
+    expect(response.headers.get("access-control-allow-origin")).not.toBe("*");
+  });
+
+  test("success, error, 304, and 429 responses carry API security headers", async () => {
+    const created = await createLobby({
+      playerOneName: "Alice",
+      playerTwoName: "Bob",
+    });
+    const success = await apiGet(`/api/lobbies/${created.lobbyId}/state`);
+    const notModified = await apiGet(`/api/lobbies/${created.lobbyId}/state`, {
+      "if-none-match": '"v1"',
+    });
+    const error = await apiGet("/api/lobbies/not-a-lobby/state");
+    const limited = await handleApiRequest(
+      new Request(`https://api.test/api/lobbies/${created.lobbyId}/verify`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      }),
+      { ...env, VERIFY_RATE_LIMITER: mockRateLimiter(false) }
+    );
+
+    expect(success.status).toBe(200);
+    expect(notModified.status).toBe(304);
+    expect(error.status).toBe(400);
+    expect(limited.status).toBe(429);
+
+    for (const response of [success, notModified, error, limited]) {
+      expectSecurityHeaders(response);
+    }
+  });
+
+  test("OBS-style conditional state polling still passes through rate protection", async () => {
+    const created = await createLobby({
+      playerOneName: "Alice",
+      playerTwoName: "Bob",
+    });
+    const stateLimiter = mockRateLimiter(true);
+    const response = await handleApiRequest(
+      new Request(`https://api.test/api/lobbies/${created.lobbyId}/state`, {
+        headers: {
+          "cf-connecting-ip": "203.0.113.10",
+          "if-none-match": '"v1"',
+        },
+      }),
+      {
+        ...env,
+        STATE_RATE_LIMITER: stateLimiter,
+      }
+    );
+
+    expect(response.status).toBe(304);
+    expect(response.headers.get("etag")).toBe('"v1"');
+    expect(stateLimiter.limit).toHaveBeenCalledWith({
+      key: expect.stringMatching(
+        new RegExp(`^state:${created.lobbyId}:iphash:[a-f0-9]{64}$`)
+      ),
     });
   });
 
@@ -1018,6 +1273,31 @@ describe("Phase 3 core lobby API", () => {
     return {
       limit: vi.fn().mockResolvedValue({ success }),
     };
+  }
+
+  function limiterKey(limiter: ApiRateLimiter): string {
+    return vi.mocked(limiter.limit).mock.calls[0]?.[0].key ?? "";
+  }
+
+  function headersText(headers: Headers): string {
+    return Array.from(headers.entries())
+      .map(([key, value]) => `${key}: ${value}`)
+      .join("\n");
+  }
+
+  function expectSecurityHeaders(response: Response): void {
+    expect(response.headers.get("content-security-policy")).toBe(
+      "default-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+    );
+    expect(response.headers.get("permissions-policy")).toContain(
+      "geolocation=()"
+    );
+    expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(response.headers.get("strict-transport-security")).toBe(
+      "max-age=31536000; includeSubDomains"
+    );
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response.headers.get("x-frame-options")).toBe("DENY");
   }
 
   function lobbyIdFixture(): string {

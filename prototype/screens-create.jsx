@@ -28,7 +28,7 @@ function CreateScreen({ nav, toast }) {
   const [err, setErr] = React.useState(null);
   const [joinErr, setJoinErr] = React.useState(null);
 
-  const matchUrl = result ? `gaminggauntlet.com/g/${result.lobbyId}` : "";
+  const matchUrl = result ? `gaming-gauntlet.com/g/${result.lobbyId}` : "";
 
   function create(e) {
     e.preventDefault();
@@ -83,7 +83,7 @@ function CreateScreen({ nav, toast }) {
 
         <KitPanel eyebrow="Existing match" title="Join to manage">
           <form className="gg-form" onSubmit={join}>
-            <KitTextField label="Match URL or ID" value={ref} onChange={(e) => setRef(e.target.value)} placeholder="gaminggauntlet.com/g/lob_8fk2n4qz" autoComplete="off" />
+            <KitTextField label="Match URL or ID" value={ref} onChange={(e) => setRef(e.target.value)} placeholder="gaming-gauntlet.com/g/lob_8fk2n4qz" autoComplete="off" />
             <KitTextField label="Management passcode" value={joinPass} onChange={(e) => setJoinPass(e.target.value)} placeholder={MASK} autoComplete="off" />
             <div className="gg-row">
               <KitButton type="submit" variant="primary">Verify passcode</KitButton>

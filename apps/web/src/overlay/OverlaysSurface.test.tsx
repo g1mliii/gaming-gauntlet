@@ -1,5 +1,12 @@
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { PublicLobbyState } from "@gaming-gauntlet/core";
 
@@ -151,15 +158,13 @@ describe("Phase 9 Add to OBS surface", () => {
 
     await screen.findByText("Add to OBS");
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Copy Top Bar URL" })
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Copy Top Bar URL" }));
 
     await waitFor(() => expect(clipboardWriteMock).toHaveBeenCalledTimes(1));
 
     const copied = clipboardWriteMock.mock.calls[0]?.[0] as string;
 
-    expect(copied).toContain(`/overlay/${lobbyId}/top`);
+    expect(copied).toBe(`https://gaming-gauntlet.com/overlay/${lobbyId}/top`);
     expect(copied).not.toContain("theme=");
     expect(copied).not.toMatch(/managementCode|code=|token|secret/i);
   });
@@ -177,15 +182,15 @@ describe("Phase 9 Add to OBS surface", () => {
       expect(container.querySelector(".gg-ov--blast")).toBeInTheDocument()
     );
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Copy Top Bar URL" })
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Copy Top Bar URL" }));
 
     await waitFor(() => expect(clipboardWriteMock).toHaveBeenCalled());
 
     const copied = clipboardWriteMock.mock.calls.at(-1)?.[0] as string;
 
-    expect(copied).toContain(`/overlay/${lobbyId}/top`);
+    expect(copied).toBe(
+      `https://gaming-gauntlet.com/overlay/${lobbyId}/top?theme=blast`
+    );
     expect(copied).toContain("theme=blast");
     expect(copied).not.toMatch(/managementCode|code=|token|secret/i);
   });
@@ -241,9 +246,7 @@ describe("Phase 9 Add to OBS surface", () => {
 
     expect(screen.getByText("Setup")).toBeInTheDocument();
     expect(screen.getByText("Troubleshooting")).toBeInTheDocument();
-    expect(
-      screen.getByText(/Right-click the source/i)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Right-click the source/i)).toBeInTheDocument();
     expect(
       screen.getByText(/Remove any color source behind it/i)
     ).toBeInTheDocument();
@@ -258,9 +261,9 @@ describe("Phase 9 Add to OBS surface", () => {
 
     // The status shows in the top notice and in every preview placeholder.
     await waitFor(() =>
-      expect(
-        container.querySelector(".gg-notice")
-      ).toHaveTextContent("Match not found.")
+      expect(container.querySelector(".gg-notice")).toHaveTextContent(
+        "Match not found."
+      )
     );
     // The gallery + instructions still render so the page stays usable.
     expect(screen.getByText("Add to OBS")).toBeInTheDocument();
@@ -271,24 +274,24 @@ describe("Phase 9 Add to OBS surface", () => {
 });
 
 describe("buildOverlayShareUrl", () => {
-  const origin = "https://gaminggauntlet.com";
-
   test("omits the theme param for the default theme", () => {
-    expect(buildOverlayShareUrl(origin, lobbyId, "top", "default")).toBe(
-      `${origin}/overlay/${lobbyId}/top`
+    expect(buildOverlayShareUrl(lobbyId, "top", "default")).toBe(
+      `https://gaming-gauntlet.com/overlay/${lobbyId}/top`
     );
   });
 
   test("appends ?theme= for a non-default theme", () => {
-    expect(buildOverlayShareUrl(origin, lobbyId, "top", "blast")).toBe(
-      `${origin}/overlay/${lobbyId}/top?theme=blast`
+    expect(buildOverlayShareUrl(lobbyId, "top", "blast")).toBe(
+      `https://gaming-gauntlet.com/overlay/${lobbyId}/top?theme=blast`
     );
   });
 
   test("encodes path segments", () => {
-    const url = buildOverlayShareUrl(origin, "lob a/b", "vs intro", "default");
+    const url = buildOverlayShareUrl("lob a/b", "vs intro", "default");
 
-    expect(url).toBe(`${origin}/overlay/lob%20a%2Fb/vs%20intro`);
+    expect(url).toBe(
+      "https://gaming-gauntlet.com/overlay/lob%20a%2Fb/vs%20intro"
+    );
   });
 });
 

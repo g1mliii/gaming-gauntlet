@@ -197,8 +197,8 @@ describe("Phase 6 match room", () => {
     fireEvent.click(within(urlField).getByRole("button", { name: /Copy/i }));
 
     await waitFor(() => expect(clipboardWriteMock).toHaveBeenCalledTimes(1));
-    expect(clipboardWriteMock.mock.calls[0]?.[0]).toMatch(
-      new RegExp(`/g/${lobbyId}$`)
+    expect(clipboardWriteMock.mock.calls[0]?.[0]).toBe(
+      `https://gaming-gauntlet.com/g/${lobbyId}`
     );
     expect(clipboardWriteMock).not.toHaveBeenCalledWith(managementCode);
   });
@@ -246,9 +246,7 @@ describe("Phase 6 match room", () => {
 
     // Confirmation gate: still hidden until the streamer confirms they're safe.
     expect(screen.queryByText(managementCode)).not.toBeInTheDocument();
-    expect(
-      screen.getByText(/make sure you’re not live/i)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/make sure you’re not live/i)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Yes, reveal" }));
 
@@ -284,8 +282,8 @@ describe("Phase 6 match room", () => {
     );
 
     await waitFor(() => expect(shareMock).toHaveBeenCalledTimes(1));
-    expect(shareMock.mock.calls[0]?.[0]?.url).toMatch(
-      new RegExp(`^https?://.+/g/${lobbyId}$`)
+    expect(shareMock.mock.calls[0]?.[0]?.url).toBe(
+      `https://gaming-gauntlet.com/g/${lobbyId}`
     );
     expect(clipboardWriteMock).not.toHaveBeenCalled();
   });

@@ -9,7 +9,6 @@ The goal is to let you tell an AI coding agent things like:
 Each phase includes a clear implementation goal and required regression tests before moving on.
 
 ---
-
 ## Global Instruction To Give The AI First
 
 ```text
@@ -36,17 +35,18 @@ The canonical design kit lives in `prototype/` (added to the repo as the source
 of truth). It is a browser-runnable prototype, not part of the build/lint/test
 pipeline. Phases 5–9 should mirror these files:
 
-| Kit file | Surface | Production target |
-| --- | --- | --- |
-| `kit.css` / `kit.jsx` | Tokens + primitives (`KitButton`, `KitChip`, `KitPanel`, `KitCard`, `KitNotice`, `KitTextField`, `KitTextareaField`, `PageShell`, `ScoreBug`, `Ico`) | `packages/ui` |
-| `app.css` | Screen/layout styles | `apps/web/src/app.css` |
-| `screens-create.jsx` | Create page (Phase 5) | `apps/web/src/CreatePage.tsx` |
-| `screens-match.jsx` | Single match room `/g/:lobbyId` — public view + inline unlock, scorebar, game-pool editor, wheel (Phase 6–7) | match room |
-| `wheel.jsx` | Spin wheel: `radial` + `reel` (Phase 7) | wheel component |
-| `overlays.jsx` | On-stream overlay graphics + metadata (Phase 8) | overlay routes |
-| `screens-obs.jsx` | "Add to OBS" overlays surface: live previews + copy-URL + instructions (Phase 9) | overlays surface |
+| Kit file              | Surface                                                                                                                                              | Production target             |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| `kit.css` / `kit.jsx` | Tokens + primitives (`KitButton`, `KitChip`, `KitPanel`, `KitCard`, `KitNotice`, `KitTextField`, `KitTextareaField`, `PageShell`, `ScoreBug`, `Ico`) | `packages/ui`                 |
+| `app.css`             | Screen/layout styles                                                                                                                                 | `apps/web/src/app.css`        |
+| `screens-create.jsx`  | Create page (Phase 5)                                                                                                                                | `apps/web/src/CreatePage.tsx` |
+| `screens-match.jsx`   | Single match room `/g/:lobbyId` — public view + inline unlock, scorebar, game-pool editor, wheel (Phase 6–7)                                         | match room                    |
+| `wheel.jsx`           | Spin wheel: `radial` + `reel` (Phase 7)                                                                                                              | wheel component               |
+| `overlays.jsx`        | On-stream overlay graphics + metadata (Phase 8)                                                                                                      | overlay routes                |
+| `screens-obs.jsx`     | "Add to OBS" overlays surface: live previews + copy-URL + instructions (Phase 9)                                                                     | overlays surface              |
 
 Key deviations the production app makes on purpose:
+
 - **Routes, not a rail.** The prototype's `app.jsx` left nav rail is demo-only.
   Production uses real URLs; the match URL is the only shareable link.
 - **Real API + auth.** `store.jsx` is an in-memory stand-in for the Worker API.
@@ -579,65 +579,93 @@ Add tests that verify:
 
 ---
 
-# Phase 10 — Abuse Protection + Cloudflare Hardening
+# Phase 10 — Streamer IP Protection + Abuse Hardening
 
-## Goal
+## Summary
 
-Add protection for streamer URLs and public endpoints. our main issues is streamers with large viewership may try to get into the games and hit the urls all at once to either crash the site or try to get into lobby by going to that url with the code or trying random codes, any of these thigns we need protectoins for all of these i have 11 tasks here but you can add more to tackle this issue thanks. anythign with large numbe of people trying to access urls or the site we need protectionsf or tall of this thanks.
+Phase 10 prioritizes streamer safety first: no streamer IP or viewer IP should
+be exposed by the app, URLs, overlays, API responses, client storage, D1 rows,
+or app-owned limiter keys. Cloudflare can still process source IPs internally
+for DDoS, WAF, bot checks, and rate limiting, but the app must not persist,
+display, return, or log raw IP addresses.
 
-## AI Prompt
+## Key Changes
 
-```text
-Implement Phase 10: Abuse Protection + Cloudflare Hardening.
+- Add an explicit Streamer IP Protection + Anonymity hardening layer:
+  - Keep public, OBS, and share URLs on `https://gaming-gauntlet.com`; never
+    expose local, origin, streamer-machine, tunnel, or peer-to-peer addresses.
+  - Never include IPs in public lobby state, overlay links, copied URLs, errors,
+    validation messages, analytics-style payloads, D1 rows, or browser storage.
+  - Use Cloudflare request IP only inside the Worker for abuse controls, then
+    hash it with `RATE_LIMIT_KEY_SALT` before using it in limiter keys.
+  - Add tests proving raw IPs are not returned or passed into app-owned limiter
+    keys.
+- Keep abuse protection privacy-preserving:
+  - Public state remains protected for high-viewer streams without breaking OBS
+    polling.
+  - Verify gets the strictest protection because passcode guessing is the main
+    threat.
+  - Writes stay authenticated with `Authorization: Bearer <managementCode>`.
+  - Request size limits, malformed ID rejection, ETags/304s, no-store for
+    authenticated writes, and API security headers remain required.
+- Add explicit CORS and cache behavior:
+  - Allow only `https://gaming-gauntlet.com` and
+    `https://www.gaming-gauntlet.com`.
+  - No wildcard CORS, especially on authenticated writes.
+  - Public state can use short safe caching and ETags; authenticated writes are
+    never cached.
 
-Tasks:
-1. Add reasonable rate limiting for public read endpoints.
-2. Add stricter rate limiting for write endpoints.
-3. Add stricter rate limiting for verify endpoint to prevent passcode guessing.
-4. Add CORS rules appropriate for the deployed frontend.
-5. Add security headers.
-6. Add request size limits.
-7. Add validation to reject malformed lobby IDs and game IDs.
-8. Add caching strategy where safe:
-   - Do not cache authenticated write responses.
-   - Public state can be short-cache or no-cache depending on polling behavior.
-9. Add Cloudflare-oriented notes/config for:
-   - WAF rules
-   - bot fight mode / managed challenge where appropriate
-   - rate limiting rules
-   - DDoS protection
-10. Make sure overlays still work smoothly in OBS.
-11. ip adress protection anonmiyy for streamers no ip's should be accessible or anonmyed idea is to be as safe as possinle we dont want to have any securtiy issues for streamsers and their location and data as this can be very bad.
+## Live Cloudflare Changes
 
-At the end, add regression tests.
-```
+- Apply live Cloudflare hardening after credentials allow WAF/ruleset edits.
+- Add only rules named with `GG Phase 10` so unrelated account rules are
+  preserved.
+- Configure:
+  - strict verify/passcode rate limiting,
+  - public API abuse limits,
+  - bot/browser integrity protection where safe,
+  - explicit OBS-safe exclusions for `/overlay/*` and `/g/*/obs`.
+- If the account plan or token blocks WAF edits, finish repo hardening and
+  Worker dry-run validation, then report the live-rule blocker clearly.
 
 ## Regression Tests For Phase 10
 
-```text
-Add tests that verify:
-- Verify endpoint rate limit exists.
-- Public state endpoint has abuse protection.
-- Write endpoints have stricter abuse protection.
-- Malformed lobby IDs are rejected.
-- Oversized request bodies are rejected.
-- Security headers are present.
-- CORS does not allow unsafe broad access for authenticated writes.
-- OBS overlay polling is not broken by protection rules.
-```
+Add or keep tests that verify:
+
+- No raw IP in responses, errors, state, or limiter keys.
+- Salted hashed rate-limit keys.
+- Verify/state/write rate-limit routing.
+- Unsafe CORS rejection and no wildcard CORS.
+- Security headers on success/error/304/429.
+- Malformed lobby/game IDs.
+- Oversized bodies.
+- OBS overlay polling still works with 304/rate protections.
+
+## Implementation Status
+
+- [x] Repo hardening: Worker limiter keys use salted IP hashes instead of raw
+      `cf-connecting-ip`.
+- [x] Repo hardening: API CORS only allows the two production origins and never
+      emits wildcard CORS.
+- [x] Repo hardening: public state keeps ETag/304 behavior with short safe
+      caching; authenticated writes stay `no-store`.
+- [x] Repo hardening: share and OBS URLs are generated on
+      `https://gaming-gauntlet.com`, not the current local/browser origin.
+- [x] Regression coverage: raw-IP non-leakage, salted limiter keys, route
+      limiter selection, CORS, security headers, malformed IDs, oversized
+      bodies, and OBS conditional polling.
+- [x] Live deploy: API Worker and Pages frontend deployed after verification.
+- [x] Live sanity: production API CORS/security headers verified, static Pages
+      wildcard CORS detached, and `/g/:lobbyId/obs` plus `/overlay/:lobbyId/top`
+      stay reachable and `noindex`.
+- [ ] Live Cloudflare WAF/ruleset changes named `GG Phase 10`: blocked by the
+      current Cloudflare API permission/plan path (`request is not authorized`
+      for Rulesets entrypoints; legacy zone rate-limit API returns an
+      authentication error).
 
 ---
 
 # Phase 11 — Polish + Deployment
-
-## Goal
-
-Make V1 shippable.
-
-## AI Prompt
-
-```text
-Implement Phase 11: Polish + Deployment.
 
 Tasks:
 1. Add loading states.
@@ -651,8 +679,6 @@ Tasks:
    - Cloudflare Worker API
    - Cloudflare D1 migrations
 8. Add environment variable documentation.
-9. Add README setup instructions.
-10. Add deployment checklist for gaminggauntlet.com.
 11. Run full regression suite.
 
 At the end, add final regression tests.
@@ -678,33 +704,3 @@ Add tests that verify:
 ```
 
 ---
-
-# Final AI Instruction After Every Phase
-
-Give this to the AI at the end of each phase:
-
-```text
-Before finishing this phase:
-
-1. Add or update regression tests for everything changed in this phase.
-2. Run:
-   - lint
-   - typecheck
-   - unit tests
-   - integration/API tests
-   - relevant e2e tests
-   - production build
-3. Fix all failures.
-4. Confirm no management code appears in:
-   - URLs
-   - overlay pages
-   - match page unless explicitly revealed inside the unlocked management surface
-   - public API responses
-   - logs
-   - generated OBS URLs
-5. Summarize:
-   - what changed
-   - which tests were added
-   - which commands passed
-   - any known limitations
-```

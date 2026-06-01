@@ -22,6 +22,7 @@ import { isTheme, THEME_OPTIONS } from "../overlay/catalog";
 import type { OverlayTheme } from "../overlay/catalog";
 import { buildMatchUrl, buildOverlaysUrl } from "../management-passcodes";
 import { themeClassName, useOverlayTheme } from "../overlay-theme";
+import { buildPublicUrl } from "../public-urls";
 import { useMatchRoom } from "./use-match-room";
 import type {
   MatchRoomActions,
@@ -317,11 +318,7 @@ function ShareBar({
   const [status, setStatus] = useState<string | null>(null);
 
   function absoluteMatchUrl(): string {
-    try {
-      return new URL(matchPath, window.location.origin).toString();
-    } catch {
-      return matchPath;
-    }
+    return buildPublicUrl(matchPath);
   }
 
   async function copy(text: string, label: string) {

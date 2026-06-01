@@ -3,6 +3,8 @@
 // is the URL segment in /overlay/:lobbyId/:variant and the recommended OBS
 // browser-source size is `w` × `h`.
 
+import { buildPublicUrl } from "../public-urls";
+
 // Gallery sections for the Phase 9 "Add to OBS" surface. The catalog carries
 // the group so new overlays appear under the right heading automatically — the
 // surface never hardcodes the overlay list.
@@ -205,13 +207,12 @@ export const OVERLAY_GROUPS: ReadonlyArray<{
 // added — OBS browser sources cannot be sized from the URL, so size lives in
 // the UI, not the link.
 export function buildOverlayShareUrl(
-  origin: string,
   lobbyId: string,
   slug: string,
   theme: OverlayTheme
 ): string {
   const path = `/overlay/${encodeURIComponent(lobbyId)}/${encodeURIComponent(slug)}`;
-  const base = `${origin}${path}`;
+  const base = buildPublicUrl(path);
 
   return theme === "default"
     ? base

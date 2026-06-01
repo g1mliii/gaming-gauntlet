@@ -310,7 +310,7 @@ function UrlBar({ path, note }) {
   return (
     <div className="gg-urlbar">
       <span className="gg-urlbar__dot" />
-      <span className="gg-urlbar__url">gaminggauntlet.com<b>{path}</b></span>
+      <span className="gg-urlbar__url">gaming-gauntlet.com<b>{path}</b></span>
       {note ? <span className="gg-urlbar__url" style={{ marginLeft: "auto", opacity: 0.7 }}>{note}</span> : null}
     </div>
   );

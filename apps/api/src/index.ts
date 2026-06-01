@@ -60,6 +60,7 @@ export interface ApiRateLimiter {
 export interface ApiEnv {
   CREATE_RATE_LIMITER?: ApiRateLimiter;
   DB: ApiDatabase;
+  RATE_LIMIT_KEY_SALT?: string;
   STATE_RATE_LIMITER?: ApiRateLimiter;
   VERIFY_RATE_LIMITER?: ApiRateLimiter;
   WRITE_RATE_LIMITER?: ApiRateLimiter;
@@ -80,6 +81,7 @@ type ApiRoute =
 
 type JsonErrorCode =
   | "bad_request"
+  | "forbidden"
   | "invalid_json"
   | "invalid_management_code"
   | "method_not_allowed"
@@ -131,6 +133,14 @@ type SecretRow = {
 
 const JSON_CONTENT_TYPE = "application/json; charset=utf-8";
 const MAX_JSON_BODY_BYTES = 16 * 1024;
+const PUBLIC_STATE_CACHE_CONTROL = "public, max-age=1, must-revalidate";
+const ALLOWED_CORS_ORIGINS = new Set([
+  "https://gaming-gauntlet.com",
+  "https://www.gaming-gauntlet.com",
+]);
+const ALLOWED_CORS_METHODS = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+const ALLOWED_CORS_HEADERS = ["authorization", "content-type", "if-none-match"];
+const textEncoder = new TextEncoder();
 
 class BodyTooLargeError extends Error {}
 
@@ -183,7 +193,9 @@ async function deleteExpiredLobbies(
       .prepare(`DELETE FROM games WHERE lobby_id IN (${expiredSelector})`)
       .bind(cutoff, limit),
     db
-      .prepare(`DELETE FROM lobby_secrets WHERE lobby_id IN (${expiredSelector})`)
+      .prepare(
+        `DELETE FROM lobby_secrets WHERE lobby_id IN (${expiredSelector})`
+      )
       .bind(cutoff, limit),
     db
       .prepare(`DELETE FROM lobbies WHERE id IN (${expiredSelector})`)
@@ -200,64 +212,101 @@ export async function handleApiRequest(
   env: ApiEnv
 ): Promise<Response> {
   try {
+    if (request.method === "OPTIONS") {
+      return finalizeApiResponse(request, corsPreflightResponse(request));
+    }
+
     const route = matchRoute(request);
     const rateLimitResponse = await enforceRateLimit(request, route, env);
 
     if (rateLimitResponse) {
-      return rateLimitResponse;
+      return finalizeApiResponse(request, rateLimitResponse);
     }
 
     if (route.id === "createLobby") {
-      return await createLobby(request, env.DB);
+      return finalizeApiResponse(request, await createLobby(request, env.DB));
     }
 
     if (route.id === "getLobbyState") {
-      return await getLobbyState(request, route.lobbyId, env.DB);
-    }
-
-    if (route.id === "verifyLobby") {
-      return await verifyLobby(request, route.lobbyId, env.DB);
-    }
-
-    if (route.id === "updateLobby") {
-      return await updateLobby(request, route.lobbyId, env.DB);
-    }
-
-    if (route.id === "spinLobby") {
-      return await spinLobby(request, route.lobbyId, env.DB);
-    }
-
-    if (route.id === "addGame") {
-      return await addGame(request, route.lobbyId, env.DB);
-    }
-
-    if (route.id === "updateGame") {
-      return await updateGame(request, route.lobbyId, route.gameId, env.DB);
-    }
-
-    if (route.id === "deleteGame") {
-      return await deleteGame(request, route.lobbyId, route.gameId, env.DB);
-    }
-
-    if (route.id === "reorderGames") {
-      return await reorderGames(request, route.lobbyId, env.DB);
-    }
-
-    if (route.id === "methodNotAllowed") {
-      return jsonError(
-        405,
-        "method_not_allowed",
-        "Method is not allowed for this endpoint."
+      return finalizeApiResponse(
+        request,
+        await getLobbyState(request, route.lobbyId, env.DB)
       );
     }
 
-    return jsonError(404, "not_found", "API route was not found.");
-  } catch (error) {
-    if (isHandledJsonError(error)) {
-      return error.response;
+    if (route.id === "verifyLobby") {
+      return finalizeApiResponse(
+        request,
+        await verifyLobby(request, route.lobbyId, env.DB)
+      );
     }
 
-    return jsonError(500, "internal_error", "Unexpected API error.");
+    if (route.id === "updateLobby") {
+      return finalizeApiResponse(
+        request,
+        await updateLobby(request, route.lobbyId, env.DB)
+      );
+    }
+
+    if (route.id === "spinLobby") {
+      return finalizeApiResponse(
+        request,
+        await spinLobby(request, route.lobbyId, env.DB)
+      );
+    }
+
+    if (route.id === "addGame") {
+      return finalizeApiResponse(
+        request,
+        await addGame(request, route.lobbyId, env.DB)
+      );
+    }
+
+    if (route.id === "updateGame") {
+      return finalizeApiResponse(
+        request,
+        await updateGame(request, route.lobbyId, route.gameId, env.DB)
+      );
+    }
+
+    if (route.id === "deleteGame") {
+      return finalizeApiResponse(
+        request,
+        await deleteGame(request, route.lobbyId, route.gameId, env.DB)
+      );
+    }
+
+    if (route.id === "reorderGames") {
+      return finalizeApiResponse(
+        request,
+        await reorderGames(request, route.lobbyId, env.DB)
+      );
+    }
+
+    if (route.id === "methodNotAllowed") {
+      return finalizeApiResponse(
+        request,
+        jsonError(
+          405,
+          "method_not_allowed",
+          "Method is not allowed for this endpoint."
+        )
+      );
+    }
+
+    return finalizeApiResponse(
+      request,
+      jsonError(404, "not_found", "API route was not found.")
+    );
+  } catch (error) {
+    if (isHandledJsonError(error)) {
+      return finalizeApiResponse(request, error.response);
+    }
+
+    return finalizeApiResponse(
+      request,
+      jsonError(500, "internal_error", "Unexpected API error.")
+    );
   }
 }
 
@@ -341,27 +390,29 @@ async function enforceRateLimit(
   route: ApiRoute,
   env: ApiEnv
 ): Promise<Response | null> {
-  const key = rateLimitKey(request, route);
+  const target = rateLimitTarget(route);
 
-  if (!key) {
+  if (!target) {
     return null;
   }
 
-  const limiter = env[key.limiter];
+  const limiter = env[target.limiter];
 
   if (!limiter) {
     return null;
   }
 
-  const result = await limiter.limit({ key: key.value });
+  const result = await limiter.limit({
+    key: `${target.valuePrefix}:${await anonymizedRateLimitClientKey(
+      request,
+      env
+    )}`,
+  });
 
   return result.success ? null : rateLimitedError();
 }
 
-function rateLimitKey(
-  request: Request,
-  route: ApiRoute
-): {
+function rateLimitTarget(route: ApiRoute): {
   limiter: keyof Pick<
     ApiEnv,
     | "CREATE_RATE_LIMITER"
@@ -369,25 +420,23 @@ function rateLimitKey(
     | "VERIFY_RATE_LIMITER"
     | "WRITE_RATE_LIMITER"
   >;
-  value: string;
+  valuePrefix: string;
 } | null {
-  const client = request.headers.get("cf-connecting-ip") ?? "unknown";
-
   if (route.id === "createLobby") {
-    return { limiter: "CREATE_RATE_LIMITER", value: `create:${client}` };
+    return { limiter: "CREATE_RATE_LIMITER", valuePrefix: "create" };
   }
 
   if (route.id === "getLobbyState") {
     return {
       limiter: "STATE_RATE_LIMITER",
-      value: `state:${route.lobbyId}:${client}`,
+      valuePrefix: `state:${route.lobbyId}`,
     };
   }
 
   if (route.id === "verifyLobby") {
     return {
       limiter: "VERIFY_RATE_LIMITER",
-      value: `verify:${route.lobbyId}:${client}`,
+      valuePrefix: `verify:${route.lobbyId}`,
     };
   }
 
@@ -401,11 +450,49 @@ function rateLimitKey(
   ) {
     return {
       limiter: "WRITE_RATE_LIMITER",
-      value: `write:${route.lobbyId}:${client}`,
+      valuePrefix: `write:${route.lobbyId}`,
     };
   }
 
   return null;
+}
+
+async function anonymizedRateLimitClientKey(
+  request: Request,
+  env: ApiEnv
+): Promise<string> {
+  const salt = env.RATE_LIMIT_KEY_SALT?.trim();
+
+  if (!salt) {
+    // A limiter is bound but the anonymizing salt is missing/empty. Refuse
+    // rather than hashing every client into one shared "missing-salt" bucket:
+    // that constant key would 429 every viewer and OBS source of a busy lobby
+    // the instant the 600/min state ceiling is hit. Throwing surfaces the
+    // misconfiguration loudly (500 + Worker log) on the first request after a
+    // deploy instead of silently degrading only under load.
+    throw new Error(
+      "RATE_LIMIT_KEY_SALT must be configured when a rate limiter is bound"
+    );
+  }
+
+  const sourceIp = request.headers.get("cf-connecting-ip")?.trim() || "unknown";
+
+  return `iphash:${await sha256Hex(`${salt}:${sourceIp}`)}`;
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    textEncoder.encode(value)
+  );
+
+  return bytesToHex(new Uint8Array(digest));
+}
+
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(
+    ""
+  );
 }
 
 async function createLobby(
@@ -559,7 +646,9 @@ async function getLobbyState(
     return jsonError(404, "not_found", "Lobby was not found.");
   }
 
-  if (etagMatches(request.headers.get("if-none-match"), lobbyStateEtag(version))) {
+  if (
+    etagMatches(request.headers.get("if-none-match"), lobbyStateEtag(version))
+  ) {
     return notModifiedResponse(lobbyStateEtag(version));
   }
 
@@ -573,7 +662,10 @@ async function getLobbyState(
   // version) so a concurrent write between the two reads can never hand the
   // client an ETag that disagrees with the body it just received.
   return jsonResponse(state, {
-    headers: { etag: lobbyStateEtag(state.version) },
+    headers: {
+      "cache-control": PUBLIC_STATE_CACHE_CONTROL,
+      etag: lobbyStateEtag(state.version),
+    },
   });
 }
 
@@ -1557,9 +1649,8 @@ function notModifiedResponse(etag: string): Response {
   return new Response(null, {
     status: 304,
     headers: {
+      "cache-control": PUBLIC_STATE_CACHE_CONTROL,
       etag,
-      "cache-control": "no-store",
-      "x-content-type-options": "nosniff",
     },
   });
 }
@@ -1567,8 +1658,10 @@ function notModifiedResponse(etag: string): Response {
 function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
   const headers = new Headers(init.headers);
   headers.set("content-type", JSON_CONTENT_TYPE);
-  headers.set("cache-control", "no-store");
-  headers.set("x-content-type-options", "nosniff");
+
+  if (!headers.has("cache-control")) {
+    headers.set("cache-control", "no-store");
+  }
 
   return new Response(JSON.stringify(body), {
     ...init,
@@ -1603,6 +1696,104 @@ function rateLimitedError(): Response {
 
   response.headers.set("retry-after", "60");
   return response;
+}
+
+function corsPreflightResponse(request: Request): Response {
+  const origin = request.headers.get("origin");
+
+  if (origin && !ALLOWED_CORS_ORIGINS.has(origin)) {
+    return jsonError(403, "forbidden", "CORS origin is not allowed.");
+  }
+
+  const requestedMethod = request.headers
+    .get("access-control-request-method")
+    ?.toUpperCase();
+
+  if (requestedMethod && !ALLOWED_CORS_METHODS.includes(requestedMethod)) {
+    return jsonError(
+      405,
+      "method_not_allowed",
+      "Method is not allowed for this endpoint."
+    );
+  }
+
+  const requestedHeaders = request.headers
+    .get("access-control-request-headers")
+    ?.split(",")
+    .map((header) => header.trim().toLowerCase())
+    .filter(Boolean);
+
+  if (
+    requestedHeaders?.some((header) => !ALLOWED_CORS_HEADERS.includes(header))
+  ) {
+    return jsonError(403, "forbidden", "CORS header is not allowed.");
+  }
+
+  return new Response(null, {
+    status: 204,
+    headers: { "cache-control": "no-store" },
+  });
+}
+
+function finalizeApiResponse(request: Request, response: Response): Response {
+  const headers = new Headers(response.headers);
+
+  applySecurityHeaders(headers);
+  applyCorsHeaders(request, headers);
+
+  return new Response(response.body, {
+    headers,
+    status: response.status,
+    statusText: response.statusText,
+  });
+}
+
+function applySecurityHeaders(headers: Headers): void {
+  headers.set(
+    "content-security-policy",
+    "default-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+  );
+  headers.set(
+    "permissions-policy",
+    "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+  );
+  headers.set("referrer-policy", "no-referrer");
+  headers.set(
+    "strict-transport-security",
+    "max-age=31536000; includeSubDomains"
+  );
+  headers.set("x-content-type-options", "nosniff");
+  headers.set("x-frame-options", "DENY");
+}
+
+function applyCorsHeaders(request: Request, headers: Headers): void {
+  const origin = request.headers.get("origin");
+
+  if (!origin || !ALLOWED_CORS_ORIGINS.has(origin)) {
+    return;
+  }
+
+  headers.set("access-control-allow-origin", origin);
+  headers.set("access-control-allow-methods", ALLOWED_CORS_METHODS.join(", "));
+  headers.set("access-control-allow-headers", ALLOWED_CORS_HEADERS.join(", "));
+  headers.set("access-control-expose-headers", "etag");
+  headers.set("access-control-max-age", "600");
+  appendVary(headers, "Origin");
+}
+
+function appendVary(headers: Headers, value: string): void {
+  const current = headers.get("vary");
+
+  if (!current) {
+    headers.set("vary", value);
+    return;
+  }
+
+  const existing = current.split(",").map((item) => item.trim().toLowerCase());
+
+  if (!existing.includes(value.toLowerCase())) {
+    headers.set("vary", `${current}, ${value}`);
+  }
 }
 
 function jsonHandledError(response: Response): Error {

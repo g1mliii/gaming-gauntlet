@@ -1,5 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Ico, KitButton, KitNotice, KitPanel, PageShell } from "@gaming-gauntlet/ui";
+import {
+  Ico,
+  KitButton,
+  KitNotice,
+  KitPanel,
+  PageShell,
+} from "@gaming-gauntlet/ui";
 
 import {
   buildOverlayShareUrl,
@@ -260,12 +266,10 @@ export default function OverlaysSurface({ lobbyId }: OverlaysSurfaceProps) {
   }
 
   const previewMatch = statusMessage ? null : match;
-  const origin =
-    typeof window !== "undefined" ? window.location.origin : "";
   const copyStatusAnnouncement = copyAnnouncement(copyResult);
 
   async function copyShareUrl(slug: string) {
-    const url = buildOverlayShareUrl(origin, lobbyId, slug, theme);
+    const url = buildOverlayShareUrl(lobbyId, slug, theme);
     let ok = true;
 
     try {
@@ -336,7 +340,10 @@ export default function OverlaysSurface({ lobbyId }: OverlaysSurfaceProps) {
           </KitNotice>
         ) : null}
 
-        <KitPanel eyebrow="Setup · Troubleshooting" title="How to add an overlay">
+        <KitPanel
+          eyebrow="Setup · Troubleshooting"
+          title="How to add an overlay"
+        >
           <div className="gg-obs-guide">
             <div className="gg-obs-guide__col">
               <span className="gg-obs-guide__head">Setup</span>
@@ -391,7 +398,6 @@ export default function OverlaysSurface({ lobbyId }: OverlaysSurfaceProps) {
                     onCopy={() => copyShareUrl(overlay.slug)}
                     overlay={overlay}
                     shareUrl={buildOverlayShareUrl(
-                      origin,
                       lobbyId,
                       overlay.slug,
                       theme
