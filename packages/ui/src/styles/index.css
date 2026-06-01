@@ -129,6 +129,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 }
 .gg-button:hover:not(:disabled) { border-color: color-mix(in oklab, var(--gg-text) 22%, var(--gg-border)); transform: translateY(-1px); }
 .gg-button:active:not(:disabled) { transform: translateY(0); }
+.gg-button:focus-visible { outline: 2px solid color-mix(in oklab, var(--gg-accent) 72%, white 8%); outline-offset: 3px; }
 .gg-button--primary { border-color: color-mix(in oklab, var(--gg-accent) 50%, white 8%); background: color-mix(in oklab, var(--gg-accent) 22%, var(--gg-surface)); color: oklch(0.97 0.02 95); }
 .gg-button--primary:hover:not(:disabled) { background: color-mix(in oklab, var(--gg-accent) 30%, var(--gg-surface)); box-shadow: 0 0 0 3px color-mix(in oklab, var(--gg-accent) 16%, transparent); }
 .gg-button--ghost { background: color-mix(in oklab, var(--gg-bg) 30%, transparent); }

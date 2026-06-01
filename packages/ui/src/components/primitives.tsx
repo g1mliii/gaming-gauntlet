@@ -233,7 +233,7 @@ export function KitTextField({
         </p>
       ) : null}
       {error ? (
-        <p className="gg-field__error" id={errorId}>
+        <p className="gg-field__error" id={errorId} role="alert">
           {error}
         </p>
       ) : null}
@@ -257,7 +257,11 @@ export function KitSelectField({
       <select aria-invalid={error ? "true" : undefined} {...props}>
         {children}
       </select>
-      {error ? <p className="gg-field__error">{error}</p> : null}
+      {error ? (
+        <p className="gg-field__error" role="alert">
+          {error}
+        </p>
+      ) : null}
     </label>
   );
 }
@@ -275,7 +279,11 @@ export function KitTextareaField({
     <label className={mergeClassNames("gg-field", className)}>
       <span>{label}</span>
       <textarea aria-invalid={error ? "true" : undefined} {...props} />
-      {error ? <p className="gg-field__error">{error}</p> : null}
+      {error ? (
+        <p className="gg-field__error" role="alert">
+          {error}
+        </p>
+      ) : null}
     </label>
   );
 }

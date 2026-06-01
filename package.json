@@ -13,11 +13,18 @@
   "scripts": {
     "build": "npm run build --workspace @gaming-gauntlet/core && npm run build --workspace @gaming-gauntlet/api && npm run build --workspace @gaming-gauntlet/ui && npm run build --workspace @gaming-gauntlet/web",
     "dev": "npm run dev --workspace @gaming-gauntlet/web",
+    "deploy:api": "wrangler deploy --config wrangler.api.toml",
+    "deploy:api:dry-run": "wrangler deploy --dry-run --config wrangler.api.toml",
+    "deploy:check": "node scripts/verify-deploy-config.mjs",
+    "deploy:d1:apply": "wrangler d1 migrations apply gaming-gauntlet-v1 --config wrangler.api.toml --remote",
+    "deploy:d1:list": "wrangler d1 migrations list gaming-gauntlet-v1 --config wrangler.api.toml --remote",
+    "deploy:dry-run": "npm run deploy:check && npm run deploy:api:dry-run && npm run build --workspace @gaming-gauntlet/web",
+    "deploy:pages": "npm run build --workspace @gaming-gauntlet/web && cd apps/web && wrangler pages deploy dist --project-name gaming-gauntlet",
     "lint": "eslint . --max-warnings=0",
     "test": "npm run test --workspace @gaming-gauntlet/core && npm run test --workspace @gaming-gauntlet/api && npm run test --workspace @gaming-gauntlet/web",
     "typecheck": "npm run typecheck --workspace @gaming-gauntlet/core && npm run typecheck --workspace @gaming-gauntlet/api && npm run typecheck --workspace @gaming-gauntlet/ui && npm run typecheck --workspace @gaming-gauntlet/web",
     "format": "prettier --write .",
-    "verify": "npm run lint && npm run typecheck && npm run test && npm run build"
+    "verify": "npm run deploy:check && npm run lint && npm run typecheck && npm run test && npm run build"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -31,6 +38,7 @@
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "typescript": "^5.8.2",
-    "typescript-eslint": "^8.57.2"
+    "typescript-eslint": "^8.57.2",
+    "wrangler": "4.95.0"
   }
 }

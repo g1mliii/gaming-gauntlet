@@ -149,7 +149,11 @@ export default function CreatePage() {
 
       <div className="gg-create-grid">
         <KitPanel eyebrow="New match" title="Create">
-          <form className="gg-form" onSubmit={handleCreateSubmit}>
+          <form
+            aria-busy={isCreating ? "true" : undefined}
+            className="gg-form"
+            onSubmit={handleCreateSubmit}
+          >
             <div className="gg-form-pair">
               <KitTextField
                 autoComplete="off"
@@ -206,7 +210,11 @@ export default function CreatePage() {
         </KitPanel>
 
         <KitPanel eyebrow="Existing match" title="Join to manage">
-          <form className="gg-form" onSubmit={handleJoinSubmit}>
+          <form
+            aria-busy={isVerifying ? "true" : undefined}
+            className="gg-form"
+            onSubmit={handleJoinSubmit}
+          >
             <KitTextField
               autoComplete="off"
               label="Match URL or ID"

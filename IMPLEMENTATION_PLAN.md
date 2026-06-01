@@ -667,40 +667,70 @@ Add or keep tests that verify:
 
 # Phase 11 — Polish + Deployment
 
-Tasks:
-1. Add loading states.
-2. Add empty game list state.
-3. Add invalid lobby state.
-4. Add invalid management passcode state.
-5. Add copied-to-clipboard feedback.
-6. Add basic mobile responsiveness for the match room and unlocked management surface.
-7. Add deployment config for:
-   - Cloudflare Pages frontend
-   - Cloudflare Worker API
-   - Cloudflare D1 migrations
-8. Add environment variable documentation.
-11. Run full regression suite.
+## Goal
 
-At the end, add final regression tests.
-```
+Finish V1 with accessible final UI states, repeatable Cloudflare deployment,
+documented production setup, and regression coverage for the complete
+create-to-overlay workflow.
+
+## Status
+
+- [x] Loading, invalid lobby, invalid management passcode, empty game pool, and
+      clipboard success/failure states are covered with live regions, disabled
+      states, retry/recovery actions, and accessible error copy.
+- [x] Match room, unlocked management controls, share bar, scoreboard, wheel,
+      and game editor layouts are tightened for narrow viewports. Mobile OBS
+      gallery polish is intentionally out of scope for Phase 11.
+- [x] No public interface changes: API routes, response shapes, route params,
+      schema, and the one-match-URL model remain unchanged.
+- [x] `wrangler.api.toml` remains the Worker API config for
+      `gaming-gauntlet-api`, `DB = gaming-gauntlet-v1`, rate-limit bindings,
+      routes, cron, and observability.
+- [x] Pages config is added at `apps/web/wrangler.toml` for project
+      `gaming-gauntlet` with `pages_build_output_dir = "dist"`.
+- [x] Root npm scripts cover API deploy, Pages deploy, D1 migration list/apply,
+      config validation, and deploy dry-run validation.
+- [x] Wrangler is pinned as a dev dependency (`4.95.0`).
+- [x] Deployment requirements are captured in the checked config and root npm
+      scripts for account/project names, domains, D1 binding, rate-limit
+      bindings, deploy order, and live sanity checks.
+- [x] Regression tests cover loading, invalid lobby, invalid passcode, empty
+      game pool, copy failure, hidden passcode handling, spin, score, game
+      editor, OBS, and overlay routes.
+- [x] Deployment config validation proves the expected Pages project, Worker
+      name, D1 binding/database, migrations directory, routes, observability,
+      and rate-limit bindings.
+- [x] Final local gate passed: `npm run verify`.
+- [x] Cloudflare preflight passed: `npm run deploy:api:dry-run`,
+      `npm run deploy:d1:list`, and `npx wrangler whoami`.
+- [x] Production deploy completed:
+      - Worker API version `425c6339-0d25-4556-af3f-c273974cbb7c`.
+      - Pages deployment `https://83529f4c.gaming-gauntlet.pages.dev`.
+- [x] Live sanity passed on `https://gaming-gauntlet.com`: created lobby
+      `lob_m92fbrdc9ada`, unlocked management after create, spun to
+      `Street Fighter 6`, updated score to `1-0`, opened `/g/:lobbyId/obs`,
+      and browser-rendered every catalog overlay route without passcode text.
+- [ ] Phase 10 WAF/ruleset changes remain separate and blocked by current
+      Cloudflare ruleset/rate-limit API authorization or plan access.
 
 ## Regression Tests For Phase 11
 
 ```text
-Add tests that verify:
-- App builds successfully.
-- Worker builds successfully.
-- D1 migrations run successfully.
+Verified:
+- App and Worker build successfully through `npm run verify`.
+- Remote D1 has no pending migrations.
 - Landing page works.
 - Create lobby flow works.
 - Match management unlock flow works.
 - Spin flow works.
 - Score update flow works.
 - Match page works.
-- All overlay routes work.
-- No public route leaks management passcode or management code fields.
-- No API response leaks managementCodeHash.
-- Deployment config references correct Cloudflare bindings.
+- OBS setup page works.
+- All catalog overlay routes work.
+- No public route leaks the management passcode or management code fields.
+- No public API state response leaks `managementCode` or
+  `managementCodeHash`.
+- Deployment config references the correct Cloudflare bindings and projects.
 ```
 
 ---

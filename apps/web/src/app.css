@@ -298,6 +298,7 @@
 .gg-sharebar__field {
   display: flex;
   align-items: center;
+  flex: 1 1 26rem;
   gap: 0.45rem;
   min-width: 0;
 }
@@ -312,6 +313,7 @@
 }
 
 .gg-sharebar__value {
+  flex: 1 1 9rem;
   min-width: 0;
   max-width: 15rem;
   padding: 0.3rem 0.55rem;
@@ -344,6 +346,10 @@
 
 .gg-sharebar__status {
   color: var(--gg-text-dim);
+}
+
+.gg-sharebar__status--error {
+  color: color-mix(in oklab, var(--gg-danger) 74%, white);
 }
 
 /* ---------- Match room (kit port) ---------- */
@@ -514,6 +520,14 @@
 
 .gg-scorebar__step:hover {
   background: color-mix(in oklab, var(--team-color) 26%, var(--gg-surface));
+}
+
+.gg-scorebar__step:focus-visible,
+.gg-game__order button:focus-visible,
+.gg-toggle:focus-visible,
+.gg-seg button:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--gg-accent) 72%, white 8%);
+  outline-offset: 3px;
 }
 
 .gg-scorebar__step:active {
@@ -989,6 +1003,10 @@
   color: var(--gg-text);
 }
 
+.gg-seg button[aria-pressed="true"] {
+  cursor: default;
+}
+
 .gg-lockscreen {
   display: grid;
   min-height: 62vh;
@@ -1085,6 +1103,72 @@
   }
 }
 
+@media (max-width: 760px) {
+  .v1-nav {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .v1-grid,
+  .v1-create-grid,
+  .v1-form-pair,
+  .gg-create-grid,
+  .gg-form-pair {
+    grid-template-columns: 1fr;
+  }
+
+  .gg-content__inner {
+    max-width: none;
+  }
+
+  .gg-sharebar {
+    align-items: stretch;
+    gap: 0.7rem;
+  }
+
+  .gg-sharebar__field {
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+  }
+
+  .gg-sharebar__label {
+    flex-basis: 100%;
+  }
+
+  .gg-sharebar__value {
+    max-width: none;
+  }
+
+  .gg-sharebar .gg-button {
+    min-width: 6.7rem;
+  }
+
+  .gg-match-head {
+    align-items: stretch;
+  }
+
+  .gg-match-head .gg-shell__actions {
+    width: 100%;
+  }
+
+  .gg-scorebar__meta {
+    align-items: stretch;
+  }
+
+  .gg-scorebar__meta .gg-field {
+    flex: 1 1 12rem;
+  }
+
+  .gg-scorebar__meta-actions {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .gg-scorebar__meta-actions .gg-button {
+    flex: 1 1 8rem;
+  }
+}
+
 @media (max-width: 560px) {
   .v1-passcode-box__value,
   .gg-passcode__value {
@@ -1104,42 +1188,56 @@
     flex: 1 1 100%;
   }
 
+  .gg-scorebar__team--bravo {
+    flex-direction: row;
+  }
+
+  .gg-scorebar__team--bravo .gg-scorebar__name {
+    text-align: left;
+  }
+
   .gg-scorebar__vs {
     order: -1;
     flex-direction: row;
     gap: 0.5rem;
   }
 
-  .gg-scorebar__meta-actions {
-    margin-left: 0;
-  }
-
   .gg-game {
-    grid-template-columns: auto auto minmax(0, 1fr);
+    grid-template-columns: auto minmax(0, 1fr) auto;
   }
 
-  .gg-game__order,
+  .gg-game__grip {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .gg-toggle {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .gg-game__title {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .gg-game__order {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .gg-game__order button {
+    width: 100%;
+    min-height: 2rem;
+  }
+
   .gg-game__actions {
     grid-column: span 3;
   }
 
   .gg-game__actions {
     justify-content: flex-end;
-  }
-}
-
-@media (max-width: 760px) {
-  .v1-nav {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .v1-grid,
-  .v1-create-grid,
-  .v1-form-pair,
-  .gg-create-grid,
-  .gg-form-pair {
-    grid-template-columns: 1fr;
   }
 }
 

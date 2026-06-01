@@ -82,6 +82,42 @@ function field(label: string): HTMLElement {
 }
 
 describe("Phase 6 match room", () => {
+  test("announces the loading state before match data returns", () => {
+    fetchMock.mockImplementation(() => new Promise<Response>(() => {}));
+
+    render(<App initialPath={`/g/${lobbyId}`} />);
+
+    expect(screen.getByRole("heading", { name: "Loading" })).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Loading match state."
+    );
+    expect(
+      screen.getByTestId("game-v1").querySelector("[aria-busy='true']")
+    ).toBeInTheDocument();
+  });
+
+  test("shows an invalid lobby state with retry and recovery actions", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ error: { code: "not_found" } }, 404)
+    );
+    window.localStorage.setItem(
+      getManagementPasscodeStorageKey(lobbyId),
+      managementCode
+    );
+
+    render(<App initialPath={`/g/${lobbyId}`} />);
+
+    expect(
+      await screen.findByText("This match no longer exists.")
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Create a new match" }))
+      .toHaveAttribute("href", "/");
+    expect(
+      window.localStorage.getItem(getManagementPasscodeStorageKey(lobbyId))
+    ).toBeNull();
+  });
+
   test("renders public match state while locked and hides controls", async () => {
     mockApiRouter();
 
@@ -201,6 +237,26 @@ describe("Phase 6 match room", () => {
       `https://gaming-gauntlet.com/g/${lobbyId}`
     );
     expect(clipboardWriteMock).not.toHaveBeenCalledWith(managementCode);
+  });
+
+  test("share bar reports clipboard failures without exposing the passcode", async () => {
+    clipboardWriteMock.mockRejectedValue(new Error("blocked"));
+    window.localStorage.setItem(
+      getManagementPasscodeStorageKey(lobbyId),
+      managementCode
+    );
+    mockApiRouter();
+
+    render(<App initialPath={`/g/${lobbyId}`} />);
+    await screen.findByRole("heading", { name: "Scoreboard" });
+
+    fireEvent.click(
+      within(field("Match URL")).getByRole("button", { name: /Copy/i })
+    );
+
+    expect(await screen.findByText("Match URL copy failed."))
+      .toBeInTheDocument();
+    expect(screen.queryByText(managementCode)).not.toBeInTheDocument();
   });
 
   test("copies the passcode to the clipboard while it stays masked on screen", async () => {
@@ -613,15 +669,44 @@ describe("Phase 7 wheel + spin", () => {
     ).toBeDisabled();
     expect(screen.getByText("No games enabled")).toBeInTheDocument();
   });
+
+  test("empty game pools keep the editor usable and the wheel disabled", async () => {
+    window.localStorage.setItem(
+      getManagementPasscodeStorageKey(lobbyId),
+      managementCode
+    );
+    mockApiRouter({ emptyGames: true });
+
+    render(<App initialPath={`/g/${lobbyId}`} />);
+    await screen.findByRole("heading", { name: "Games" });
+
+    expect(screen.getByText("No games enabled")).toBeInTheDocument();
+    expect(
+      screen.getByText("No games yet. Add a few above to fill the wheel.")
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Add game title")).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: /Spin the gauntlet/i })
+    ).toBeDisabled();
+  });
 });
 
 function mockApiRouter(
   options: {
     delayAddGame?: () => Promise<void> | void;
     disableAllGames?: boolean;
+    emptyGames?: boolean;
   } = {}
 ) {
   let state: PublicState = publicLobbyState();
+
+  if (options.emptyGames) {
+    state = {
+      ...state,
+      lobby: { ...state.lobby, currentGameId: null },
+      games: [],
+    };
+  }
 
   if (options.disableAllGames) {
     state = {

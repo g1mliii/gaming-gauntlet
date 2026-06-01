@@ -62,6 +62,7 @@ export default function MatchRoom({ lobbyId }: MatchRoomProps) {
     actions,
     error,
     isLoading,
+    isWriting,
     isUnlocked,
     lobby,
     managementCode,
@@ -76,16 +77,11 @@ export default function MatchRoom({ lobbyId }: MatchRoomProps) {
 
   if (!lobby || !surface) {
     return (
-      <div className={mergeClassNames("gg-content__inner", themeClass)}>
-        <KitPanel
-          eyebrow="Match room"
-          title={isLoading ? "Loading" : "Unavailable"}
-        >
-          <KitNotice tone={error ? "warning" : "default"}>
-            {error ?? "Loading match state."}
-          </KitNotice>
-        </KitPanel>
-      </div>
+      <UnavailableMatchState
+        error={error}
+        isLoading={isLoading}
+        themeClass={themeClass}
+      />
     );
   }
 
@@ -103,7 +99,18 @@ export default function MatchRoom({ lobbyId }: MatchRoomProps) {
   }
 
   return (
-    <div className={mergeClassNames("gg-content__inner", themeClass)}>
+    <div
+      aria-busy={isWriting ? "true" : undefined}
+      className={mergeClassNames("gg-content__inner", themeClass)}
+    >
+      <span
+        aria-atomic="true"
+        aria-live="polite"
+        className="gg-sr-only"
+        role="status"
+      >
+        {isWriting ? "Saving changes." : ""}
+      </span>
       <ShareBar lobbyId={lobby.lobbyId} managementCode={managementCode} />
       <MatchHeader
         actions={actions}
@@ -127,6 +134,50 @@ export default function MatchRoom({ lobbyId }: MatchRoomProps) {
         />
         <GamePoolEditor actions={actions} lobby={lobby} />
       </div>
+    </div>
+  );
+}
+
+function UnavailableMatchState({
+  error,
+  isLoading,
+  themeClass,
+}: {
+  error: string | null;
+  isLoading: boolean;
+  themeClass: string;
+}) {
+  return (
+    <div
+      aria-busy={isLoading ? "true" : undefined}
+      className={mergeClassNames("gg-content__inner", themeClass)}
+    >
+      <KitPanel
+        eyebrow="Match room"
+        title={isLoading ? "Loading" : "Unavailable"}
+      >
+        <KitNotice
+          aria-live="polite"
+          role="status"
+          tone={error ? "warning" : "default"}
+        >
+          {error ?? "Loading match state."}
+        </KitNotice>
+        {!isLoading && error ? (
+          <div className="gg-row">
+            <KitButton
+              onClick={() => window.location.reload()}
+              type="button"
+              variant="ghost"
+            >
+              Retry
+            </KitButton>
+            <KitButtonLink href="/" variant="primary">
+              Create a new match
+            </KitButtonLink>
+          </div>
+        ) : null}
+      </KitPanel>
     </div>
   );
 }
@@ -199,7 +250,10 @@ function LockedRoom({
             This room is for streamers and mods. Enter the management passcode
             to take control. Viewers watch through your OBS overlays, not here.
           </p>
-          <form onSubmit={handleUnlock}>
+          <form
+            aria-busy={isUnlocking ? "true" : undefined}
+            onSubmit={handleUnlock}
+          >
             <KitTextField
               autoComplete="off"
               autoFocus
@@ -315,19 +369,44 @@ function ShareBar({
   const matchPath = buildMatchUrl(lobbyId);
   const [isRevealed, setIsRevealed] = useState(false);
   const [isConfirmingReveal, setIsConfirmingReveal] = useState(false);
-  const [status, setStatus] = useState<string | null>(null);
+  const [status, setStatus] = useState<{
+    message: string;
+    ok: boolean;
+  } | null>(null);
+  const statusResetRef = useRef<number | null>(null);
+
+  useEffect(
+    () => () => {
+      if (statusResetRef.current !== null) {
+        window.clearTimeout(statusResetRef.current);
+      }
+    },
+    []
+  );
 
   function absoluteMatchUrl(): string {
     return buildPublicUrl(matchPath);
   }
 
   async function copy(text: string, label: string) {
+    let ok = true;
+
     try {
       await navigator.clipboard.writeText(text);
-      setStatus(`${label} copied.`);
     } catch {
-      setStatus(`${label} copy failed.`);
+      ok = false;
     }
+
+    setStatus({ message: ok ? `${label} copied.` : `${label} copy failed.`, ok });
+
+    if (statusResetRef.current !== null) {
+      window.clearTimeout(statusResetRef.current);
+    }
+
+    statusResetRef.current = window.setTimeout(() => {
+      setStatus(null);
+      statusResetRef.current = null;
+    }, 1800);
   }
 
   async function shareMatch() {
@@ -429,8 +508,16 @@ function ShareBar({
         </p>
       ) : null}
       {status ? (
-        <p aria-live="polite" className="gg-sharebar__status" role="status">
-          {status}
+        <p
+          aria-atomic="true"
+          aria-live="polite"
+          className={mergeClassNames(
+            "gg-sharebar__status",
+            !status.ok && "gg-sharebar__status--error"
+          )}
+          role="status"
+        >
+          {status.message}
         </p>
       ) : null}
     </div>
@@ -669,8 +756,9 @@ function SpinPanel({
     <KitPanel
       actions={
         <div className="gg-row" style={{ gap: "0.5rem" }}>
-          <div aria-label="Wheel style" className="gg-seg" role="tablist">
+          <div aria-label="Wheel style" className="gg-seg" role="group">
             <button
+              aria-pressed={wheelStyle === "radial"}
               className={mergeClassNames(
                 wheelStyle === "radial" && "is-active"
               )}
@@ -680,6 +768,7 @@ function SpinPanel({
               Radial
             </button>
             <button
+              aria-pressed={wheelStyle === "reel"}
               className={mergeClassNames(wheelStyle === "reel" && "is-active")}
               onClick={() => onWheelStyleChange("reel")}
               type="button"
@@ -1073,6 +1162,11 @@ function GameRow({
         </button>
       </div>
       <div
+        aria-label={
+          game.enabled
+            ? `${game.title} is enabled for spins`
+            : `${game.title} is disabled for spins`
+        }
         aria-checked={game.enabled}
         className={mergeClassNames("gg-toggle", game.enabled && "is-on")}
         onClick={() => actions.toggleGame(game.id)}
