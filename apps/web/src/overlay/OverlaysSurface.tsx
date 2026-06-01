@@ -35,35 +35,40 @@ type OverlaysSurfaceProps = {
 };
 
 const COPIED_RESET_MS = 1600;
+// Let small overlays (corner, square, compact) grow to fill the card instead of
+// sitting tiny at their natural size — the previews read much better zoomed in.
+const MAX_PREVIEW_SCALE = 1.45;
 
-// Match the prototype's per-shape preview heights so tall/large layouts get
-// room without dwarfing the slim bars.
+// Per-shape preview heights so tall/large layouts get room without dwarfing the
+// slim bars. Bumped up from the prototype values: the previews were too small
+// relative to their cards to read comfortably.
 function previewMaxHeight(overlay: OverlayDefinition): number {
   if (overlay.slug === "rail") {
-    return 250;
+    return 320;
   }
 
   if (overlay.slug === "square") {
-    return 230;
+    return 300;
   }
 
   if (overlay.group === "fullscreen") {
-    return 200;
+    return 260;
   }
 
-  return 150;
+  return 190;
 }
 
 // Live, themed preview of one overlay. Ported scaler from
-// prototype/screens-obs.jsx: measure the untransformed natural size and shrink
-// uniformly to fit the card (never blow it up past 1). When public state is not
-// ready yet, the stage shows a status message instead of the graphic.
+// prototype/screens-obs.jsx, but it now measures the card's available width
+// (not a fixed cap) and scales the graphic to fill it — shrinking big layouts
+// and modestly enlarging small ones — so every preview fills its stage. When
+// public state is not ready yet, the stage shows a status message instead.
 function OverlayPreview({
   overlay,
   match,
   theme,
   message,
-  maxWidth = 360,
+  maxWidth = 480,
 }: {
   overlay: OverlayDefinition;
   match: OverlayMatch | null;
@@ -71,30 +76,38 @@ function OverlayPreview({
   message: string | null;
   maxWidth?: number;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const graphicRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
   const maxHeight = previewMaxHeight(overlay);
   // Re-run the measurement only when the graphic mounts/unmounts, not on every
   // poll re-render — `match` is a fresh object each render, so depending on it
   // directly would churn the ResizeObserver. Once the graphic is mounted the
-  // observer below handles all later size changes (scores, theme, fonts).
+  // observer below handles all later size changes (scores, theme, fonts, and
+  // the card resizing on viewport changes).
   const hasMatch = match !== null;
 
   useLayoutEffect(() => {
-    const el = ref.current;
+    const el = graphicRef.current;
+    const box = boxRef.current;
 
-    if (!el) {
+    if (!el || !box) {
       return;
     }
 
     // offsetWidth/offsetHeight report the UNTRANSFORMED layout size, so
-    // measuring is independent of the scale we apply — no feedback loop.
+    // measuring is independent of the scale we apply — no feedback loop. The box
+    // width is the real space the card gives us, so previews fill the card and
+    // never overflow it on narrow two-column layouts.
     const fit = () => {
       const w = el.offsetWidth;
       const h = el.offsetHeight;
+      const availableWidth = box.clientWidth;
 
-      if (w && h) {
-        setScale(Math.min(maxWidth / w, maxHeight / h, 1));
+      if (w && h && availableWidth) {
+        setScale(
+          Math.min(availableWidth / w, maxHeight / h, MAX_PREVIEW_SCALE)
+        );
       }
     };
 
@@ -106,16 +119,17 @@ function OverlayPreview({
 
     const observer = new ResizeObserver(fit);
     observer.observe(el);
+    observer.observe(box);
 
     return () => observer.disconnect();
-  }, [maxWidth, maxHeight, hasMatch]);
+  }, [maxHeight, hasMatch]);
 
   if (!match) {
     return (
       <div
         className="gg-overlay-card__placeholder"
         role="status"
-        style={{ width: maxWidth, height: maxHeight }}
+        style={{ width: "100%", maxWidth, height: maxHeight }}
       >
         {message ?? "Loading…"}
       </div>
@@ -124,16 +138,19 @@ function OverlayPreview({
 
   return (
     <div
+      ref={boxRef}
       style={{
         position: "relative",
-        width: maxWidth,
+        width: "100%",
+        maxWidth,
         height: maxHeight,
+        margin: "0 auto",
         overflow: "hidden",
       }}
     >
       <div
         className={`gg-ov gg-ov--${theme}`}
-        ref={ref}
+        ref={graphicRef}
         style={{
           position: "absolute",
           top: "50%",

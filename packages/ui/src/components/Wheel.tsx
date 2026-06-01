@@ -22,7 +22,10 @@ const WHEEL_PALETTE = [
 ];
 
 const REEL_CELL = 150;
-const easeOutQuint = (t: number): number => 1 - Math.pow(1 - t, 5);
+// easeOutCubic gives a long, visible deceleration (like a real wheel coasting on
+// friction). The previous quint curve front-loaded the motion so hard the spin
+// looked like it stopped abruptly after the first second.
+const easeOutCubic = (t: number): number => 1 - Math.pow(1 - t, 3);
 
 export type WheelStyle = "radial" | "reel";
 
@@ -304,7 +307,7 @@ export function Wheel({
     if (isRadial) {
       const seg = 360 / pool.length;
       const center = resolvedIdx * seg + seg / 2;
-      const spins = reduced ? 2 : 6 + Math.floor(Math.random() * 3);
+      const spins = reduced ? 2 : 7 + Math.floor(Math.random() * 3);
       from = rotationRef.current;
       const base = from - (from % 360);
       to = base + 360 * spins - center;
@@ -359,13 +362,13 @@ export function Wheel({
       onResultRef.current?.(winner.id);
     };
 
-    const duration = reduced ? 1100 : 4400 + Math.random() * 700;
+    const duration = reduced ? 1500 : 6000 + Math.random() * 800;
     const start = performance.now();
     const delta = to - from;
 
     const tick = (now: number) => {
       const progress = Math.min(1, (now - start) / duration);
-      apply(from + delta * easeOutQuint(progress));
+      apply(from + delta * easeOutCubic(progress));
 
       if (progress < 1) {
         rafRef.current = requestAnimationFrame(tick);

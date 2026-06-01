@@ -16,14 +16,15 @@
   --gg-text: oklch(0.95 0.01 255);
   --gg-text-dim: oklch(0.79 0.025 240);
 
-  /* accent is tweakable at runtime */
-  --gg-accent: oklch(0.81 0.14 82);
-  --gg-accent-2: oklch(0.83 0.08 165);
+  /* accent is tweakable at runtime. Default identity: red + blue (kept clearly
+     distinct from the Sunset theme's orange/cyan). */
+  --gg-accent: oklch(0.65 0.21 28);
+  --gg-accent-2: oklch(0.72 0.13 250);
 
-  --gg-team-alpha: oklch(0.73 0.17 48);
-  --gg-team-alpha-soft: oklch(0.59 0.12 40);
-  --gg-team-bravo: oklch(0.8 0.1 170);
-  --gg-team-bravo-soft: oklch(0.62 0.08 170);
+  --gg-team-alpha: oklch(0.6 0.23 25);
+  --gg-team-alpha-soft: oklch(0.5 0.18 25);
+  --gg-team-bravo: oklch(0.62 0.17 256);
+  --gg-team-bravo-soft: oklch(0.51 0.14 256);
 
   --gg-danger: oklch(0.68 0.2 25);
   --gg-shadow: 0 18px 42px oklch(0.07 0.02 252 / 0.4);
