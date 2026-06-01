@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   Ico,
   KitButton,
+  KitButtonLink,
   KitNotice,
   KitPanel,
   PageShell,
@@ -19,6 +20,7 @@ import { OverlayGraphic } from "./OverlayGraphics";
 import { toOverlayMatch } from "./overlay-match";
 import type { OverlayMatch } from "./overlay-match";
 import { useOverlayState } from "./use-overlay-state";
+import { buildMatchUrl } from "../management-passcodes";
 import { themeClassName, useOverlayTheme } from "../overlay-theme";
 
 // Phase 9 "Add to OBS" surface. A public, read-only gallery: every catalog
@@ -295,6 +297,11 @@ export default function OverlaysSurface({ lobbyId }: OverlaysSurfaceProps) {
 
   return (
     <div className={themeClassName(theme)}>
+      <nav aria-label="Match" className="gg-obs-topbar">
+        <KitButtonLink href={buildMatchUrl(lobbyId)} variant="ghost">
+          <Ico name="back" /> Back to match
+        </KitButtonLink>
+      </nav>
       <PageShell
         actions={
           <label className="gg-theme-pick">
@@ -340,41 +347,17 @@ export default function OverlaysSurface({ lobbyId }: OverlaysSurfaceProps) {
           </KitNotice>
         ) : null}
 
-        <KitPanel
-          eyebrow="Setup · Troubleshooting"
-          title="How to add an overlay"
-        >
-          <div className="gg-obs-guide">
-            <div className="gg-obs-guide__col">
-              <span className="gg-obs-guide__head">Setup</span>
-              <ol className="gg-steps">
-                <li>Copy an overlay URL below.</li>
-                <li>
-                  In OBS: <b>Sources</b> → <b>+</b> → <b>Browser</b>.
-                </li>
-                <li>
-                  Paste the URL, then set the <b>Width</b> and <b>Height</b> to
-                  the size listed on the card.
-                </li>
-                <li>
-                  Click <b>OK</b> and drag the source into place.
-                </li>
-              </ol>
-            </div>
-            <div className="gg-obs-guide__col">
-              <span className="gg-obs-guide__head">Troubleshooting</span>
-              <ul className="gg-steps" style={{ listStyle: "disc" }}>
-                <li>
-                  Blank? Re-copy the full link and confirm the match still
-                  exists.
-                </li>
-                <li>
-                  Not updating? Right-click the source → <b>Refresh</b>.
-                </li>
-                <li>Not transparent? Remove any color source behind it.</li>
-              </ul>
-            </div>
-          </div>
+        <KitPanel className="gg-obs-help" transparent>
+          <p className="gg-obs-help__row">
+            <span className="gg-obs-help__tag">Setup</span>
+            Copy a URL below, add a <b>Browser</b> source in OBS, paste it, and
+            set the source size to the card’s <b>W × H</b>.
+          </p>
+          <p className="gg-obs-help__row">
+            <span className="gg-obs-help__tag">Troubleshooting</span>
+            Blank or stale? Re-copy the link, or right-click the source →{" "}
+            <b>Refresh</b>. Not transparent? Remove any color source behind it.
+          </p>
         </KitPanel>
 
         {OVERLAY_GROUPS.map((group) => {

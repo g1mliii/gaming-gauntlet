@@ -21,7 +21,7 @@ const WHEEL_PALETTE = [
   "var(--gg-team-bravo-soft)",
 ];
 
-const REEL_CELL = 180;
+const REEL_CELL = 150;
 const easeOutQuint = (t: number): number => 1 - Math.pow(1 - t, 5);
 
 export type WheelStyle = "radial" | "reel";
@@ -293,27 +293,43 @@ export function Wheel({
     const isRadial = styleRef.current === "radial";
     const node = spinElRef.current;
 
+    // The spin is the showpiece, so we always animate — but motion-sensitive
+    // viewers get a shorter, calmer spin (fewer turns, brief duration) rather
+    // than the snap-to-result jump that honoring reduced-motion outright caused.
+    const reduced = prefersReducedMotion();
+
     let from: number;
     let to: number;
 
     if (isRadial) {
       const seg = 360 / pool.length;
       const center = resolvedIdx * seg + seg / 2;
-      const spins = 6 + Math.floor(Math.random() * 3);
+      const spins = reduced ? 2 : 6 + Math.floor(Math.random() * 3);
       from = rotationRef.current;
       const base = from - (from % 360);
       to = base + 360 * spins - center;
     } else {
-      const viewport = compactRef.current ? 360 : 520;
+      // Measure the live viewport so the winner lands under the centre marker
+      // even when the reel renders narrower than the nominal width.
+      const viewport =
+        node?.parentElement?.offsetWidth ?? (compactRef.current ? 360 : 520);
       const center = viewport / 2 - REEL_CELL / 2;
-      const { targetIndex } = reelLayout(
-        pool.length,
-        resolvedIdx,
-        compactRef.current
-      );
+      const { reps } = reelLayout(pool.length, resolvedIdx, compactRef.current);
+      const poolWidth = pool.length * REEL_CELL;
       const jitter = (Math.random() - 0.5) * (REEL_CELL * 0.4);
-      from = offsetRef.current;
-      to = -(targetIndex * REEL_CELL) + center - jitter;
+
+      // The winner's aligned offset within a single pool repeat — the residue we
+      // must land on (mod one pool width) for it to sit under the marker.
+      const aligned = -(resolvedIdx * REEL_CELL) + center - jitter;
+      // Normalize the start into the first pool repeat. The strip repeats every
+      // `poolWidth`, so snapping `from` by whole pools is visually a no-op — but
+      // it gives every spin the same long runway. Without this, the 2nd+ spin
+      // started a few px from its absolute target and crawled instead of spun.
+      from = offsetRef.current % poolWidth;
+      // Land several pools deep so the reel scrolls hard through the options,
+      // keeping at least one trailing repeat to fill the right of the viewport.
+      const landRep = reduced ? Math.min(2, reps - 2) : reps - 2;
+      to = aligned - landRep * poolWidth;
     }
 
     const apply = (value: number) => {
@@ -343,14 +359,7 @@ export function Wheel({
       onResultRef.current?.(winner.id);
     };
 
-    // Honor reduced motion: skip the long animation, jump to the resting
-    // position, and resolve the result immediately.
-    if (prefersReducedMotion()) {
-      finish();
-      return;
-    }
-
-    const duration = 4400 + Math.random() * 700;
+    const duration = reduced ? 1100 : 4400 + Math.random() * 700;
     const start = performance.now();
     const delta = to - from;
 

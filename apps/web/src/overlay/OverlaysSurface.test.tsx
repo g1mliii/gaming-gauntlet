@@ -118,6 +118,16 @@ describe("Phase 9 Add to OBS surface", () => {
     expect(screen.getByTestId("overlay-hub-v1")).toBeInTheDocument();
   });
 
+  test("offers a back link to the match room", async () => {
+    renderSurface();
+
+    await screen.findByText("Add to OBS");
+
+    const backLink = screen.getByRole("link", { name: /Back to match/i });
+
+    expect(backLink).toHaveAttribute("href", `/g/${lobbyId}`);
+  });
+
   test("renders a live preview + Copy URL button for every catalog overlay", async () => {
     const { container } = renderSurface();
 

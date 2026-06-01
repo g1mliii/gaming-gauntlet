@@ -174,7 +174,7 @@ function RouteChrome({
 
 function OverlayHubPage({ lobbyId }: { lobbyId: string }) {
   return (
-    <RouteChrome routeId="overlay-hub-v1">
+    <RouteChrome routeId="overlay-hub-v1" showBrand={false}>
       <OverlaysSurface lobbyId={lobbyId} />
     </RouteChrome>
   );

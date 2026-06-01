@@ -11,7 +11,8 @@ export type IcoName =
   | "share"
   | "eye"
   | "lock"
-  | "trash";
+  | "trash"
+  | "back";
 
 const ICON_PATHS: Record<IcoName, ReactNode> = {
   create: <path d="M12 5v14M5 12h14" />,
@@ -74,6 +75,7 @@ const ICON_PATHS: Record<IcoName, ReactNode> = {
   trash: (
     <path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13M10 11v6M14 11v6" />
   ),
+  back: <path d="M19 12H5M12 19l-7-7 7-7" />,
 };
 
 export type IcoProps = {

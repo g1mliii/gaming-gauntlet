@@ -620,16 +620,20 @@ describe("Phase 7 wheel + spin", () => {
         expect.objectContaining({ method: "POST" })
       )
     );
-    await waitFor(() =>
-      expect(document.querySelector(".gg-pick__title")).toHaveTextContent(
-        "Tetris"
-      )
+    // Reduced motion keeps the spin short (see below) but still animated, so the
+    // banner only settles on the winner once that brief spin resolves.
+    await waitFor(
+      () =>
+        expect(document.querySelector(".gg-pick__title")).toHaveTextContent(
+          "Tetris"
+        ),
+      { timeout: 3000 }
     );
 
     expectWriteRequestsAreSafe();
   });
 
-  test("reduced motion resolves the pick without waiting on the long animation", async () => {
+  test("reduced motion still spins, just briefly, then resolves the pick", async () => {
     setMatchMedia(true);
     window.localStorage.setItem(
       getManagementPasscodeStorageKey(lobbyId),
@@ -642,12 +646,15 @@ describe("Phase 7 wheel + spin", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Spin the gauntlet/i }));
 
-    // No fake-timer advancement: under reduced motion the result must resolve
-    // promptly and the button must return to its idle label.
-    await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: /Spin the gauntlet/i })
-      ).toBeEnabled()
+    // The spin is the showpiece: even under reduced motion it animates (a short
+    // spin) rather than snapping to the result. It must still resolve on its own
+    // — the button returns to idle and the winner lands in the banner.
+    await waitFor(
+      () =>
+        expect(
+          screen.getByRole("button", { name: /Spin the gauntlet/i })
+        ).toBeEnabled(),
+      { timeout: 3000 }
     );
     expect(document.querySelector(".gg-pick__title")).toHaveTextContent(
       "Tetris"
