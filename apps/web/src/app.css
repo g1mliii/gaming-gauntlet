@@ -1091,6 +1091,12 @@
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--gg-accent) 18%, transparent);
 }
 
+.gg-bg-pick input[type="range"] {
+  width: 130px;
+  accent-color: var(--gg-accent);
+  cursor: pointer;
+}
+
 .gg-lockcard__score {
   display: grid;
   gap: 0.45rem;
@@ -1422,12 +1428,17 @@ body.gg-body--overlay {
   background: transparent;
 }
 
-/* Scalable, themed root. transform-origin keeps the graphic pinned to the
-   top-left so an OBS browser source captures predictably from 0,0. */
+/* Scalable, themed root. The graphic is centered in the browser-source viewport
+   and the auto-fit scale (set in OverlayPage) sizes it to fill that viewport, so
+   whatever W×H the streamer gives the OBS source, the overlay fills it centered
+   rather than sitting small in a corner. */
 .gg-ov {
+  /* Panel-background opacity multiplier (0–1). 1 keeps the designed look; the
+     ?bg= param / Add-to-OBS slider lowers it so the game shows through. */
+  --ov-bg: 1;
   display: flex;
-  align-items: flex-start;
-  justify-content: flex-start;
+  align-items: center;
+  justify-content: center;
   min-height: 100vh;
   padding: 0;
   background: transparent;
@@ -1439,7 +1450,7 @@ body.gg-body--overlay {
 
 .gg-ov__stage {
   transform: scale(var(--ov-scale, 1));
-  transform-origin: top left;
+  transform-origin: center;
 }
 
 .gg-ov__message {
@@ -1470,7 +1481,7 @@ body.gg-body--overlay {
   align-items: center;
   gap: 0.7rem;
   padding: 0.6rem 1rem;
-  background: color-mix(in oklab, var(--team-color) 22%, oklch(0.16 0.02 250 / 0.9));
+  background: color-mix(in oklab, var(--team-color) 22%, oklch(0.16 0.02 250 / calc(0.9 * var(--ov-bg, 1))));
   border-top: 3px solid var(--team-color);
 }
 .ov-top__team--right {
@@ -1506,7 +1517,7 @@ body.gg-body--overlay {
   gap: 0.15rem;
   padding: 0.5rem 1.4rem;
   min-width: 200px;
-  background: oklch(0.13 0.02 250 / 0.94);
+  background: oklch(0.13 0.02 250 / calc(0.94 * var(--ov-bg, 1)));
 }
 .ov-top__game {
   font-weight: 600;
@@ -1527,11 +1538,13 @@ body.gg-body--overlay {
 
 .ov-lower {
   width: 560px;
+  height: 112px;
   font-family: var(--gg-font-display);
-  background: oklch(0.13 0.02 250 / 0.92);
+  background: oklch(0.13 0.02 250 / calc(0.92 * var(--ov-bg, 1)));
   border-left: 4px solid var(--gg-accent);
-  padding: 0.7rem 1.1rem;
+  padding: 0.9rem 1.1rem;
   display: grid;
+  align-content: space-between;
   gap: 0.3rem;
   clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
 }
@@ -1584,8 +1597,11 @@ body.gg-body--overlay {
 
 .ov-compact {
   width: 260px;
+  height: 162px;
+  display: grid;
+  grid-template-rows: 1fr 1fr auto;
   font-family: var(--gg-font-display);
-  background: oklch(0.13 0.02 250 / 0.92);
+  background: oklch(0.13 0.02 250 / calc(0.92 * var(--ov-bg, 1)));
   border-radius: var(--gg-radius-sm);
   overflow: clip;
   clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
@@ -1629,12 +1645,14 @@ body.gg-body--overlay {
 
 .ov-rail {
   width: 210px;
+  height: 490px;
   font-family: var(--gg-font-display);
-  background: oklch(0.13 0.02 250 / 0.92);
+  background: oklch(0.13 0.02 250 / calc(0.92 * var(--ov-bg, 1)));
   border: 1px solid oklch(1 0 0 / 0.08);
   display: grid;
+  align-content: space-between;
   gap: 0.55rem;
-  padding: 0.95rem 0.85rem;
+  padding: 1.1rem 0.85rem;
   text-align: center;
   clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
 }
@@ -1714,12 +1732,14 @@ body.gg-body--overlay {
 
 .ov-square {
   width: 230px;
+  height: 230px;
   font-family: var(--gg-font-display);
-  background: oklch(0.13 0.02 250 / 0.94);
+  background: oklch(0.13 0.02 250 / calc(0.94 * var(--ov-bg, 1)));
   border: 1px solid oklch(1 0 0 / 0.08);
   display: grid;
+  align-content: space-between;
   gap: 0.6rem;
-  padding: 0.9rem;
+  padding: 1.1rem 0.9rem;
   text-align: center;
   clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
 }
@@ -1791,7 +1811,7 @@ body.gg-body--overlay {
   gap: 0.9rem;
   min-width: 300px;
   padding: 0 1.1rem;
-  background: oklch(0.14 0.02 250 / 0.95);
+  background: oklch(0.14 0.02 250 / calc(0.95 * var(--ov-bg, 1)));
 }
 .ov-arena__side--alpha {
   justify-content: flex-end;
@@ -1801,7 +1821,7 @@ body.gg-body--overlay {
 .ov-arena__side--bravo {
   justify-content: flex-start;
   padding-left: 1.7rem;
-  clip-path: polygon(16px 0, 100% 0, 100% 100%, 0 100%);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 16px 100%);
 }
 .ov-arena__name {
   font-weight: 700;
@@ -1835,7 +1855,7 @@ body.gg-body--overlay {
   min-width: 220px;
   margin: 0 -10px;
   padding: 0 1.4rem;
-  background: oklch(0.09 0.015 250 / 0.97);
+  background: oklch(0.09 0.015 250 / calc(0.97 * var(--ov-bg, 1)));
   border-top: 3px solid var(--gg-accent);
   clip-path: polygon(14px 0, calc(100% - 14px) 0, 100% 100%, 0 100%);
 }
@@ -1857,93 +1877,6 @@ body.gg-body--overlay {
   color: var(--gg-accent);
 }
 
-/* ---------- shield bar: dark top bar with team badges ---------- */
-.ov-shield {
-  display: inline-flex;
-  align-items: stretch;
-  height: 84px;
-  font-family: var(--gg-font-display);
-  filter: drop-shadow(0 8px 18px oklch(0 0 0 / 0.45));
-}
-.ov-shield__side {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.9rem;
-  min-width: 300px;
-  padding: 0 1.3rem;
-  background: oklch(0.13 0.02 250 / 0.95);
-}
-.ov-shield__side--alpha {
-  justify-content: flex-end;
-  padding-right: 1.7rem;
-  clip-path: polygon(0 0, 100% 0, calc(100% - 16px) 100%, 0 100%);
-}
-.ov-shield__side--bravo {
-  justify-content: flex-start;
-  padding-left: 1.7rem;
-  clip-path: polygon(16px 0, 100% 0, 100% 100%, 0 100%);
-}
-.ov-shield__name {
-  font-weight: 700;
-  font-size: 1.35rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: color-mix(in oklab, var(--team-color) 52%, white 48%);
-}
-.ov-shield__badge {
-  display: grid;
-  place-items: center;
-  flex: none;
-  width: 42px;
-  height: 48px;
-  font-weight: 800;
-  font-size: 1.4rem;
-  color: oklch(0.13 0.02 250);
-  background: var(--team-color);
-  clip-path: polygon(0 0, 100% 0, 100% 72%, 50% 100%, 0 72%);
-}
-.ov-shield__score {
-  min-width: 1.4ch;
-  text-align: center;
-  font-weight: 800;
-  font-size: 2.5rem;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-  color: color-mix(in oklab, var(--team-color) 82%, white 18%);
-}
-.ov-shield__center {
-  display: grid;
-  place-items: center;
-  gap: 0.12rem;
-  z-index: 2;
-  min-width: 230px;
-  margin: 0 -10px;
-  padding: 0 1.4rem;
-  background: oklch(0.08 0.015 250 / 0.97);
-  border-top: 3px solid var(--gg-accent);
-  clip-path: polygon(14px 0, calc(100% - 14px) 0, 100% 100%, 0 100%);
-}
-.ov-shield__game {
-  font-weight: 700;
-  font-size: 1.05rem;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  color: var(--gg-text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 22ch;
-}
-.ov-shield__meta {
-  font-size: 0.62rem;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  color: var(--gg-accent);
-}
-
 /* ---------- broadcast: light scoreboard with the match title above ---------- */
 .ov-broadcast {
   display: inline-grid;
@@ -1954,7 +1887,7 @@ body.gg-body--overlay {
 }
 .ov-broadcast__title {
   padding: 0.32rem 1.7rem;
-  background: oklch(0.16 0.02 250);
+  background: oklch(0.16 0.02 250 / var(--ov-bg, 1));
   color: var(--gg-accent);
   font-size: 0.72rem;
   letter-spacing: 0.24em;
@@ -1974,7 +1907,7 @@ body.gg-body--overlay {
   gap: 0.9rem;
   min-width: 300px;
   padding: 0 1.5rem;
-  background: oklch(0.93 0.008 250);
+  background: oklch(0.93 0.008 250 / var(--ov-bg, 1));
   border-bottom: 4px solid var(--team-color);
 }
 .ov-broadcast__team--alpha {
@@ -1985,7 +1918,7 @@ body.gg-body--overlay {
 .ov-broadcast__team--bravo {
   justify-content: flex-start;
   padding-left: 1.6rem;
-  clip-path: polygon(14px 0, 100% 0, 100% 100%, 0 100%);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 14px 100%);
 }
 .ov-broadcast__badge {
   display: grid;
@@ -2026,7 +1959,7 @@ body.gg-body--overlay {
   min-width: 210px;
   margin: 0 -8px;
   padding: 0 1.3rem;
-  background: oklch(0.98 0.004 250);
+  background: oklch(0.98 0.004 250 / var(--ov-bg, 1));
   clip-path: polygon(12px 0, calc(100% - 12px) 0, 100% 100%, 0 100%);
 }
 .ov-broadcast__game {
@@ -2062,7 +1995,7 @@ body.gg-body--overlay {
   min-width: 270px;
   padding: 0 1.3rem;
   border-bottom: 4px solid var(--team-color);
-  background: color-mix(in oklab, var(--team-color) 16%, oklch(0.15 0.03 330 / 0.95));
+  background: color-mix(in oklab, var(--team-color) 16%, oklch(0.15 0.03 330 / calc(0.95 * var(--ov-bg, 1))));
 }
 .ov-series__team--alpha {
   justify-items: start;
@@ -2071,7 +2004,7 @@ body.gg-body--overlay {
 .ov-series__team--bravo {
   justify-items: end;
   text-align: right;
-  clip-path: polygon(14px 0, 100% 0, 100% 100%, 0 100%);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 14px 100%);
 }
 .ov-series__head {
   display: flex;
@@ -2111,7 +2044,7 @@ body.gg-body--overlay {
   line-height: 1;
   font-variant-numeric: tabular-nums;
   color: color-mix(in oklab, var(--team-color) 84%, white 16%);
-  background: oklch(0.1 0.02 330 / 0.96);
+  background: oklch(0.1 0.02 330 / calc(0.96 * var(--ov-bg, 1)));
 }
 .ov-series__center {
   display: grid;
@@ -2120,7 +2053,7 @@ body.gg-body--overlay {
   z-index: 2;
   min-width: 220px;
   padding: 0 1.4rem;
-  background: oklch(0.08 0.015 330 / 0.97);
+  background: oklch(0.08 0.015 330 / calc(0.97 * var(--ov-bg, 1)));
   border-top: 3px solid var(--gg-accent);
 }
 .ov-series__game {
@@ -2154,41 +2087,76 @@ body.gg-body--overlay {
   background: var(--team-color);
 }
 
-/* ---------- fullscreen showcase ---------- */
+/* ---------- fullscreen showcase: full-bleed between-rounds takeover ----------
+   Fixed 1920×1080 design canvas; OverlayPage's auto-fit scales the whole thing
+   as a unit to the source, so the type + scoreboard always stay in proportion. */
 .ov-full {
-  width: 900px;
-  max-width: 100vw;
+  width: 1920px;
+  height: 1080px;
+  box-sizing: border-box;
   display: grid;
-  gap: 1.2rem;
+  place-content: center;
   justify-items: center;
+  gap: 2.8rem;
   text-align: center;
-  padding: 1.6rem 2rem;
+  padding: 70px;
+  background:
+    radial-gradient(
+      120% 90% at 50% 0%,
+      color-mix(
+        in oklab,
+        var(--gg-accent) calc(13% * var(--ov-bg, 1)),
+        transparent
+      ),
+      transparent 60%
+    ),
+    oklch(0.12 0.02 250 / calc(0.88 * var(--ov-bg, 1)));
+}
+.ov-full .ov-square__title {
+  font-size: 2.1rem;
 }
 .ov-full__label {
   margin: 0;
+  font-size: 1.9rem;
+  letter-spacing: 0.3em;
 }
 .ov-full__title {
   max-width: 100%;
   text-wrap: balance;
-  line-height: 0.95;
+  line-height: 0.92;
+  font-size: 9rem;
+}
+.ov-full .ov-top {
+  transform: scale(2.2);
+  margin-top: 3.6rem;
 }
 
 /* ---------- VS intro (1920×1080 matchup) ---------- */
 .ov-vs {
-  width: 1280px;
-  max-width: 100vw;
+  width: 1920px;
+  height: 1080px;
+  box-sizing: border-box;
   font-family: var(--gg-font-display);
   display: grid;
-  gap: 1.6rem;
+  place-content: center;
   justify-items: center;
+  gap: 4rem;
   text-align: center;
-  padding: 2.4rem;
-  background: oklch(0.13 0.02 250 / 0.9);
-  border: 1px solid var(--gg-border);
-  clip-path: polygon(0 0, calc(100% - 22px) 0, 100% 22px, 100% 100%, 22px 100%, 0 calc(100% - 22px));
+  padding: 70px;
+  background:
+    radial-gradient(
+      120% 90% at 50% 0%,
+      color-mix(
+        in oklab,
+        var(--gg-accent) calc(12% * var(--ov-bg, 1)),
+        transparent
+      ),
+      transparent 60%
+    ),
+    oklch(0.12 0.02 250 / calc(0.92 * var(--ov-bg, 1)));
 }
 .ov-vs__title {
-  font-size: 1rem;
+  font-size: 2.2rem;
   letter-spacing: 0.28em;
   text-transform: uppercase;
   color: var(--gg-accent);
@@ -2197,19 +2165,20 @@ body.gg-body--overlay {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  gap: 2rem;
+  gap: 5rem;
   width: 100%;
+  max-width: 1780px;
 }
 .ov-vs__team {
   display: grid;
-  gap: 0.6rem;
-  padding: 1.4rem;
+  gap: 1rem;
+  padding: 3.2rem;
   background: color-mix(in oklab, var(--team-color) 16%, transparent);
-  border-top: 4px solid var(--team-color);
+  border-top: 6px solid var(--team-color);
 }
 .ov-vs__name {
   font-weight: 700;
-  font-size: 2.4rem;
+  font-size: 3.8rem;
   line-height: 1;
   text-transform: uppercase;
   letter-spacing: 0.02em;
@@ -2219,14 +2188,14 @@ body.gg-body--overlay {
 }
 .ov-vs__score {
   font-weight: 700;
-  font-size: 5rem;
+  font-size: 8.5rem;
   line-height: 0.8;
   font-variant-numeric: tabular-nums;
   color: color-mix(in oklab, var(--team-color) 84%, white 16%);
 }
 .ov-vs__center {
   font-weight: 700;
-  font-size: 3rem;
+  font-size: 4.5rem;
   color: var(--gg-text-dim);
 }
 .ov-vs__foot {
@@ -2259,7 +2228,7 @@ body.gg-body--overlay {
   gap: 1.4rem;
   padding: 0 1.6rem;
   font-family: var(--gg-font-display);
-  background: oklch(0.12 0.02 250 / 0.94);
+  background: oklch(0.12 0.02 250 / calc(0.94 * var(--ov-bg, 1)));
   border-top: 3px solid var(--gg-accent);
 }
 .ov-ticker__brand {
@@ -2322,12 +2291,15 @@ body.gg-body--overlay {
 
 /* ---------- corner bug (220×64) ---------- */
 .ov-corner {
-  display: inline-flex;
+  display: flex;
+  width: 220px;
+  height: 64px;
   align-items: center;
+  justify-content: space-between;
   gap: 0.5rem;
-  padding: 0.4rem 0.7rem;
+  padding: 0 1rem;
   font-family: var(--gg-font-display);
-  background: oklch(0.12 0.02 250 / 0.92);
+  background: oklch(0.12 0.02 250 / calc(0.92 * var(--ov-bg, 1)));
   border-radius: var(--gg-radius-sm);
 }
 .ov-corner__team {
@@ -2359,27 +2331,29 @@ body.gg-body--overlay {
 /* ---------- break / sponsor banner (1280×300) ---------- */
 .ov-banner {
   width: 1280px;
+  height: 300px;
   max-width: 100vw;
   box-sizing: border-box;
   display: grid;
+  align-content: space-between;
   gap: 0.8rem;
   justify-items: center;
   text-align: center;
-  padding: 2.4rem;
+  padding: 2.6rem;
   font-family: var(--gg-font-display);
-  background: oklch(0.13 0.02 250 / 0.92);
+  background: oklch(0.13 0.02 250 / calc(0.92 * var(--ov-bg, 1)));
   border: 1px solid var(--gg-border);
   clip-path: polygon(0 0, calc(100% - 18px) 0, 100% 18px, 100% 100%, 18px 100%, 0 calc(100% - 18px));
 }
 .ov-banner__eyebrow {
-  font-size: 0.86rem;
+  font-size: 1rem;
   letter-spacing: 0.26em;
   text-transform: uppercase;
   color: var(--gg-accent);
 }
 .ov-banner__title {
   font-weight: 700;
-  font-size: 3rem;
+  font-size: 4rem;
   line-height: 0.95;
   text-transform: uppercase;
   letter-spacing: 0.02em;

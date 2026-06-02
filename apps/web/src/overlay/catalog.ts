@@ -40,15 +40,6 @@ export const OVERLAYS = [
     group: "top-bars",
   },
   {
-    id: "shield-bar",
-    name: "Shield Bar",
-    desc: "Top bar with team badges and a center game block.",
-    w: 1000,
-    h: 96,
-    slug: "shield-bar",
-    group: "top-bars",
-  },
-  {
     id: "broadcast",
     name: "Broadcast Scoreboard",
     desc: "Light broadcast scoreboard with the match title above.",
@@ -209,12 +200,24 @@ export const OVERLAY_GROUPS: ReadonlyArray<{
 export function buildOverlayShareUrl(
   lobbyId: string,
   slug: string,
-  theme: OverlayTheme
+  theme: OverlayTheme,
+  bgPercent = 100
 ): string {
   const path = `/overlay/${encodeURIComponent(lobbyId)}/${encodeURIComponent(slug)}`;
   const base = buildPublicUrl(path);
+  const params = new URLSearchParams();
 
-  return theme === "default"
-    ? base
-    : `${base}?theme=${encodeURIComponent(theme)}`;
+  if (theme !== "default") {
+    params.set("theme", theme);
+  }
+
+  // Only carry a background opacity when it differs from the default solid look,
+  // so default links stay clean.
+  if (bgPercent < 100) {
+    params.set("bg", String(Math.round(bgPercent)));
+  }
+
+  const query = params.toString();
+
+  return query ? `${base}?${query}` : base;
 }

@@ -198,37 +198,6 @@ function OvArenaBar({ m }: { m: OverlayMatch }) {
   );
 }
 
-// Dark top bar with team badges (player initial), names, big scores on dark, and
-// a center game/meta block.
-function OvShieldBar({ m }: { m: OverlayMatch }) {
-  const [a, b] = m.players;
-
-  return (
-    <div className="ov-shield">
-      <div
-        className="ov-shield__side ov-shield__side--alpha"
-        style={teamColor("alpha")}
-      >
-        <span className="ov-shield__name">{a?.displayName}</span>
-        <span className="ov-shield__badge">{initialOf(a)}</span>
-        <span className="ov-shield__score">{a?.wins}</span>
-      </div>
-      <div className="ov-shield__center">
-        <span className="ov-shield__game">{currentGameTitle(m)}</span>
-        <span className="ov-shield__meta">{matchFormatLabel(m)}</span>
-      </div>
-      <div
-        className="ov-shield__side ov-shield__side--bravo"
-        style={teamColor("bravo")}
-      >
-        <span className="ov-shield__score">{b?.wins}</span>
-        <span className="ov-shield__badge">{initialOf(b)}</span>
-        <span className="ov-shield__name">{b?.displayName}</span>
-      </div>
-    </div>
-  );
-}
-
 // Light broadcast scoreboard: the match title sits above a light score row with
 // team badges and team-tinted scores.
 function OvBroadcastBar({ m }: { m: OverlayMatch }) {
@@ -435,7 +404,6 @@ const GRAPHICS: Record<
   rail: (m) => <OvRail m={m} />,
   square: (m) => <OvSquare m={m} />,
   "arena-bar": (m) => <OvArenaBar m={m} />,
-  "shield-bar": (m) => <OvShieldBar m={m} />,
   broadcast: (m) => <OvBroadcastBar m={m} />,
   "series-bar": (m) => <OvSeriesBar m={m} />,
   full: (m) => <OvFull m={m} />,

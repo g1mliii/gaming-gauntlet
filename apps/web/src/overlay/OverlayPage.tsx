@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import type { CSSProperties } from "react";
 
 import { getOverlayDefinition, isTheme } from "./catalog";
@@ -5,6 +6,7 @@ import type { OverlayTheme } from "./catalog";
 import { OverlayGraphic } from "./OverlayGraphics";
 import type { OverlayGraphicOptions } from "./OverlayGraphics";
 import { toOverlayMatch } from "./overlay-match";
+import { useFitScale } from "./use-fit-scale";
 import { useOverlayState } from "./use-overlay-state";
 
 // Public, read-only browser-source page. It polls public lobby state, applies
@@ -29,12 +31,14 @@ type OverlayPageProps = {
 type OverlayOptions = OverlayGraphicOptions & {
   theme: OverlayTheme;
   scale: number;
+  bg: number;
   transparent: boolean;
   animation: boolean;
 };
 
 type OverlayRootStyle = CSSProperties & {
   "--ov-scale"?: number;
+  "--ov-bg"?: number;
 };
 
 function prefersReducedMotion(): boolean {
@@ -97,9 +101,18 @@ function parseOverlayOptions(search: string): OverlayOptions {
   const animation =
     parseBool(params.get("animation"), true) && !prefersReducedMotion();
 
+  // Panel background opacity, 0–100 in the URL → a 0–1 multiplier. Absent/blank
+  // means fully solid (1), matching the designed look.
+  const rawBg = params.get("bg");
+  const bgParam = rawBg === null || rawBg.trim() === "" ? 100 : Number(rawBg);
+  const bg = Number.isFinite(bgParam)
+    ? Math.min(1, Math.max(0, bgParam / 100))
+    : 1;
+
   return {
     theme,
     scale,
+    bg,
     transparent: parseBool(params.get("transparent"), true),
     animation,
     showNext: parseBool(params.get("showNext"), false),
@@ -127,7 +140,31 @@ export default function OverlayPage({
     Boolean(definition)
   );
 
-  const rootStyle: OverlayRootStyle = { "--ov-scale": options.scale };
+  const match = state ? toOverlayMatch(state) : null;
+  const showsGraphic = Boolean(
+    definition && !notFound && !(error && !state) && match && match.games.length
+  );
+
+  // Auto-fit: scale the graphic to fill the OBS browser-source viewport. The
+  // graphics are authored at fixed natural sizes, so without this they sit small
+  // in the top-left of whatever W×H the streamer set. Only the live graphic is
+  // fitted — status messages stay at natural size so "Loading…" doesn't balloon
+  // to fill the screen. A manual ?scale= still multiplies on top for streamers
+  // who want to nudge it.
+  const stageRef = useRef<HTMLDivElement>(null);
+  const fitScale = useFitScale({
+    getTarget: () =>
+      (stageRef.current?.firstElementChild as HTMLElement | null) ?? null,
+    getBox: () => ({ width: window.innerWidth, height: window.innerHeight }),
+    watchWindow: true,
+    enabled: showsGraphic,
+    deps: [variant, options.theme],
+  });
+
+  const rootStyle: OverlayRootStyle = {
+    "--ov-scale": options.scale * fitScale,
+    "--ov-bg": options.bg,
+  };
   const rootClassName = `gg-ov gg-ov--${options.theme}`;
 
   function renderBody() {
@@ -143,11 +180,9 @@ export default function OverlayPage({
       return <OverlayMessage>Overlay unavailable.</OverlayMessage>;
     }
 
-    if (!state) {
+    if (!state || !match) {
       return <OverlayMessage>Loading…</OverlayMessage>;
     }
-
-    const match = toOverlayMatch(state);
 
     if (match.games.length === 0) {
       return <OverlayMessage>Waiting for games.</OverlayMessage>;
@@ -170,6 +205,7 @@ export default function OverlayPage({
         data-overlay-size={
           definition ? `${definition.w}x${definition.h}` : undefined
         }
+        ref={stageRef}
       >
         {renderBody()}
       </div>

@@ -151,6 +151,16 @@ describe("Phase 8 OBS overlays", () => {
     expect(root.style.getPropertyValue("--ov-scale")).toBe("1");
   });
 
+  test("applies the background opacity from safe query params", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(publicLobbyState()));
+
+    render(<App initialPath={`/overlay/${lobbyId}/top?bg=40`} />);
+
+    const root = await screen.findByTestId("overlay-v1");
+
+    expect(root.style.getPropertyValue("--ov-bg")).toBe("0.4");
+  });
+
   test("renders the series bar layout with a series tracker and the arena theme", async () => {
     fetchMock.mockResolvedValue(jsonResponse(publicLobbyState()));
 

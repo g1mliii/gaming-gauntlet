@@ -205,6 +205,26 @@ describe("Phase 9 Add to OBS surface", () => {
     expect(copied).not.toMatch(/managementCode|code=|token|secret/i);
   });
 
+  test("bakes the selected background opacity into the copied URL", async () => {
+    renderSurface();
+
+    await screen.findByText("Add to OBS");
+
+    fireEvent.change(screen.getByLabelText("Overlay background opacity"), {
+      target: { value: "65" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Copy Top Bar URL" }));
+
+    await waitFor(() => expect(clipboardWriteMock).toHaveBeenCalled());
+
+    const copied = clipboardWriteMock.mock.calls.at(-1)?.[0] as string;
+
+    expect(copied).toBe(
+      `https://gaming-gauntlet.com/overlay/${lobbyId}/top?bg=65`
+    );
+    expect(copied).not.toMatch(/managementCode|code=|token|secret/i);
+  });
+
   test("shows a transient Copied! state on the clicked card only", async () => {
     renderSurface();
 
@@ -293,6 +313,15 @@ describe("buildOverlayShareUrl", () => {
   test("appends ?theme= for a non-default theme", () => {
     expect(buildOverlayShareUrl(lobbyId, "top", "blast")).toBe(
       `https://gaming-gauntlet.com/overlay/${lobbyId}/top?theme=blast`
+    );
+  });
+
+  test("appends ?bg= when background opacity is not default", () => {
+    expect(buildOverlayShareUrl(lobbyId, "top", "default", 65)).toBe(
+      `https://gaming-gauntlet.com/overlay/${lobbyId}/top?bg=65`
+    );
+    expect(buildOverlayShareUrl(lobbyId, "top", "blast", 65)).toBe(
+      `https://gaming-gauntlet.com/overlay/${lobbyId}/top?theme=blast&bg=65`
     );
   });
 

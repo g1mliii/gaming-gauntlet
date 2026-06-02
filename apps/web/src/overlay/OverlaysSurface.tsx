@@ -1,4 +1,5 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useDeferredValue, useEffect, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import {
   Ico,
   KitButton,
@@ -19,6 +20,7 @@ import type { OverlayDefinition, OverlayTheme } from "./catalog";
 import { OverlayGraphic } from "./OverlayGraphics";
 import { toOverlayMatch } from "./overlay-match";
 import type { OverlayMatch } from "./overlay-match";
+import { useFitScale } from "./use-fit-scale";
 import { useOverlayState } from "./use-overlay-state";
 import { buildMatchUrl } from "../management-passcodes";
 import { themeClassName, useOverlayTheme } from "../overlay-theme";
@@ -63,66 +65,44 @@ function previewMaxHeight(overlay: OverlayDefinition): number {
 // (not a fixed cap) and scales the graphic to fill it — shrinking big layouts
 // and modestly enlarging small ones — so every preview fills its stage. When
 // public state is not ready yet, the stage shows a status message instead.
-function OverlayPreview({
+const OverlayPreview = memo(function OverlayPreview({
   overlay,
   match,
   theme,
   message,
+  bg = 1,
   maxWidth = 480,
 }: {
   overlay: OverlayDefinition;
   match: OverlayMatch | null;
   theme: OverlayTheme;
   message: string | null;
+  bg?: number;
   maxWidth?: number;
 }) {
   const boxRef = useRef<HTMLDivElement>(null);
   const graphicRef = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(1);
   const maxHeight = previewMaxHeight(overlay);
   // Re-run the measurement only when the graphic mounts/unmounts, not on every
   // poll re-render — `match` is a fresh object each render, so depending on it
   // directly would churn the ResizeObserver. Once the graphic is mounted the
-  // observer below handles all later size changes (scores, theme, fonts, and
-  // the card resizing on viewport changes).
+  // observer handles all later size changes (scores, theme, fonts, and the card
+  // resizing on viewport changes). The box width is the real space the card
+  // gives us, so previews fill the card and never overflow it on narrow
+  // two-column layouts.
   const hasMatch = match !== null;
+  const scale = useFitScale({
+    getTarget: () => graphicRef.current,
+    getBox: () => {
+      const box = boxRef.current;
 
-  useLayoutEffect(() => {
-    const el = graphicRef.current;
-    const box = boxRef.current;
-
-    if (!el || !box) {
-      return;
-    }
-
-    // offsetWidth/offsetHeight report the UNTRANSFORMED layout size, so
-    // measuring is independent of the scale we apply — no feedback loop. The box
-    // width is the real space the card gives us, so previews fill the card and
-    // never overflow it on narrow two-column layouts.
-    const fit = () => {
-      const w = el.offsetWidth;
-      const h = el.offsetHeight;
-      const availableWidth = box.clientWidth;
-
-      if (w && h && availableWidth) {
-        setScale(
-          Math.min(availableWidth / w, maxHeight / h, MAX_PREVIEW_SCALE)
-        );
-      }
-    };
-
-    fit();
-
-    if (typeof ResizeObserver === "undefined") {
-      return;
-    }
-
-    const observer = new ResizeObserver(fit);
-    observer.observe(el);
-    observer.observe(box);
-
-    return () => observer.disconnect();
-  }, [maxHeight, hasMatch]);
+      return box ? { width: box.clientWidth, height: maxHeight } : null;
+    },
+    getObserved: () => [boxRef.current],
+    maxScale: MAX_PREVIEW_SCALE,
+    enabled: hasMatch,
+    deps: [maxHeight],
+  });
 
   if (!match) {
     return (
@@ -151,19 +131,22 @@ function OverlayPreview({
       <div
         className={`gg-ov gg-ov--${theme}`}
         ref={graphicRef}
-        style={{
-          position: "absolute",
-          top: "50%",
-          left: "50%",
-          transform: `translate(-50%, -50%) scale(${scale})`,
-          transformOrigin: "center",
-        }}
+        style={
+          {
+            position: "absolute",
+            top: "50%",
+            left: "50%",
+            transform: `translate(-50%, -50%) scale(${scale})`,
+            transformOrigin: "center",
+            "--ov-bg": bg,
+          } as CSSProperties
+        }
       >
         <OverlayGraphic slug={overlay.slug} m={match} options={{}} />
       </div>
     </div>
   );
-}
+});
 
 type CopyStatus = "idle" | "copied" | "failed";
 
@@ -198,6 +181,7 @@ function OverlayCard({
   overlay,
   match,
   theme,
+  bg,
   message,
   shareUrl,
   status,
@@ -206,6 +190,7 @@ function OverlayCard({
   overlay: OverlayDefinition;
   match: OverlayMatch | null;
   theme: OverlayTheme;
+  bg: number;
   message: string | null;
   shareUrl: string;
   status: CopyStatus;
@@ -221,6 +206,7 @@ function OverlayCard({
       </div>
       <div className="gg-overlay-card__stage gg-checker">
         <OverlayPreview
+          bg={bg}
           match={match}
           message={message}
           overlay={overlay}
@@ -253,6 +239,8 @@ function OverlayCard({
 export default function OverlaysSurface({ lobbyId }: OverlaysSurfaceProps) {
   const { state, notFound, error } = useOverlayState(lobbyId);
   const [theme, setTheme] = useOverlayTheme(lobbyId);
+  const [bgPercent, setBgPercent] = useState(100);
+  const previewBgPercent = useDeferredValue(bgPercent);
   const [copyResult, setCopyResult] = useState<{
     slug: string;
     ok: boolean;
@@ -288,7 +276,7 @@ export default function OverlaysSurface({ lobbyId }: OverlaysSurfaceProps) {
   const copyStatusAnnouncement = copyAnnouncement(copyResult);
 
   async function copyShareUrl(slug: string) {
-    const url = buildOverlayShareUrl(lobbyId, slug, theme);
+    const url = buildOverlayShareUrl(lobbyId, slug, theme, bgPercent);
     let ok = true;
 
     try {
@@ -321,24 +309,38 @@ export default function OverlaysSurface({ lobbyId }: OverlaysSurfaceProps) {
       </nav>
       <PageShell
         actions={
-          <label className="gg-theme-pick">
-            <span>Theme</span>
-            <select
-              aria-label="Overlay theme"
-              onChange={(event) => {
-                if (isTheme(event.target.value)) {
-                  setTheme(event.target.value);
-                }
-              }}
-              value={theme}
-            >
-              {THEME_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          <>
+            <label className="gg-theme-pick">
+              <span>Theme</span>
+              <select
+                aria-label="Overlay theme"
+                onChange={(event) => {
+                  if (isTheme(event.target.value)) {
+                    setTheme(event.target.value);
+                  }
+                }}
+                value={theme}
+              >
+                {THEME_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="gg-theme-pick gg-bg-pick">
+              <span>Background {bgPercent}%</span>
+              <input
+                aria-label="Overlay background opacity"
+                max={100}
+                min={0}
+                onChange={(event) => setBgPercent(Number(event.target.value))}
+                step={5}
+                type="range"
+                value={bgPercent}
+              />
+            </label>
+          </>
         }
         deck="Copy any overlay URL into an OBS browser source. These links are public and read-only — your management passcode never leaves this device."
         emphasis="section"
@@ -392,6 +394,7 @@ export default function OverlaysSurface({ lobbyId }: OverlaysSurfaceProps) {
               <div className="gg-grid-2">
                 {overlays.map((overlay) => (
                   <OverlayCard
+                    bg={previewBgPercent / 100}
                     key={overlay.slug}
                     match={previewMatch}
                     message={statusMessage}
@@ -400,7 +403,8 @@ export default function OverlaysSurface({ lobbyId }: OverlaysSurfaceProps) {
                     shareUrl={buildOverlayShareUrl(
                       lobbyId,
                       overlay.slug,
-                      theme
+                      theme,
+                      bgPercent
                     )}
                     status={
                       copyResult?.slug === overlay.slug
