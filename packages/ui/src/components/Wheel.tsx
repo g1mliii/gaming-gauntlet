@@ -160,21 +160,28 @@ const RadialWheel = memo(
       // Wide slices get a crisp ~1.2° divider; narrow slices shrink it so the
       // gap never eats a meaningful share of the color band.
       const gap = Math.min(1.2, seg * 0.12);
+      // Hard stops in a conic-gradient are not anti-aliased by the browser and
+      // render as jagged stair-steps. Easing every boundary over a small
+      // angular window (~1px of arc at the rim) makes the gradient blend the
+      // edge itself, which reads as a smooth anti-aliased line.
+      const blend = Math.min(0.25, gap / 4);
       const bands = games
         .map((game, index) => {
           const start = index * seg;
           const end = (index + 1) * seg;
 
           return (
-            `${rainbowColor(index, games.length)} ${start}deg ${end - gap}deg, ` +
-            `${SLICE_DIVIDER_COLOR} ${end - gap}deg ${end}deg`
+            `${rainbowColor(index, games.length)} ${start + blend}deg ${end - gap - blend}deg, ` +
+            `${SLICE_DIVIDER_COLOR} ${end - gap + blend}deg ${end - blend}deg`
           );
         })
         .join(", ");
 
       // Start half a gap early so every divider straddles its slice boundary
-      // and each color band stays centered behind its label.
-      return `conic-gradient(from ${-gap / 2}deg, ${bands})`;
+      // and each color band stays centered behind its label. The leading
+      // divider stop keeps the wrap point (0°/360°) blended too — without it
+      // the very first slice edge would still get one hard, jagged stop.
+      return `conic-gradient(from ${-gap / 2}deg, ${SLICE_DIVIDER_COLOR} 0deg, ${bands})`;
     }, [games, seg]);
 
     return (
