@@ -39,7 +39,9 @@ type OverlaysSurfaceProps = {
 const COPIED_RESET_MS = 1600;
 // Let small overlays (corner, square, compact) grow to fill the card instead of
 // sitting tiny at their natural size — the previews read much better zoomed in.
-const MAX_PREVIEW_SCALE = 1.45;
+// 2.4 lets the smallest graphics (the 220px corner bug) blow up to nearly the
+// full card width; useFitScale still contain-fits, so nothing ever overflows.
+const MAX_PREVIEW_SCALE = 2.4;
 
 // Per-shape preview heights so tall/large layouts get room without dwarfing the
 // slim bars. Bumped up from the prototype values: the previews were too small
@@ -71,14 +73,12 @@ const OverlayPreview = memo(function OverlayPreview({
   theme,
   message,
   bg = 1,
-  maxWidth = 480,
 }: {
   overlay: OverlayDefinition;
   match: OverlayMatch | null;
   theme: OverlayTheme;
   message: string | null;
   bg?: number;
-  maxWidth?: number;
 }) {
   const boxRef = useRef<HTMLDivElement>(null);
   const graphicRef = useRef<HTMLDivElement>(null);
@@ -109,20 +109,22 @@ const OverlayPreview = memo(function OverlayPreview({
       <div
         className="gg-overlay-card__placeholder"
         role="status"
-        style={{ width: "100%", maxWidth, height: maxHeight }}
+        style={{ width: "100%", height: maxHeight }}
       >
         {message ?? "Loading…"}
       </div>
     );
   }
 
+  // No max-width cap: the box takes the full card stage so wide bars (top bar,
+  // ticker) render as large as the card allows instead of squeezing into a
+  // fixed 480px column.
   return (
     <div
       ref={boxRef}
       style={{
         position: "relative",
         width: "100%",
-        maxWidth,
         height: maxHeight,
         margin: "0 auto",
         overflow: "hidden",

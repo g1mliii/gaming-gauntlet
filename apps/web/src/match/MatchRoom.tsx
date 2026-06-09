@@ -60,6 +60,7 @@ function handleCommitKeys(
 export default function MatchRoom({ lobbyId }: MatchRoomProps) {
   const {
     actions,
+    endMatch,
     error,
     isLoading,
     isWriting,
@@ -123,7 +124,12 @@ export default function MatchRoom({ lobbyId }: MatchRoomProps) {
           {error}
         </KitNotice>
       ) : null}
-      <ScoreboardPanel actions={actions} lobby={lobby} surface={surface} />
+      <ScoreboardPanel
+        actions={actions}
+        lobby={lobby}
+        onEndMatch={endMatch}
+        surface={surface}
+      />
       <div className="gg-board-grid">
         <SpinPanel
           lobby={lobby}
@@ -345,8 +351,12 @@ function MatchHeader({
             ))}
           </select>
         </label>
-        <KitButtonLink href={buildOverlaysUrl(lobby.lobbyId)} variant="ghost">
-          <Ico name="obs" /> Add to OBS
+        <KitButtonLink
+          className="gg-obs-cta"
+          href={buildOverlaysUrl(lobby.lobbyId)}
+          variant="primary"
+        >
+          <Ico name="obs" /> OBS Overlays
         </KitButtonLink>
       </div>
     </header>
@@ -527,15 +537,32 @@ function ShareBar({
 function ScoreboardPanel({
   actions,
   lobby,
+  onEndMatch,
   surface,
 }: {
   actions: MatchRoomActions;
   lobby: MatchRoomLobby;
+  onEndMatch: () => Promise<boolean>;
   surface: GauntletMatchSurface;
 }) {
   const targetText =
     lobby.targetScore === null ? "" : String(lobby.targetScore);
   const [targetDraft, setTargetDraft] = useState(targetText);
+  const [isConfirmingEnd, setIsConfirmingEnd] = useState(false);
+  const [isEnding, setIsEnding] = useState(false);
+
+  async function confirmEndMatch() {
+    setIsEnding(true);
+
+    const ended = await onEndMatch();
+
+    // On success the hook navigates home, so only a failure needs the panel to
+    // recover into its normal state.
+    if (!ended) {
+      setIsEnding(false);
+      setIsConfirmingEnd(false);
+    }
+  }
 
   useEffect(() => {
     setTargetDraft(targetText);
@@ -601,8 +628,42 @@ function ScoreboardPanel({
           <KitButton onClick={actions.resetMatch} size="sm" variant="danger">
             Reset match
           </KitButton>
+          {isConfirmingEnd ? (
+            <>
+              <KitButton
+                disabled={isEnding}
+                onClick={confirmEndMatch}
+                size="sm"
+                variant="danger"
+              >
+                {isEnding ? "Ending…" : "Yes, end match"}
+              </KitButton>
+              <KitButton
+                disabled={isEnding}
+                onClick={() => setIsConfirmingEnd(false)}
+                size="sm"
+                variant="ghost"
+              >
+                Cancel
+              </KitButton>
+            </>
+          ) : (
+            <KitButton
+              onClick={() => setIsConfirmingEnd(true)}
+              size="sm"
+              variant="danger"
+            >
+              End match
+            </KitButton>
+          )}
         </div>
       </div>
+      {isConfirmingEnd ? (
+        <p className="gg-field__hint gg-field__hint--danger" role="status">
+          Ending the match deletes it for everyone — overlays go blank and this
+          room stops working. This cannot be undone.
+        </p>
+      ) : null}
     </KitPanel>
   );
 }
@@ -724,12 +785,16 @@ function SpinPanel({
   const enabledGames = lobby.games.filter((game) => game.enabled);
   const currentGameTitle = getCurrentGameTitle(surface);
 
-  useEffect(
-    () => () => {
+  // Re-arm on (re)mount: StrictMode's dev mount→unmount→remount would
+  // otherwise leave this stuck false, making every spin hang on "Spinning…"
+  // because the resolved winner gets dropped.
+  useEffect(() => {
+    isMountedRef.current = true;
+
+    return () => {
       isMountedRef.current = false;
-    },
-    []
-  );
+    };
+  }, []);
 
   async function handleSpin() {
     if (spinning || enabledGames.length === 0) {

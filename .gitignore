@@ -11,6 +11,7 @@ coverage
 .cache/
 .playwright-mcp/
 .turbo/
+.wrangler/
 tmp/
 *.log
 npm-debug.log*

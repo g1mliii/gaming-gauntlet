@@ -71,6 +71,7 @@ type ApiRoute =
   | { id: "getLobbyState"; lobbyId: string }
   | { id: "verifyLobby"; lobbyId: string }
   | { id: "updateLobby"; lobbyId: string }
+  | { id: "deleteLobby"; lobbyId: string }
   | { id: "spinLobby"; lobbyId: string }
   | { id: "addGame"; lobbyId: string }
   | { id: "updateGame"; lobbyId: string; gameId: string }
@@ -134,6 +135,21 @@ type SecretRow = {
 const JSON_CONTENT_TYPE = "application/json; charset=utf-8";
 const MAX_JSON_BODY_BYTES = 16 * 1024;
 const PUBLIC_STATE_CACHE_CONTROL = "public, max-age=1, must-revalidate";
+
+// Minimal slice of the Workers Cache API used for the public-state herd
+// shield. Typed structurally (not via lib.webworker) so the test suite, which
+// runs in Node without a `caches` global, can stub it.
+export interface EdgeCache {
+  match(request: Request): Promise<Response | undefined>;
+  put(request: Request, response: Response): Promise<void>;
+}
+
+function defaultEdgeCache(): EdgeCache | null {
+  const cacheStorage = (globalThis as { caches?: { default?: EdgeCache } })
+    .caches;
+
+  return cacheStorage?.default ?? null;
+}
 const ALLOWED_CORS_ORIGINS = new Set([
   "https://gaming-gauntlet.com",
   "https://www.gaming-gauntlet.com",
@@ -248,6 +264,13 @@ export async function handleApiRequest(
       );
     }
 
+    if (route.id === "deleteLobby") {
+      return finalizeApiResponse(
+        request,
+        await deleteLobby(request, route.lobbyId, env.DB)
+      );
+    }
+
     if (route.id === "spinLobby") {
       return finalizeApiResponse(
         request,
@@ -322,9 +345,15 @@ function matchRoute(request: Request): ApiRoute {
   }
 
   if (parts.length === 3 && parts[0] === "api" && parts[1] === "lobbies") {
-    return request.method === "PATCH"
-      ? { id: "updateLobby", lobbyId: parts[2] ?? "" }
-      : { id: "methodNotAllowed" };
+    if (request.method === "PATCH") {
+      return { id: "updateLobby", lobbyId: parts[2] ?? "" };
+    }
+
+    if (request.method === "DELETE") {
+      return { id: "deleteLobby", lobbyId: parts[2] ?? "" };
+    }
+
+    return { id: "methodNotAllowed" };
   }
 
   if (parts.length === 4 && parts[0] === "api" && parts[1] === "lobbies") {
@@ -442,6 +471,7 @@ function rateLimitTarget(route: ApiRoute): {
 
   if (
     route.id === "updateLobby" ||
+    route.id === "deleteLobby" ||
     route.id === "spinLobby" ||
     route.id === "addGame" ||
     route.id === "updateGame" ||
@@ -636,6 +666,36 @@ async function getLobbyState(
     return validationError(parsedLobbyId.error.issues);
   }
 
+  // Herd shield: per-IP rate limiting can't help when tens of thousands of
+  // distinct viewers hit the same lobby at once, so successful state loads are
+  // parked in the colo-local edge cache for the same 1s the response already
+  // advertises (max-age=1). A viewer herd then costs D1 roughly one read per
+  // colo per second instead of one read per viewer per poll. The pre-existing
+  // ≤1s public staleness contract is unchanged.
+  const cache = defaultEdgeCache();
+  const cacheKey = cache
+    ? new Request(
+        `${new URL(request.url).origin}/api/lobbies/${parsedLobbyId.data}/state`
+      )
+    : null;
+
+  if (cache && cacheKey) {
+    const cached = await ignoreCacheFailure(cache.match(cacheKey));
+
+    if (cached) {
+      const cachedEtag = cached.headers.get("etag");
+
+      if (
+        cachedEtag &&
+        etagMatches(request.headers.get("if-none-match"), cachedEtag)
+      ) {
+        return notModifiedResponse(cachedEtag);
+      }
+
+      return cached;
+    }
+  }
+
   // Public clients (OBS overlays, spectators) poll this endpoint constantly.
   // The lobby version bumps on every mutation, so it doubles as an ETag: a
   // cheap version-only lookup lets unchanged polls short-circuit with a 304
@@ -661,12 +721,28 @@ async function getLobbyState(
   // Derive the served ETag from the loaded state's version (not the pre-check
   // version) so a concurrent write between the two reads can never hand the
   // client an ETag that disagrees with the body it just received.
-  return jsonResponse(state, {
+  const response = jsonResponse(state, {
     headers: {
       "cache-control": PUBLIC_STATE_CACHE_CONTROL,
       etag: lobbyStateEtag(state.version),
     },
   });
+
+  if (cache && cacheKey) {
+    await ignoreCacheFailure(cache.put(cacheKey, response.clone()));
+  }
+
+  return response;
+}
+
+// The edge cache is a best-effort accelerator; a cache hiccup must degrade to
+// a plain D1-backed response, never surface as a request failure.
+async function ignoreCacheFailure<T>(operation: Promise<T>): Promise<T | null> {
+  try {
+    return await operation;
+  } catch {
+    return null;
+  }
 }
 
 async function verifyLobby(
@@ -812,6 +888,45 @@ async function updateLobby(
   }
 
   return jsonResponse(applyLobbyPatch(existingState, parsedPayload.data, now));
+}
+
+// "End match": permanently tears the lobby down. Children are deleted before
+// the parent (same rationale as the retention sweep) inside one batch
+// transaction, so a successful response means no rows — and no storage cost —
+// remain for this lobby. The streamer's edge-cached public state ages out on
+// its own within a second.
+async function deleteLobby(
+  request: Request,
+  lobbyId: string,
+  db: ApiDatabase
+): Promise<Response> {
+  const parsedLobbyId = LobbyIdSchema.safeParse(lobbyId);
+
+  if (!parsedLobbyId.success) {
+    return validationError(parsedLobbyId.error.issues);
+  }
+
+  const authorization = await authorizeLobbyWrite(
+    request,
+    parsedLobbyId.data,
+    db
+  );
+
+  if (authorization.error) {
+    return authorization.error;
+  }
+
+  await db.batch([
+    db
+      .prepare("DELETE FROM games WHERE lobby_id = ?")
+      .bind(parsedLobbyId.data),
+    db
+      .prepare("DELETE FROM lobby_secrets WHERE lobby_id = ?")
+      .bind(parsedLobbyId.data),
+    db.prepare("DELETE FROM lobbies WHERE id = ?").bind(parsedLobbyId.data),
+  ]);
+
+  return jsonResponse({ success: true });
 }
 
 async function spinLobby(

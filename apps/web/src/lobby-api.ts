@@ -144,6 +144,23 @@ export async function updateLobby(
   });
 }
 
+// Ends a match for good: the API deletes the lobby plus its games and secrets,
+// so there is no state (or storage) left behind. Resolves on success; throws a
+// LobbyApiError otherwise.
+export async function deleteLobby(
+  lobbyId: string,
+  managementCode: string
+): Promise<void> {
+  const response = await fetch(`/api/lobbies/${encodeURIComponent(lobbyId)}`, {
+    method: "DELETE",
+    headers: { authorization: `Bearer ${managementCode}` }
+  });
+
+  if (!response.ok) {
+    throw apiError(response, await readJson(response));
+  }
+}
+
 export async function spinLobby(
   lobbyId: string,
   managementCode: string

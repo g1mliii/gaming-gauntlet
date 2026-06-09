@@ -558,7 +558,7 @@ describe("Phase 6 match room", () => {
     expectWriteRequestsAreSafe();
   });
 
-  test("Add to OBS routes to the clean overlays surface", async () => {
+  test("OBS Overlays routes to the clean overlays surface", async () => {
     window.localStorage.setItem(
       getManagementPasscodeStorageKey(lobbyId),
       managementCode
@@ -567,7 +567,9 @@ describe("Phase 6 match room", () => {
 
     render(<App initialPath={`/g/${lobbyId}`} />);
 
-    const addToObs = await screen.findByRole("link", { name: /Add to OBS/i });
+    const addToObs = await screen.findByRole("link", {
+      name: /OBS Overlays/i,
+    });
 
     expect(addToObs).toHaveAttribute("href", `/g/${lobbyId}/obs`);
     expect(addToObs.getAttribute("href")).not.toMatch(

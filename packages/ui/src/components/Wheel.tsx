@@ -12,6 +12,9 @@ import { Ico } from "./icons";
 //     effect re-applies after any parent re-render (the 1.5s state poll), which
 //     keeps the spin on the compositor and avoids a mid-spin jump.
 
+// Reel palette only — the reel cells follow the active theme's team/accent
+// tokens. The radial wheel deliberately ignores the theme and renders as a
+// fixed rainbow (see rainbowColor) so it always reads as a classic color wheel.
 const WHEEL_PALETTE = [
   "var(--gg-team-alpha)",
   "var(--gg-team-bravo)",
@@ -49,6 +52,15 @@ export type WheelProps = {
 
 function paletteColor(index: number): string {
   return WHEEL_PALETTE[index % WHEEL_PALETTE.length] ?? "var(--gg-accent)";
+}
+
+// Hues spread evenly around the circle so every segment gets a distinct,
+// vivid color regardless of pool size. OKLCH keeps lightness uniform across
+// hues, so the dark segment labels stay readable on every slice.
+function rainbowColor(index: number, total: number): string {
+  const hue = Math.round((index * 360) / Math.max(1, total));
+
+  return `oklch(0.72 0.19 ${hue})`;
 }
 
 function prefersReducedMotion(): boolean {
@@ -113,22 +125,63 @@ type SubWheelProps = {
   spinElRef: RefObject<HTMLDivElement | null>;
 };
 
+// Density-aware sizing so a large pool stays readable: the wheel grows and the
+// label font shrinks as games are added. At ~50 games each slice is only ~7°,
+// so without this the labels collide long before the pool limit (64).
+function radialDensity(count: number): {
+  wrapWidth: number;
+  labelFontSize: string;
+} {
+  if (count > 32) {
+    return { wrapWidth: 620, labelFontSize: "0.62rem" };
+  }
+
+  if (count > 20) {
+    return { wrapWidth: 540, labelFontSize: "0.68rem" };
+  }
+
+  if (count > 12) {
+    return { wrapWidth: 460, labelFontSize: "0.74rem" };
+  }
+
+  return { wrapWidth: 380, labelFontSize: "0.8rem" };
+}
+
+// Hairline between slices. Adjacent rainbow hues converge as the pool grows
+// (Δhue ≈ 7° at 50 games), so without a divider the slice borders — and which
+// slice sits under the pointer — become impossible to tell apart.
+const SLICE_DIVIDER_COLOR = "oklch(0.14 0.02 250)";
+
 const RadialWheel = memo(
   function RadialWheel({ games, spinElRef }: SubWheelProps) {
     const seg = 360 / games.length;
+    const { wrapWidth, labelFontSize } = radialDensity(games.length);
     const background = useMemo(() => {
+      // Wide slices get a crisp ~1.2° divider; narrow slices shrink it so the
+      // gap never eats a meaningful share of the color band.
+      const gap = Math.min(1.2, seg * 0.12);
       const bands = games
-        .map(
-          (game, index) =>
-            `${paletteColor(index)} ${index * seg}deg ${(index + 1) * seg}deg`
-        )
+        .map((game, index) => {
+          const start = index * seg;
+          const end = (index + 1) * seg;
+
+          return (
+            `${rainbowColor(index, games.length)} ${start}deg ${end - gap}deg, ` +
+            `${SLICE_DIVIDER_COLOR} ${end - gap}deg ${end}deg`
+          );
+        })
         .join(", ");
 
-      return `conic-gradient(from 0deg, ${bands})`;
+      // Start half a gap early so every divider straddles its slice boundary
+      // and each color band stays centered behind its label.
+      return `conic-gradient(from ${-gap / 2}deg, ${bands})`;
     }, [games, seg]);
 
     return (
-      <div className="gg-wheel-wrap">
+      <div
+        className="gg-wheel-wrap"
+        style={{ width: `min(100%, ${wrapWidth}px)` }}
+      >
         <div className="gg-wheel__pointer" />
         <div
           className="gg-wheel"
@@ -143,10 +196,15 @@ const RadialWheel = memo(
                 className="gg-wheel__label"
                 key={game.id}
                 style={{
-                  width: "44%",
-                  transform: `rotate(${center - 90}deg)`,
+                  width: "40%",
+                  // rotate() points the label along its slice's center ray;
+                  // translateX nudges it out of the crowded hub and
+                  // translateY(-50%) centers the text line on the ray so the
+                  // label sits in the middle of its slice at any pool size.
+                  transform: `rotate(${center - 90}deg) translateX(12%) translateY(-50%)`,
                   textAlign: "right",
                   paddingRight: "14px",
+                  fontSize: labelFontSize,
                 }}
               >
                 {game.title}

@@ -1215,6 +1215,94 @@ describe("Phase 3 core lobby API", () => {
     );
   });
 
+  test("GET state populates the edge cache and serves the herd from it", async () => {
+    const store = new Map<string, Response>();
+    vi.stubGlobal("caches", {
+      default: {
+        match: async (request: Request) => store.get(request.url)?.clone(),
+        put: async (request: Request, response: Response) => {
+          store.set(request.url, response);
+        },
+      },
+    });
+
+    try {
+      const created = await createLobby({
+        playerOneName: "Alice",
+        playerTwoName: "Bob",
+        games: ["Tetris"],
+      });
+      const first = await apiGet(`/api/lobbies/${created.lobbyId}/state`);
+      const etag = first.headers.get("etag");
+
+      expect(first.status).toBe(200);
+      expect(store.size).toBe(1);
+
+      // Subsequent hits inside the cache TTL are served without touching the
+      // database — wipe the rows underneath to prove it.
+      sqlite.exec("DELETE FROM games; DELETE FROM lobby_secrets; DELETE FROM lobbies;");
+
+      const second = await apiGet(`/api/lobbies/${created.lobbyId}/state`);
+      const secondBody = (await second.json()) as { lobby: { id: string } };
+
+      expect(second.status).toBe(200);
+      expect(secondBody.lobby.id).toBe(created.lobbyId);
+
+      // Conditional polls still 304 against the cached copy's ETag.
+      const conditional = await apiGet(`/api/lobbies/${created.lobbyId}/state`, {
+        "if-none-match": etag ?? "",
+      });
+
+      expect(conditional.status).toBe(304);
+      expect(conditional.headers.get("etag")).toBe(etag);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test("DELETE /api/lobbies/:lobbyId tears down the lobby, games, and secrets", async () => {
+    const created = await createLobby({
+      playerOneName: "Alice",
+      playerTwoName: "Bob",
+      games: ["Rocket League", "Tetris"],
+    });
+
+    const unauthorized = await apiDelete(`/api/lobbies/${created.lobbyId}`);
+    expect(unauthorized.status).toBe(401);
+
+    const wrongCode = await apiDelete(`/api/lobbies/${created.lobbyId}`, {
+      authorization: "Bearer GG-AAAA-BBBB-CCCC",
+    });
+    expect(wrongCode.status).toBe(401);
+
+    const response = await apiDelete(
+      `/api/lobbies/${created.lobbyId}`,
+      authHeader(created.managementCode)
+    );
+    expect(response.status).toBe(200);
+
+    for (const table of ["lobbies", "games", "lobby_secrets"]) {
+      const remaining = sqlite
+        .prepare(`SELECT COUNT(*) AS n FROM ${table}`)
+        .get() as { n: number };
+
+      expect({ table, rows: remaining.n }).toEqual({ table, rows: 0 });
+    }
+
+    const gone = await apiGet(`/api/lobbies/${created.lobbyId}/state`);
+    expect(gone.status).toBe(404);
+  });
+
+  test("GET state works unchanged when no edge cache is available", async () => {
+    const created = await createLobby({
+      playerOneName: "Alice",
+      playerTwoName: "Bob",
+    });
+    const response = await apiGet(`/api/lobbies/${created.lobbyId}/state`);
+
+    expect(response.status).toBe(200);
+  });
+
   async function createLobby(payload: {
     playerOneName: string;
     playerTwoName: string;

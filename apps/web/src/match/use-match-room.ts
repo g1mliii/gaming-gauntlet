@@ -11,6 +11,7 @@ import type { GauntletMatchSurface } from "@gaming-gauntlet/ui";
 import {
   addGame as apiAddGame,
   deleteGame as apiDeleteGame,
+  deleteLobby as apiDeleteLobby,
   fetchPublicLobbyState,
   isAbortError,
   LobbyApiError,
@@ -25,6 +26,7 @@ import {
   readStoredManagementPasscode,
   storeManagementPasscode,
 } from "../management-passcodes";
+import { navigateTo } from "../navigation";
 
 export type MatchRoomGame = Pick<Game, "enabled" | "id" | "position" | "title">;
 
@@ -69,6 +71,7 @@ export type MatchRoomModel = {
   managementCode: string | null;
   unlock: (managementCode: string) => Promise<void>;
   spin: () => Promise<string | null>;
+  endMatch: () => Promise<boolean>;
 };
 
 const CONTROL_POLL_INTERVAL_MS = 1500;
@@ -230,6 +233,11 @@ export function useMatchRoom(lobbyId: string): MatchRoomModel {
         return;
       }
 
+      // Always replace any pending timer. Without this, a visibility flip
+      // while a refresh is in flight leaves two timers alive — and since each
+      // fire reschedules itself, the poll chains multiply and the poll rate
+      // climbs with every flip.
+      clearScheduledRefresh();
       pollTimeoutId = window.setTimeout(() => {
         void refreshIfMounted().finally(() => {
           scheduleRefresh();
@@ -646,6 +654,36 @@ export function useMatchRoom(lobbyId: string): MatchRoomModel {
     }
   }, [acceptState, isCurrentGeneration, lobbyId, managementCode]);
 
+  // Permanent teardown: deletes the lobby (games + secrets included) from the
+  // backend so nothing keeps accruing storage, forgets the local passcode, and
+  // sends the streamer home. Returns false when the delete failed so the UI
+  // can keep the room usable.
+  const endMatch = useCallback(async (): Promise<boolean> => {
+    if (!managementCode) {
+      return false;
+    }
+
+    const generation = lifecycleGenerationRef.current;
+
+    try {
+      await apiDeleteLobby(lobbyId, managementCode);
+    } catch (endError) {
+      if (isCurrentGeneration(generation)) {
+        setError(
+          endError instanceof Error
+            ? endError.message
+            : "Match could not be ended. Try again."
+        );
+      }
+
+      return false;
+    }
+
+    forgetManagementPasscode(lobbyId);
+    navigateTo("/");
+    return true;
+  }, [isCurrentGeneration, lobbyId, managementCode]);
+
   const lobby = useMemo(
     () => (state ? toMatchRoomLobby(state) : null),
     [state]
@@ -665,6 +703,7 @@ export function useMatchRoom(lobbyId: string): MatchRoomModel {
     managementCode,
     unlock,
     spin,
+    endMatch,
   };
 }
 

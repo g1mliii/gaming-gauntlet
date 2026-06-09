@@ -140,7 +140,7 @@
 /* ---------- Create page (kit) ---------- */
 .gg-content__inner {
   width: 100%;
-  max-width: 1100px;
+  max-width: 1240px;
   margin: 0 auto;
   display: grid;
   gap: clamp(1.1rem, 2vw, 1.7rem);
@@ -391,6 +391,36 @@
   gap: 0.5rem;
   min-width: 0;
   flex: 1 1 320px;
+}
+
+/* Standout CTA for the overlays gallery — streamers must find this to put the
+   match on stream. drop-shadow (not box-shadow) so the glow survives the
+   button's clip-path. */
+.gg-obs-cta {
+  filter: drop-shadow(
+    0 0 7px color-mix(in oklab, var(--gg-accent) 55%, transparent)
+  );
+  animation: gg-obs-cta-pulse 2.2s ease-in-out infinite;
+}
+
+@keyframes gg-obs-cta-pulse {
+  0%,
+  100% {
+    filter: drop-shadow(
+      0 0 5px color-mix(in oklab, var(--gg-accent) 40%, transparent)
+    );
+  }
+  50% {
+    filter: drop-shadow(
+      0 0 11px color-mix(in oklab, var(--gg-accent) 80%, transparent)
+    );
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gg-obs-cta {
+    animation: none;
+  }
 }
 
 .gg-title-input {
@@ -661,6 +691,10 @@
   text-transform: uppercase;
   color: oklch(0.18 0.02 250);
   white-space: nowrap;
+  /* Labels are rim-anchored (right-aligned), so an overlong title overflows
+     toward the hub; clip it there instead of letting it paint across the
+     neighboring slices. */
+  overflow: hidden;
 }
 
 .gg-wheel__hub {
@@ -683,16 +717,17 @@
 
 .gg-wheel__pointer {
   position: absolute;
-  top: -6px;
+  top: -8px;
   left: 50%;
   transform: translateX(-50%);
   width: 0;
   height: 0;
-  border-left: 16px solid transparent;
-  border-right: 16px solid transparent;
-  border-top: 26px solid var(--gg-accent);
+  border-left: 20px solid transparent;
+  border-right: 20px solid transparent;
+  border-top: 34px solid var(--gg-accent);
   z-index: 4;
-  filter: drop-shadow(0 2px 4px oklch(0 0 0 / 0.5));
+  filter: drop-shadow(0 0 3px oklch(0.98 0.01 95 / 0.55))
+    drop-shadow(0 2px 5px oklch(0 0 0 / 0.6));
 }
 
 .gg-reel {
@@ -1371,6 +1406,14 @@
   display: block;
   padding: 0;
   background: transparent;
+}
+
+/* Preview-only: the live ticker is a 1920px rail, which contain-fits to an
+   unreadably small scale inside a gallery card. Compress the rail for the
+   preview so its text stays legible; the real browser-source overlay keeps
+   the full 1920px width. */
+.gg-overlay-card__stage .ov-ticker {
+  width: 880px;
 }
 
 .gg-overlay-card__placeholder {
