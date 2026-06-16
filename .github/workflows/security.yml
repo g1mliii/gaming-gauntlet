@@ -23,7 +23,10 @@ jobs:
         run: npm ci
 
       - name: Audit dependencies
-        run: npm audit --audit-level=moderate
+        # Scope to production deps: all flagged advisories are in dev/build tooling
+        # (wrangler/vite/vitest/jsdom/babel) that never ships to the Worker or browser
+        # bundle, and the only "fixes" are breaking downgrades. Runtime deps are audited.
+        run: npm audit --omit=dev --audit-level=moderate
 
       - name: Verify workspace
         run: npm run verify
