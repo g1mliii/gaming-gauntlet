@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex" />
+    <meta name="theme-color" content="#1d2636" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='8' fill='%231d2636'/%3E%3Cpath d='M16 18h32v7H16zm0 14h25v7H16zm0 14h32v7H16z' fill='%23e5bd55'/%3E%3C/svg%3E"
+    />
+    <title>Page not found | Gaming Gauntlet</title>
+    <!-- Standalone page: it must return a real 404, so it can't be the React
+         app shell. Styling mirrors the @gaming-gauntlet/ui design tokens
+         (packages/ui/src/styles/index.css) so it matches the kit 1:1 without
+         depending on the build's hashed CSS bundle. -->
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Barlow+Condensed:wght@400;500;600&display=swap");
+
+      :root {
+        color-scheme: dark;
+        --gg-bg: oklch(0.16 0.018 252);
+        --gg-bg-soft: oklch(0.24 0.03 248);
+        --gg-surface: color-mix(in oklab, var(--gg-bg-soft) 82%, black);
+        --gg-surface-2: oklch(0.28 0.035 244);
+        --gg-border: oklch(0.49 0.045 238 / 0.42);
+        --gg-text: oklch(0.95 0.01 255);
+        --gg-text-dim: oklch(0.79 0.025 240);
+        --gg-accent: oklch(0.65 0.21 28);
+        --gg-team-bravo: oklch(0.62 0.17 256);
+        --gg-shadow: 0 18px 42px oklch(0.07 0.02 252 / 0.4);
+        --gg-radius-md: 5px;
+        --gg-font-display: "Rajdhani", sans-serif;
+        --gg-font-body: "Barlow Condensed", sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        min-width: 320px;
+        display: grid;
+        place-items: center;
+        padding: clamp(1rem, 4vw, 3rem);
+        background:
+          radial-gradient(
+            120% 80% at 100% 0%,
+            color-mix(in oklab, var(--gg-accent) 7%, transparent),
+            transparent 45%
+          ),
+          radial-gradient(
+            120% 90% at 0% 100%,
+            color-mix(in oklab, var(--gg-team-bravo) 6%, transparent),
+            transparent 50%
+          ),
+          color-mix(in oklab, var(--gg-bg) 92%, black);
+        background-attachment: fixed;
+        color: var(--gg-text);
+        font-family: var(--gg-font-body);
+        line-height: 1.3;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.6rem;
+        margin-bottom: 1.6rem;
+        font-family: var(--gg-font-display);
+        font-weight: 700;
+        font-size: 1.05rem;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--gg-text-dim);
+      }
+
+      .brand svg {
+        width: 30px;
+        height: 30px;
+        flex: none;
+      }
+
+      .panel {
+        max-width: 30rem;
+        width: 100%;
+        padding: clamp(1.6rem, 4vw, 2.6rem);
+        text-align: center;
+        border: 1px solid var(--gg-border);
+        border-radius: var(--gg-radius-md);
+        background: color-mix(in oklab, var(--gg-surface) 88%, black);
+        box-shadow: var(--gg-shadow);
+        clip-path: polygon(
+          0 0,
+          calc(100% - 12px) 0,
+          100% 12px,
+          100% 100%,
+          12px 100%,
+          0 calc(100% - 12px)
+        );
+      }
+
+      .code {
+        margin: 0;
+        font-family: var(--gg-font-display);
+        font-weight: 700;
+        font-size: clamp(4.5rem, 18vw, 7rem);
+        line-height: 0.9;
+        letter-spacing: 0.04em;
+        color: var(--gg-accent);
+        text-shadow: 0 0 24px color-mix(in oklab, var(--gg-accent) 35%, transparent);
+      }
+
+      .title {
+        margin: 0.6rem 0 0;
+        font-family: var(--gg-font-display);
+        font-weight: 600;
+        font-size: 1.5rem;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .text {
+        margin: 0.85rem auto 0;
+        max-width: 24rem;
+        font-size: 1rem;
+        color: var(--gg-text-dim);
+      }
+
+      .home {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-top: 1.7rem;
+        min-height: 2.7rem;
+        padding: 0.7rem 1.25rem;
+        border: 1px solid color-mix(in oklab, var(--gg-accent) 50%, white 8%);
+        background: color-mix(in oklab, var(--gg-accent) 22%, var(--gg-surface));
+        color: oklch(0.97 0.02 95);
+        font-family: var(--gg-font-display);
+        font-weight: 600;
+        font-size: 0.92rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        text-decoration: none;
+        cursor: pointer;
+        transition:
+          transform 0.12s ease,
+          background 0.18s ease,
+          box-shadow 0.18s ease;
+        clip-path: polygon(
+          0 0,
+          calc(100% - 9px) 0,
+          100% 9px,
+          100% 100%,
+          9px 100%,
+          0 calc(100% - 9px)
+        );
+      }
+
+      .home:hover {
+        transform: translateY(-1px);
+        background: color-mix(in oklab, var(--gg-accent) 30%, var(--gg-surface));
+        box-shadow: 0 0 0 3px color-mix(in oklab, var(--gg-accent) 16%, transparent);
+      }
+
+      .home:focus-visible {
+        outline: 2px solid color-mix(in oklab, var(--gg-accent) 72%, white 8%);
+        outline-offset: 3px;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="panel">
+      <span class="brand">
+        <svg viewBox="0 0 64 64" aria-hidden="true">
+          <rect width="64" height="64" rx="8" fill="#1d2636" />
+          <path
+            d="M16 18h32v7H16zm0 14h25v7H16zm0 14h32v7H16z"
+            fill="#e5bd55"
+          />
+        </svg>
+        Gaming Gauntlet
+      </span>
+      <p class="code">404</p>
+      <h1 class="title">Page not found</h1>
+      <p class="text">
+        This page doesn&rsquo;t exist or the match has ended. Check the link, or
+        head back to start a new lobby.
+      </p>
+      <a class="home" href="/">Back to start</a>
+    </main>
+  </body>
+</html>

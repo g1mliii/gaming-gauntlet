@@ -1,0 +1,20 @@
+# SPA route allow-list.
+#
+# Adding a top-level 404.html disables Cloudflare Pages' default
+# "serve index.html for everything (200)" single-page-app fallback, so any path
+# that is neither a static asset nor listed below now returns a real 404 (via
+# 404.html). That stops vuln-scanner probes (/.env, /wp-admin/*, /.git/config,
+# /xmlrpc.php, ...) from getting a 200 app shell.
+#
+# Every genuine client route from V1_ROUTE_DEFINITIONS (src/routes.ts) must be
+# rewritten back to the app shell with a 200 so deep links / refreshes still
+# boot the SPA. "/" is the real index.html asset and needs no rule. Splats cover
+# the nested cases (e.g. /g/:id/obs, /overlay/:id/:variant).
+#
+# Destination is "/" (not "/index.html"): Pages auto-strips "/index" and ".html"
+# for pretty URLs, so a rewrite to /index.html is detected as an infinite loop
+# and silently ignored. Rewriting to "/" serves the same root index.html.
+/create        /   200
+/manage/*      /   200
+/g/*           /   200
+/overlay/*     /   200
