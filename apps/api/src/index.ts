@@ -23,6 +23,7 @@ import type {
   CreateLobbyResponse,
   Game,
   Lobby,
+  LobbyStatus,
   PublicLobbyState,
   UpdateGameRequest,
   UpdateLobbyRequest,
@@ -233,6 +234,20 @@ export async function handleApiRequest(
     }
 
     const route = matchRoute(request);
+
+    // Public-state reads consult the colo edge cache (herd shield) BEFORE the
+    // rate limiter. Under a viewer/OBS herd a cache hit is the overwhelmingly
+    // common path, and it must not pay the per-IP SHA-256 + limiter binding
+    // round-trip that enforceRateLimit performs. A miss falls through to the
+    // limiter and the D1-backed load below.
+    if (route.id === "getLobbyState") {
+      const cached = await serveCachedLobbyState(request, route.lobbyId);
+
+      if (cached) {
+        return finalizeApiResponse(request, cached);
+      }
+    }
+
     const rateLimitResponse = await enforceRateLimit(request, route, env);
 
     if (rateLimitResponse) {
@@ -655,6 +670,67 @@ async function createLobby(
   return jsonResponse(responseBody, { status: 201 });
 }
 
+// Colo-local cache target for a lobby's public state. The herd shield parks
+// successful state loads here for the same 1s the response advertises
+// (max-age=1), so a viewer herd costs D1 roughly one read per colo per second
+// instead of one read per viewer per poll. Returns null when no edge cache is
+// available (e.g. the test runtime without a `caches` global).
+function lobbyStateCacheTarget(
+  request: Request,
+  lobbyId: string
+): { cache: EdgeCache; cacheKey: Request } | null {
+  const cache = defaultEdgeCache();
+
+  if (!cache) {
+    return null;
+  }
+
+  return {
+    cache,
+    cacheKey: new Request(
+      `${new URL(request.url).origin}/api/lobbies/${lobbyId}/state`
+    ),
+  };
+}
+
+// Herd-shield read path, consulted before the rate limiter. Returns a
+// ready-to-send response — the cached body (200), or a 304 when the caller's
+// If-None-Match matches the cached copy's ETag — or null on a miss so the
+// caller falls through to the limiter and the D1-backed load.
+async function serveCachedLobbyState(
+  request: Request,
+  lobbyId: string
+): Promise<Response | null> {
+  const parsedLobbyId = LobbyIdSchema.safeParse(lobbyId);
+
+  if (!parsedLobbyId.success) {
+    return null;
+  }
+
+  const target = lobbyStateCacheTarget(request, parsedLobbyId.data);
+
+  if (!target) {
+    return null;
+  }
+
+  const cached = await ignoreCacheFailure(target.cache.match(target.cacheKey));
+
+  if (!cached) {
+    return null;
+  }
+
+  const cachedEtag = cached.headers.get("etag");
+
+  if (
+    cachedEtag &&
+    etagMatches(request.headers.get("if-none-match"), cachedEtag)
+  ) {
+    return notModifiedResponse(cachedEtag);
+  }
+
+  return cached;
+}
+
 async function getLobbyState(
   request: Request,
   lobbyId: string,
@@ -666,36 +742,9 @@ async function getLobbyState(
     return validationError(parsedLobbyId.error.issues);
   }
 
-  // Herd shield: per-IP rate limiting can't help when tens of thousands of
-  // distinct viewers hit the same lobby at once, so successful state loads are
-  // parked in the colo-local edge cache for the same 1s the response already
-  // advertises (max-age=1). A viewer herd then costs D1 roughly one read per
-  // colo per second instead of one read per viewer per poll. The pre-existing
-  // ≤1s public staleness contract is unchanged.
-  const cache = defaultEdgeCache();
-  const cacheKey = cache
-    ? new Request(
-        `${new URL(request.url).origin}/api/lobbies/${parsedLobbyId.data}/state`
-      )
-    : null;
-
-  if (cache && cacheKey) {
-    const cached = await ignoreCacheFailure(cache.match(cacheKey));
-
-    if (cached) {
-      const cachedEtag = cached.headers.get("etag");
-
-      if (
-        cachedEtag &&
-        etagMatches(request.headers.get("if-none-match"), cachedEtag)
-      ) {
-        return notModifiedResponse(cachedEtag);
-      }
-
-      return cached;
-    }
-  }
-
+  // The colo edge cache was already consulted (and missed) before the rate
+  // limiter ran, so this path always loads authoritative state from D1.
+  //
   // Public clients (OBS overlays, spectators) poll this endpoint constantly.
   // The lobby version bumps on every mutation, so it doubles as an ETag: a
   // cheap version-only lookup lets unchanged polls short-circuit with a 304
@@ -728,8 +777,11 @@ async function getLobbyState(
     },
   });
 
-  if (cache && cacheKey) {
-    await ignoreCacheFailure(cache.put(cacheKey, response.clone()));
+  // Re-warm the colo cache for the next viewer in this colo.
+  const target = lobbyStateCacheTarget(request, parsedLobbyId.data);
+
+  if (target) {
+    await ignoreCacheFailure(target.cache.put(target.cacheKey, response.clone()));
   }
 
   return response;
@@ -1410,11 +1462,18 @@ async function loadPublicLobbyState(
   return mapLobbyState(lobbyRow, gamesResult.results ?? []);
 }
 
+// Hot read path: this runs on every edge-cache miss (≈ once per colo per
+// second under a herd). The rows come straight from D1, where every field was
+// already validated by the Zod schemas on write and is further pinned by the
+// table CHECK constraints, so re-running Zod `.parse()` here would only burn
+// Worker CPU re-proving invariants that already hold. We map directly instead.
+// The lone widening is `status`, narrowed from the row's `string` to the
+// LobbyStatus union it is constrained to by the `status IN (...)` CHECK.
 function mapLobbyState(
   lobbyRow: LobbyRow,
   gameRows: GameRow[]
 ): PublicLobbyState {
-  const lobby = LobbySchema.parse({
+  const lobby: Lobby = {
     id: lobbyRow.lobbyId,
     title: lobbyRow.title,
     playerOneName: lobbyRow.playerOneName,
@@ -1422,30 +1481,28 @@ function mapLobbyState(
     playerOneScore: lobbyRow.playerOneScore,
     playerTwoScore: lobbyRow.playerTwoScore,
     targetScore: lobbyRow.targetScore,
-    status: lobbyRow.status,
+    status: lobbyRow.status as LobbyStatus,
     currentGameId: lobbyRow.currentGameId,
     version: lobbyRow.version,
     createdAt: lobbyRow.createdAt,
     updatedAt: lobbyRow.updatedAt,
-  });
-  const games = gameRows.map((row) =>
-    GameSchema.parse({
-      id: row.gameId,
-      lobbyId: lobbyRow.lobbyId,
-      title: row.gameTitle,
-      position: row.gamePosition,
-      enabled: row.gameEnabled === 1,
-      createdAt: row.gameCreatedAt,
-      updatedAt: row.gameUpdatedAt,
-    })
-  );
+  };
+  const games: Game[] = gameRows.map((row) => ({
+    id: row.gameId,
+    lobbyId: lobbyRow.lobbyId,
+    title: row.gameTitle,
+    position: row.gamePosition,
+    enabled: row.gameEnabled === 1,
+    createdAt: row.gameCreatedAt,
+    updatedAt: row.gameUpdatedAt,
+  }));
 
-  return PublicLobbyStateSchema.parse({
+  return {
     lobby,
     games,
     version: lobby.version,
     updatedAt: lobby.updatedAt,
-  });
+  };
 }
 
 async function loadLobbySecret(

@@ -55,6 +55,11 @@ database_name = "gaming-gauntlet-v1"
 database_id = "c3482150-ab87-4e33-ab47-be26aa391bf6"
 migrations_dir = "migrations"
 
+# Head sampling is dialed down from 1.0 (100%) so the state-poll firehose
+# (~6.7k req/s at 10k concurrent viewers) doesn't generate — and bill for — a
+# trace on every invocation. 0.1 keeps a representative 10% sample, ample for
+# latency/error diagnosis at that volume; raise it temporarily when actively
+# debugging a low-rate issue.
 [observability]
 enabled = true
-head_sampling_rate = 1
+head_sampling_rate = 0.1
