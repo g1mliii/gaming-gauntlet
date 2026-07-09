@@ -300,7 +300,8 @@ export async function handleApiRequest(
       const socketResponse = await handleLobbySocket(
         request,
         route.lobbyId,
-        env
+        env,
+        env.DB
       );
 
       // A successful upgrade is a 101 carrying a live WebSocket; routing it
@@ -569,11 +570,12 @@ function rateLimitTarget(route: ApiRoute): {
 
   // A socket connect is a one-time handshake (then the connection lives for the
   // whole session), so it shares the state limiter to throttle connect floods
-  // without affecting the per-poll budget.
+  // without affecting the per-poll budget. Keep the key global per client rather
+  // than lobby-scoped so rotating arbitrary lobby IDs cannot multiply quotas.
   if (route.id === "getLobbySocket") {
     return {
       limiter: "STATE_RATE_LIMITER",
-      valuePrefix: `socket:${route.lobbyId}`,
+      valuePrefix: "socket",
     };
   }
 
@@ -895,7 +897,8 @@ async function getLobbyState(
 async function handleLobbySocket(
   request: Request,
   lobbyId: string,
-  env: ApiEnv
+  env: ApiEnv,
+  db: ApiDatabase
 ): Promise<Response> {
   const parsedLobbyId = LobbyIdSchema.safeParse(lobbyId);
 
@@ -917,6 +920,12 @@ async function handleLobbySocket(
 
   if (origin && !ALLOWED_CORS_ORIGINS.has(origin)) {
     return jsonError(403, "forbidden", "Origin is not allowed.");
+  }
+
+  const version = await loadLobbyVersion(db, parsedLobbyId.data);
+
+  if (version === null) {
+    return jsonError(404, "not_found", "Lobby was not found.");
   }
 
   const namespace = env.LOBBY_HUB;

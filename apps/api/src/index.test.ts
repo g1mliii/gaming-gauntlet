@@ -433,6 +433,12 @@ describe("Phase 3 core lobby API", () => {
       }),
       limitedEnv
     );
+    const socketResponse = await handleApiRequest(
+      new Request(`https://api.test/api/lobbies/${lobbyIdFixture()}/socket`, {
+        headers: { ...clientHeaders, upgrade: "websocket" },
+      }),
+      limitedEnv
+    );
     const writeResponse = await handleApiRequest(
       new Request(`https://api.test/api/lobbies/${lobbyIdFixture()}`, {
         method: "PATCH",
@@ -446,6 +452,7 @@ describe("Phase 3 core lobby API", () => {
       createResponse,
       stateResponse,
       verifyResponse,
+      socketResponse,
       writeResponse,
     ]) {
       const body = (await response.json()) as { error: { code: string } };
@@ -463,6 +470,9 @@ describe("Phase 3 core lobby API", () => {
         new RegExp(`^state:${lobbyIdFixture()}:iphash:[a-f0-9]{64}$`)
       ),
     });
+    expect(stateLimiter.limit).toHaveBeenCalledWith({
+      key: expect.stringMatching(/^socket:iphash:[a-f0-9]{64}$/),
+    });
     expect(verifyLimiter.limit).toHaveBeenCalledWith({
       key: expect.stringMatching(
         new RegExp(`^verify:${lobbyIdFixture()}:iphash:[a-f0-9]{64}$`)
@@ -474,12 +484,11 @@ describe("Phase 3 core lobby API", () => {
       ),
     });
     expect(
-      [
-        limiterKey(createLimiter),
-        limiterKey(stateLimiter),
-        limiterKey(verifyLimiter),
-        limiterKey(writeLimiter),
-      ].join(" ")
+      [createLimiter, stateLimiter, verifyLimiter, writeLimiter]
+        .flatMap((limiter) =>
+          vi.mocked(limiter.limit).mock.calls.map(([call]) => call.key)
+        )
+        .join(" ")
     ).not.toContain("203.0.113.10");
   });
 
@@ -1333,7 +1342,11 @@ describe("Phase 3 core lobby API", () => {
   });
 
   test("GET state socket reports service unavailable without a hub binding", async () => {
-    const response = await apiGet(`/api/lobbies/${lobbyIdFixture()}/socket`, {
+    const created = await createLobby({
+      playerOneName: "Alice",
+      playerTwoName: "Bob",
+    });
+    const response = await apiGet(`/api/lobbies/${created.lobbyId}/socket`, {
       upgrade: "websocket",
       origin: "https://gaming-gauntlet.com",
     });
@@ -1341,6 +1354,25 @@ describe("Phase 3 core lobby API", () => {
 
     expect(response.status).toBe(503);
     expect(body.error.code).toBe("service_unavailable");
+  });
+
+  test("GET state socket rejects a missing lobby before reaching the lobby hub", async () => {
+    const hub = mockLobbyHub();
+    const response = await handleApiRequest(
+      new Request(`https://api.test/api/lobbies/${lobbyIdFixture()}/socket`, {
+        headers: {
+          upgrade: "websocket",
+          origin: "https://gaming-gauntlet.com",
+        },
+      }),
+      { ...env, LOBBY_HUB: hub.namespace as unknown as ApiEnv["LOBBY_HUB"] }
+    );
+    const body = (await response.json()) as { error: { code: string } };
+
+    expect(response.status).toBe(404);
+    expect(body.error.code).toBe("not_found");
+    expect(hub.namespace.getByName).not.toHaveBeenCalled();
+    expect(hub.stub.fetch).not.toHaveBeenCalled();
   });
 
   test("GET state socket forwards a valid upgrade to the lobby hub", async () => {
