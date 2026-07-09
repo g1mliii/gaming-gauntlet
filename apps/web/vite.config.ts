@@ -8,7 +8,13 @@ export default defineConfig({
     // `wrangler dev --config wrangler.api.toml` (port 8787); in production the
     // Worker is routed on the same origin under /api/*.
     proxy: {
-      "/api": "http://127.0.0.1:8787"
+      // ws: true so the lobby live-update WebSocket
+      // (/api/lobbies/:id/socket) is proxied to the local API Worker, not just
+      // plain HTTP requests.
+      "/api": {
+        target: "http://127.0.0.1:8787",
+        ws: true
+      }
     }
   },
   test: {

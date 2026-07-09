@@ -296,6 +296,11 @@ describe("Phase 5 create and join flow", () => {
     const storageKey = getManagementPasscodeStorageKey(lobbyId);
     const oldStorageKey = getManagementPasscodeStorageKey(oldLobbyId);
 
+    expect(screen.getByLabelText("Management passcode")).toHaveAttribute(
+      "type",
+      "password"
+    );
+
     window.localStorage.setItem(oldStorageKey, oldManagementCode);
     expect(window.sessionStorage.getItem(storageKey)).toBeNull();
 
