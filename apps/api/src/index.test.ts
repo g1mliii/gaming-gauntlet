@@ -1303,6 +1303,166 @@ describe("Phase 3 core lobby API", () => {
     expect(response.status).toBe(200);
   });
 
+  test("GET state socket requires a WebSocket upgrade", async () => {
+    const response = await apiGet(`/api/lobbies/${lobbyIdFixture()}/socket`);
+    const body = (await response.json()) as { error: { code: string } };
+
+    expect(response.status).toBe(426);
+    expect(body.error.code).toBe("upgrade_required");
+  });
+
+  test("GET state socket rejects a disallowed Origin", async () => {
+    const response = await apiGet(`/api/lobbies/${lobbyIdFixture()}/socket`, {
+      upgrade: "websocket",
+      origin: "https://evil.example",
+    });
+    const body = (await response.json()) as { error: { code: string } };
+
+    expect(response.status).toBe(403);
+    expect(body.error.code).toBe("forbidden");
+  });
+
+  test("GET state socket validates the lobby id", async () => {
+    const response = await apiGet("/api/lobbies/not-a-lobby/socket", {
+      upgrade: "websocket",
+    });
+    const body = (await response.json()) as { error: { code: string } };
+
+    expect(response.status).toBe(400);
+    expect(body.error.code).toBe("validation_error");
+  });
+
+  test("GET state socket reports service unavailable without a hub binding", async () => {
+    const response = await apiGet(`/api/lobbies/${lobbyIdFixture()}/socket`, {
+      upgrade: "websocket",
+      origin: "https://gaming-gauntlet.com",
+    });
+    const body = (await response.json()) as { error: { code: string } };
+
+    expect(response.status).toBe(503);
+    expect(body.error.code).toBe("service_unavailable");
+  });
+
+  test("GET state socket forwards a valid upgrade to the lobby hub", async () => {
+    const hub = mockLobbyHub();
+    const created = await createLobby({
+      playerOneName: "Alice",
+      playerTwoName: "Bob",
+    });
+    const response = await handleApiRequest(
+      new Request(`https://api.test/api/lobbies/${created.lobbyId}/socket`, {
+        headers: {
+          upgrade: "websocket",
+          origin: "https://gaming-gauntlet.com",
+        },
+      }),
+      { ...env, LOBBY_HUB: hub.namespace as unknown as ApiEnv["LOBBY_HUB"] }
+    );
+
+    expect(response.status).toBe(101);
+    expect(hub.namespace.getByName).toHaveBeenCalledWith(created.lobbyId);
+    expect(hub.stub.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  test("a successful write broadcasts the new state to the lobby hub", async () => {
+    const hub = mockLobbyHub();
+    const created = await createLobby({
+      playerOneName: "Alice",
+      playerTwoName: "Bob",
+    });
+    const response = await handleApiRequest(
+      new Request(`https://api.test/api/lobbies/${created.lobbyId}`, {
+        method: "PATCH",
+        headers: {
+          ...authHeader(created.managementCode),
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ playerOneScore: 1 }),
+      }),
+      { ...env, LOBBY_HUB: hub.namespace as unknown as ApiEnv["LOBBY_HUB"] }
+    );
+
+    expect(response.status).toBe(200);
+    expect(hub.namespace.getByName).toHaveBeenCalledWith(created.lobbyId);
+    expect(hub.publish).toHaveBeenCalledTimes(1);
+
+    const published = hub.publish.mock.calls[0]?.[0] as {
+      version: number;
+      lobby: { playerOneScore: number };
+    };
+
+    expect(published.version).toBe(2);
+    expect(published.lobby.playerOneScore).toBe(1);
+    expect(hub.publishDeleted).not.toHaveBeenCalled();
+  });
+
+  test("a no-op write does not broadcast", async () => {
+    const hub = mockLobbyHub();
+    const created = await createLobby({
+      playerOneName: "Alice",
+      playerTwoName: "Bob",
+    });
+    const response = await handleApiRequest(
+      new Request(`https://api.test/api/lobbies/${created.lobbyId}`, {
+        method: "PATCH",
+        headers: {
+          ...authHeader(created.managementCode),
+          "content-type": "application/json",
+        },
+        // playerOneScore already 0 — no change, so no version bump, no broadcast.
+        body: JSON.stringify({ playerOneScore: 0 }),
+      }),
+      { ...env, LOBBY_HUB: hub.namespace as unknown as ApiEnv["LOBBY_HUB"] }
+    );
+
+    expect(response.status).toBe(200);
+    expect(hub.publish).not.toHaveBeenCalled();
+  });
+
+  test("deleting a lobby broadcasts a deleted signal to the hub", async () => {
+    const hub = mockLobbyHub();
+    const created = await createLobby({
+      playerOneName: "Alice",
+      playerTwoName: "Bob",
+    });
+    const response = await handleApiRequest(
+      new Request(`https://api.test/api/lobbies/${created.lobbyId}`, {
+        method: "DELETE",
+        headers: authHeader(created.managementCode),
+      }),
+      { ...env, LOBBY_HUB: hub.namespace as unknown as ApiEnv["LOBBY_HUB"] }
+    );
+
+    expect(response.status).toBe(200);
+    expect(hub.namespace.getByName).toHaveBeenCalledWith(created.lobbyId);
+    expect(hub.publishDeleted).toHaveBeenCalledTimes(1);
+    expect(hub.publish).not.toHaveBeenCalled();
+  });
+
+  function mockLobbyHub(): {
+    namespace: { getByName: ReturnType<typeof vi.fn> };
+    stub: {
+      publish: ReturnType<typeof vi.fn>;
+      publishDeleted: ReturnType<typeof vi.fn>;
+      fetch: ReturnType<typeof vi.fn>;
+    };
+    publish: ReturnType<typeof vi.fn>;
+    publishDeleted: ReturnType<typeof vi.fn>;
+  } {
+    const publish = vi.fn().mockResolvedValue(undefined);
+    const publishDeleted = vi.fn().mockResolvedValue(undefined);
+    // Node's Response rejects status 101, and the handler only reads `.status`
+    // off the forwarded upgrade response, so a structural fake stands in for the
+    // real Durable Object's 101 Switching Protocols response.
+    const fetch = vi
+      .fn()
+      .mockResolvedValue({ status: 101 } as unknown as Response);
+    const stub = { publish, publishDeleted, fetch };
+    const namespace = { getByName: vi.fn().mockReturnValue(stub) };
+
+    return { namespace, stub, publish, publishDeleted };
+  }
+
   async function createLobby(payload: {
     playerOneName: string;
     playerTwoName: string;

@@ -267,6 +267,7 @@ function LockedRoom({
               label="Management passcode"
               onChange={(event) => setPasscode(event.target.value)}
               placeholder="GG-••••-••••-••••"
+              type="password"
               value={passcode}
             />
             <KitButton
@@ -407,7 +408,10 @@ function ShareBar({
       ok = false;
     }
 
-    setStatus({ message: ok ? `${label} copied.` : `${label} copy failed.`, ok });
+    setStatus({
+      message: ok ? `${label} copied.` : `${label} copy failed.`,
+      ok,
+    });
 
     if (statusResetRef.current !== null) {
       window.clearTimeout(statusResetRef.current);

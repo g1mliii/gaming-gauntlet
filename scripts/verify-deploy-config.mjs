@@ -13,8 +13,10 @@ const pagesConfig = readFileSync(pagesConfigPath, "utf8");
 const packageJson = JSON.parse(readFileSync(packagePath, "utf8"));
 
 const expectedScripts = {
-  "deploy:api": "wrangler deploy --config wrangler.api.toml",
-  "deploy:api:dry-run": "wrangler deploy --dry-run --config wrangler.api.toml",
+  "deploy:api":
+    "node scripts/verify-rate-limit-secret.mjs && wrangler deploy --config wrangler.api.toml",
+  "deploy:api:dry-run":
+    "node scripts/verify-rate-limit-secret.mjs && wrangler deploy --dry-run --config wrangler.api.toml",
   "deploy:d1:apply":
     "wrangler d1 migrations apply gaming-gauntlet-v1 --config wrangler.api.toml --remote",
   "deploy:d1:list":
@@ -38,9 +40,7 @@ function assert(condition, message) {
 
 function hasTomlAssignment(source, key, value) {
   const escapedValue = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`^${key}\\s*=\\s*"${escapedValue}"\\s*$`, "m").test(
-    source
-  );
+  return new RegExp(`^${key}\\s*=\\s*"${escapedValue}"\\s*$`, "m").test(source);
 }
 
 function includesAll(source, values, context) {

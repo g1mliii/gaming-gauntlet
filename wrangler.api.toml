@@ -8,6 +8,21 @@ routes = [
   { pattern = "www.gaming-gauntlet.com/api/*", zone_name = "gaming-gauntlet.com" }
 ]
 
+# One LobbyHub Durable Object per lobby (addressed by name = lobbyId). Viewers
+# and OBS overlays open a single hibernatable WebSocket to GET
+# /api/lobbies/:id/socket; the Worker forwards the upgrade to this object, which
+# pushes new public state to all subscribers whenever the streamer mutates the
+# lobby. Idle objects hibernate, so a herd of viewers on one lobby costs ~no
+# compute and zero polling traffic. See apps/api/src/lobby-hub.ts.
+[[durable_objects.bindings]]
+name = "LOBBY_HUB"
+class_name = "LobbyHub"
+
+# New Durable Object classes must declare a SQLite-backed storage migration.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["LobbyHub"]
+
 [[ratelimits]]
 name = "CREATE_RATE_LIMITER"
 namespace_id = "100101"

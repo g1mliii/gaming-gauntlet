@@ -229,6 +229,7 @@ export default function CreatePage() {
               name="managementPasscode"
               onChange={(event) => setJoinPasscode(event.target.value)}
               placeholder={maskedPasscode}
+              type="password"
               value={joinPasscode}
             />
             <div className="gg-row">

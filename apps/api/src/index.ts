@@ -29,6 +29,12 @@ import type {
   UpdateLobbyRequest,
 } from "@gaming-gauntlet/core";
 
+import { LobbyHub } from "./lobby-hub";
+
+// Re-exported so the Workers runtime can find the Durable Object class named
+// in wrangler.api.toml (durable_objects.bindings + migrations).
+export { LobbyHub };
+
 type DbValue = string | number | null;
 type ApiD1Meta = {
   changed_db?: boolean;
@@ -58,9 +64,30 @@ export interface ApiRateLimiter {
   limit(options: { key: string }): Promise<{ success: boolean }>;
 }
 
+// Structural slice of the LobbyHub Durable Object stub the Worker calls. Typed
+// here (rather than via the generated DurableObjectStub<LobbyHub>) so the test
+// harness can supply a plain mock and so handlers stay decoupled from the DO
+// implementation.
+export interface ApiLobbyHubStub {
+  publish(state: PublicLobbyState): Promise<void>;
+  publishDeleted(): Promise<void>;
+  fetch(request: Request): Promise<Response>;
+}
+
+export interface ApiLobbyHubNamespace {
+  getByName(name: string): ApiLobbyHubStub;
+}
+
+// Minimal slice of the execution context: just the waitUntil we use to fan a
+// post-write broadcast out to the lobby hub without delaying the response.
+export interface ApiExecutionContext {
+  waitUntil(promise: Promise<unknown>): void;
+}
+
 export interface ApiEnv {
   CREATE_RATE_LIMITER?: ApiRateLimiter;
   DB: ApiDatabase;
+  LOBBY_HUB?: ApiLobbyHubNamespace;
   RATE_LIMIT_KEY_SALT?: string;
   STATE_RATE_LIMITER?: ApiRateLimiter;
   VERIFY_RATE_LIMITER?: ApiRateLimiter;
@@ -70,6 +97,7 @@ export interface ApiEnv {
 type ApiRoute =
   | { id: "createLobby" }
   | { id: "getLobbyState"; lobbyId: string }
+  | { id: "getLobbySocket"; lobbyId: string }
   | { id: "verifyLobby"; lobbyId: string }
   | { id: "updateLobby"; lobbyId: string }
   | { id: "deleteLobby"; lobbyId: string }
@@ -91,7 +119,9 @@ type JsonErrorCode =
   | "not_found"
   | "payload_too_large"
   | "rate_limited"
+  | "service_unavailable"
   | "unauthorized"
+  | "upgrade_required"
   | "validation_error"
   | "internal_error";
 
@@ -170,8 +200,8 @@ const LOBBY_RETENTION_DAYS = 30;
 const LOBBY_CLEANUP_BATCH_LIMIT = 500;
 
 export default {
-  fetch(request: Request, env: Env): Promise<Response> {
-    return handleApiRequest(request, env);
+  fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    return handleApiRequest(request, env, ctx);
   },
   async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
     await runLobbyRetentionSweep(env, new Date());
@@ -226,7 +256,8 @@ async function deleteExpiredLobbies(
 
 export async function handleApiRequest(
   request: Request,
-  env: ApiEnv
+  env: ApiEnv,
+  ctx?: ApiExecutionContext
 ): Promise<Response> {
   try {
     if (request.method === "OPTIONS") {
@@ -265,6 +296,22 @@ export async function handleApiRequest(
       );
     }
 
+    if (route.id === "getLobbySocket") {
+      const socketResponse = await handleLobbySocket(
+        request,
+        route.lobbyId,
+        env
+      );
+
+      // A successful upgrade is a 101 carrying a live WebSocket; routing it
+      // through finalizeApiResponse would reconstruct the Response and drop the
+      // socket, so return it untouched. Error responses still get the normal
+      // security/CORS headers.
+      return socketResponse.status === 101
+        ? socketResponse
+        : finalizeApiResponse(request, socketResponse);
+    }
+
     if (route.id === "verifyLobby") {
       return finalizeApiResponse(
         request,
@@ -275,49 +322,86 @@ export async function handleApiRequest(
     if (route.id === "updateLobby") {
       return finalizeApiResponse(
         request,
-        await updateLobby(request, route.lobbyId, env.DB)
+        await updateLobby(
+          request,
+          route.lobbyId,
+          env.DB,
+          makeLobbyHubNotifier(env, ctx, route.lobbyId)
+        )
       );
     }
 
     if (route.id === "deleteLobby") {
       return finalizeApiResponse(
         request,
-        await deleteLobby(request, route.lobbyId, env.DB)
+        await deleteLobby(
+          request,
+          route.lobbyId,
+          env.DB,
+          makeLobbyHubNotifier(env, ctx, route.lobbyId)
+        )
       );
     }
 
     if (route.id === "spinLobby") {
       return finalizeApiResponse(
         request,
-        await spinLobby(request, route.lobbyId, env.DB)
+        await spinLobby(
+          request,
+          route.lobbyId,
+          env.DB,
+          makeLobbyHubNotifier(env, ctx, route.lobbyId)
+        )
       );
     }
 
     if (route.id === "addGame") {
       return finalizeApiResponse(
         request,
-        await addGame(request, route.lobbyId, env.DB)
+        await addGame(
+          request,
+          route.lobbyId,
+          env.DB,
+          makeLobbyHubNotifier(env, ctx, route.lobbyId)
+        )
       );
     }
 
     if (route.id === "updateGame") {
       return finalizeApiResponse(
         request,
-        await updateGame(request, route.lobbyId, route.gameId, env.DB)
+        await updateGame(
+          request,
+          route.lobbyId,
+          route.gameId,
+          env.DB,
+          makeLobbyHubNotifier(env, ctx, route.lobbyId)
+        )
       );
     }
 
     if (route.id === "deleteGame") {
       return finalizeApiResponse(
         request,
-        await deleteGame(request, route.lobbyId, route.gameId, env.DB)
+        await deleteGame(
+          request,
+          route.lobbyId,
+          route.gameId,
+          env.DB,
+          makeLobbyHubNotifier(env, ctx, route.lobbyId)
+        )
       );
     }
 
     if (route.id === "reorderGames") {
       return finalizeApiResponse(
         request,
-        await reorderGames(request, route.lobbyId, env.DB)
+        await reorderGames(
+          request,
+          route.lobbyId,
+          env.DB,
+          makeLobbyHubNotifier(env, ctx, route.lobbyId)
+        )
       );
     }
 
@@ -378,6 +462,12 @@ function matchRoute(request: Request): ApiRoute {
     if (action === "state") {
       return request.method === "GET"
         ? { id: "getLobbyState", lobbyId }
+        : { id: "methodNotAllowed" };
+    }
+
+    if (action === "socket") {
+      return request.method === "GET"
+        ? { id: "getLobbySocket", lobbyId }
         : { id: "methodNotAllowed" };
     }
 
@@ -474,6 +564,16 @@ function rateLimitTarget(route: ApiRoute): {
     return {
       limiter: "STATE_RATE_LIMITER",
       valuePrefix: `state:${route.lobbyId}`,
+    };
+  }
+
+  // A socket connect is a one-time handshake (then the connection lives for the
+  // whole session), so it shares the state limiter to throttle connect floods
+  // without affecting the per-poll budget.
+  if (route.id === "getLobbySocket") {
+    return {
+      limiter: "STATE_RATE_LIMITER",
+      valuePrefix: `socket:${route.lobbyId}`,
     };
   }
 
@@ -787,6 +887,94 @@ async function getLobbyState(
   return response;
 }
 
+// WebSocket upgrade endpoint. Validates the request, then hands the live
+// connection to the lobby's Durable Object, which fans state pushes out to
+// every viewer/overlay subscribed to that lobby. Clients still load their
+// initial snapshot from GET /state; this socket only carries updates, so a
+// client with no socket simply keeps polling.
+async function handleLobbySocket(
+  request: Request,
+  lobbyId: string,
+  env: ApiEnv
+): Promise<Response> {
+  const parsedLobbyId = LobbyIdSchema.safeParse(lobbyId);
+
+  if (!parsedLobbyId.success) {
+    return validationError(parsedLobbyId.error.issues);
+  }
+
+  if ((request.headers.get("upgrade") ?? "").toLowerCase() !== "websocket") {
+    return jsonError(
+      426,
+      "upgrade_required",
+      "This endpoint requires a WebSocket upgrade."
+    );
+  }
+
+  // Browsers attach Origin to the WebSocket handshake; enforce the same
+  // allow-list the REST surface uses so only first-party pages can subscribe.
+  const origin = request.headers.get("origin");
+
+  if (origin && !ALLOWED_CORS_ORIGINS.has(origin)) {
+    return jsonError(403, "forbidden", "Origin is not allowed.");
+  }
+
+  const namespace = env.LOBBY_HUB;
+
+  if (!namespace) {
+    return jsonError(
+      503,
+      "service_unavailable",
+      "Live updates are not available."
+    );
+  }
+
+  return namespace.getByName(parsedLobbyId.data).fetch(request);
+}
+
+// Best-effort broadcaster handed to write handlers. When the hub binding is
+// present, a successful mutation pushes the new state to every subscribed
+// viewer via the lobby's Durable Object; the fanout runs under waitUntil so it
+// never delays the streamer's response, and any failure is swallowed because
+// viewers keep a slow reconciliation poll that self-heals a dropped broadcast.
+export type LobbyHubNotifier = {
+  publish(state: PublicLobbyState): void;
+  publishDeleted(): void;
+};
+
+function makeLobbyHubNotifier(
+  env: ApiEnv,
+  ctx: ApiExecutionContext | undefined,
+  lobbyId: string
+): LobbyHubNotifier | null {
+  const namespace = env.LOBBY_HUB;
+
+  if (!namespace) {
+    return null;
+  }
+
+  const dispatch = (operation: () => Promise<unknown>): void => {
+    const guarded = operation().catch(() => {
+      // Swallow: the broadcast is an accelerator, not a correctness guarantee.
+    });
+
+    if (ctx) {
+      ctx.waitUntil(guarded);
+    } else {
+      void guarded;
+    }
+  };
+
+  return {
+    publish(state) {
+      dispatch(() => namespace.getByName(lobbyId).publish(state));
+    },
+    publishDeleted() {
+      dispatch(() => namespace.getByName(lobbyId).publishDeleted());
+    },
+  };
+}
+
 // The edge cache is a best-effort accelerator; a cache hiccup must degrade to
 // a plain D1-backed response, never surface as a request failure.
 async function ignoreCacheFailure<T>(operation: Promise<T>): Promise<T | null> {
@@ -840,7 +1028,8 @@ async function verifyLobby(
 async function updateLobby(
   request: Request,
   lobbyId: string,
-  db: ApiDatabase
+  db: ApiDatabase,
+  notifier?: LobbyHubNotifier | null
 ): Promise<Response> {
   const parsedLobbyId = LobbyIdSchema.safeParse(lobbyId);
 
@@ -939,7 +1128,11 @@ async function updateLobby(
     return jsonError(404, "not_found", "Lobby was not found.");
   }
 
-  return jsonResponse(applyLobbyPatch(existingState, parsedPayload.data, now));
+  const nextState = applyLobbyPatch(existingState, parsedPayload.data, now);
+
+  notifier?.publish(nextState);
+
+  return jsonResponse(nextState);
 }
 
 // "End match": permanently tears the lobby down. Children are deleted before
@@ -950,7 +1143,8 @@ async function updateLobby(
 async function deleteLobby(
   request: Request,
   lobbyId: string,
-  db: ApiDatabase
+  db: ApiDatabase,
+  notifier?: LobbyHubNotifier | null
 ): Promise<Response> {
   const parsedLobbyId = LobbyIdSchema.safeParse(lobbyId);
 
@@ -978,13 +1172,18 @@ async function deleteLobby(
     db.prepare("DELETE FROM lobbies WHERE id = ?").bind(parsedLobbyId.data),
   ]);
 
+  // Tell every subscribed viewer the lobby is gone so overlays clear instead of
+  // freezing on the last frame until their reconciliation poll 404s.
+  notifier?.publishDeleted();
+
   return jsonResponse({ success: true });
 }
 
 async function spinLobby(
   request: Request,
   lobbyId: string,
-  db: ApiDatabase
+  db: ApiDatabase,
+  notifier?: LobbyHubNotifier | null
 ): Promise<Response> {
   const parsedLobbyId = LobbyIdSchema.safeParse(lobbyId);
 
@@ -1037,15 +1236,22 @@ async function spinLobby(
     return jsonError(404, "not_found", "Lobby was not found.");
   }
 
-  return jsonResponse(
-    applyLobbyPatch(existingState, { currentGameId: winner.id }, now)
+  const nextState = applyLobbyPatch(
+    existingState,
+    { currentGameId: winner.id },
+    now
   );
+
+  notifier?.publish(nextState);
+
+  return jsonResponse(nextState);
 }
 
 async function addGame(
   request: Request,
   lobbyId: string,
-  db: ApiDatabase
+  db: ApiDatabase,
+  notifier?: LobbyHubNotifier | null
 ): Promise<Response> {
   const parsedLobbyId = LobbyIdSchema.safeParse(lobbyId);
 
@@ -1122,23 +1328,25 @@ async function addGame(
   ]);
 
   const version = existingState.lobby.version + 1;
+  const nextState = PublicLobbyStateSchema.parse({
+    ...existingState,
+    lobby: { ...existingState.lobby, version, updatedAt: now },
+    games: [...existingState.games, game],
+    version,
+    updatedAt: now,
+  });
 
-  return jsonResponse(
-    PublicLobbyStateSchema.parse({
-      ...existingState,
-      lobby: { ...existingState.lobby, version, updatedAt: now },
-      games: [...existingState.games, game],
-      version,
-      updatedAt: now,
-    })
-  );
+  notifier?.publish(nextState);
+
+  return jsonResponse(nextState);
 }
 
 async function updateGame(
   request: Request,
   lobbyId: string,
   gameId: string,
-  db: ApiDatabase
+  db: ApiDatabase,
+  notifier?: LobbyHubNotifier | null
 ): Promise<Response> {
   const parsedLobbyId = LobbyIdSchema.safeParse(lobbyId);
   const parsedGameId = GameIdSchema.safeParse(gameId);
@@ -1214,23 +1422,25 @@ async function updateGame(
       ? GameSchema.parse({ ...game, ...parsedPayload.data, updatedAt: now })
       : game
   );
+  const nextState = PublicLobbyStateSchema.parse({
+    ...existingState,
+    lobby: { ...existingState.lobby, version, updatedAt: now },
+    games,
+    version,
+    updatedAt: now,
+  });
 
-  return jsonResponse(
-    PublicLobbyStateSchema.parse({
-      ...existingState,
-      lobby: { ...existingState.lobby, version, updatedAt: now },
-      games,
-      version,
-      updatedAt: now,
-    })
-  );
+  notifier?.publish(nextState);
+
+  return jsonResponse(nextState);
 }
 
 async function deleteGame(
   request: Request,
   lobbyId: string,
   gameId: string,
-  db: ApiDatabase
+  db: ApiDatabase,
+  notifier?: LobbyHubNotifier | null
 ): Promise<Response> {
   const parsedLobbyId = LobbyIdSchema.safeParse(lobbyId);
   const parsedGameId = GameIdSchema.safeParse(gameId);
@@ -1306,13 +1516,14 @@ async function deleteGame(
       .bind(parsedGameId.data, now, parsedLobbyId.data),
   ]);
 
-  return publicLobbyStateResponse(db, parsedLobbyId.data);
+  return publicLobbyStateResponse(db, parsedLobbyId.data, notifier);
 }
 
 async function reorderGames(
   request: Request,
   lobbyId: string,
-  db: ApiDatabase
+  db: ApiDatabase,
+  notifier?: LobbyHubNotifier | null
 ): Promise<Response> {
   const parsedLobbyId = LobbyIdSchema.safeParse(lobbyId);
 
@@ -1397,7 +1608,7 @@ async function reorderGames(
     updateLobbyVersionStatement(db, parsedLobbyId.data, now),
   ]);
 
-  return publicLobbyStateResponse(db, parsedLobbyId.data);
+  return publicLobbyStateResponse(db, parsedLobbyId.data, notifier);
 }
 
 async function loadLobbyVersion(
@@ -1596,13 +1807,16 @@ function applyLobbyPatch(
 
 async function publicLobbyStateResponse(
   db: ApiDatabase,
-  lobbyId: string
+  lobbyId: string,
+  notifier?: LobbyHubNotifier | null
 ): Promise<Response> {
   const state = await loadPublicLobbyState(db, lobbyId);
 
   if (!state) {
     return jsonError(404, "not_found", "Lobby was not found.");
   }
+
+  notifier?.publish(state);
 
   return jsonResponse(state);
 }

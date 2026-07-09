@@ -87,7 +87,9 @@ describe("Phase 6 match room", () => {
 
     render(<App initialPath={`/g/${lobbyId}`} />);
 
-    expect(screen.getByRole("heading", { name: "Loading" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Loading" })
+    ).toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent(
       "Loading match state."
     );
@@ -111,8 +113,9 @@ describe("Phase 6 match room", () => {
       await screen.findByText("This match no longer exists.")
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Create a new match" }))
-      .toHaveAttribute("href", "/");
+    expect(
+      screen.getByRole("link", { name: "Create a new match" })
+    ).toHaveAttribute("href", "/");
     expect(
       window.localStorage.getItem(getManagementPasscodeStorageKey(lobbyId))
     ).toBeNull();
@@ -148,6 +151,10 @@ describe("Phase 6 match room", () => {
     render(<App initialPath={`/g/${lobbyId}`} />);
 
     await screen.findByRole("heading", { name: "Locked" });
+    expect(screen.getByLabelText("Management passcode")).toHaveAttribute(
+      "type",
+      "password"
+    );
     fireEvent.change(screen.getByLabelText("Management passcode"), {
       target: { value: "GG-ZZZZ-ZZZZ-ZZZZ" },
     });
@@ -254,8 +261,9 @@ describe("Phase 6 match room", () => {
       within(field("Match URL")).getByRole("button", { name: /Copy/i })
     );
 
-    expect(await screen.findByText("Match URL copy failed."))
-      .toBeInTheDocument();
+    expect(
+      await screen.findByText("Match URL copy failed.")
+    ).toBeInTheDocument();
     expect(screen.queryByText(managementCode)).not.toBeInTheDocument();
   });
 
