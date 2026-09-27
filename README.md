@@ -1,4 +1,41 @@
-# Gaming Gauntlet
+<p align="center">
+  <a href="https://gaming-gauntlet.com/"><img src="docs/icon.svg" width="96" height="96" alt="Gaming Gauntlet" /></a>
+</p>
+
+<h1 align="center">Gaming Gauntlet</h1>
+
+<p align="center">
+  <b>Two players, one wheel, a live scoreboard on stream.</b><br />
+  Spin up a match lobby, share one link, and drop the overlays straight into OBS.
+</p>
+
+<p align="center">
+  <a href="https://gaming-gauntlet.com/"><img src="https://img.shields.io/badge/Start_a_match-gaming--gauntlet.com-e5bd55?style=for-the-badge&labelColor=1d2636" alt="Start a match at gaming-gauntlet.com" /></a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/OBS-browser_source_overlays-1d2636?style=flat-square&logo=obsstudio&logoColor=white" alt="OBS overlays" />
+  <img src="https://img.shields.io/badge/React-19-1d2636?style=flat-square&logo=react&logoColor=61DAFB" alt="React 19" />
+  <img src="https://img.shields.io/badge/Cloudflare-Workers_%2B_D1-1d2636?style=flat-square&logo=cloudflare&logoColor=F38020" alt="Cloudflare Workers and D1" />
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/g1mliii/gaming-gauntlet?style=flat-square&color=1d2636" alt="Licence" /></a>
+</p>
+
+---
+
+## What it does
+
+- **One link for the match.** Create a lobby and share a single public match URL with your
+  opponent and your viewers.
+- **Controls stay yours.** Scores and the wheel only unlock with a private management passcode,
+  which never appears in a URL, an overlay or anything on screen.
+- **Spin the game wheel** to pick what you play next, and keep a live scoreboard as the match goes.
+- **Ready-made OBS overlays.** Copy a browser-source URL for each overlay and add it to your scene.
+
+**[Start a match &rarr;](https://gaming-gauntlet.com/)**
+
+---
+
+## For developers
 
 Gaming Gauntlet is a lightweight two-player stream match tool. A streamer creates a lobby, shares one public match URL, keeps write controls behind a private management passcode, spins a game wheel, updates scores, and copies OBS browser-source overlays for the live broadcast.
 
